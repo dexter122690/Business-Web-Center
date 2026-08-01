@@ -1,0 +1,4 @@
+# Browser-local exports and desktop shortcuts are not part of the source code.
+*.url
+*.zip
+*.json

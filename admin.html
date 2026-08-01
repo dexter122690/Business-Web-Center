@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>System Admin</title>
+<style>
+:root{--accent:#ff5219;--ink:#191313;--muted:#75645d;--line:#e7ddd8;--soft:#f8f5f3}*{box-sizing:border-box}body{margin:0;background:var(--soft);color:var(--ink);font:14px Arial,sans-serif}header{background:#080808;color:#fff;padding:16px max(24px,5vw);display:flex;align-items:center;gap:14px}.logo{display:grid;place-items:center;width:42px;height:42px;border:2px solid var(--accent);border-radius:50%;color:var(--accent);font-weight:bold}.head-copy{flex:1}.head-copy b{display:block;font-size:18px;margin-top:2px}.eyebrow{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--accent);font-weight:bold}.back{color:#fff;text-decoration:none;border:1px solid #82685d;padding:9px 12px;border-radius:7px;font-size:12px}main{max-width:1120px;margin:auto;padding:28px 20px 50px}.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px}.notice{border-left:3px solid var(--accent);background:#fff0e9;padding:12px;margin-bottom:16px;color:#603c30}.heading{display:flex;justify-content:space-between;align-items:end;gap:18px;margin-bottom:16px}h1{font-size:23px;margin:4px 0}h2{font-size:16px;margin:4px 0 12px}.muted{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}.metric{font-size:25px;font-weight:bold;color:var(--accent);margin-top:8px}table{width:100%;border-collapse:collapse}th,td{padding:12px 9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted)}button{border:0;border-radius:7px;padding:9px 12px;background:var(--accent);color:#fff;font-weight:bold;cursor:pointer}.secondary{background:#fff;color:#342924;border:1px solid #cfc1b9}.actions{display:flex;gap:7px;flex-wrap:wrap}.empty{text-align:center;padding:24px;color:var(--muted)}@media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}table{font-size:12px}.hide-small{display:none}}@media(max-width:440px){.grid{grid-template-columns:1fr}main{padding:20px 12px}}
+</style>
+</head>
+<body>
+<header><div class="logo">A</div><div class="head-copy"><div class="eyebrow">Management system</div><b id="businessName">Your Business Name</b></div><a class="back" href="index.html">Open main workspace</a></header>
+<main>
+  <div class="heading"><div><div class="eyebrow">Admin control center</div><h1>Workspace health and backups</h1><p class="muted">Review the workspaces stored in this browser and open the correct branch safely.</p></div><div class="actions"><button class="secondary" id="refresh">Refresh</button><button id="exportBackup">Export browser backup</button></div></div>
+  <div class="notice"><b>Prototype notice:</b> This local admin page can manage only data stored in this browser. When the system moves online, this screen should be protected with your administrator account and connected to Supabase so you can assist every customer remotely.</div>
+  <section class="grid" id="metrics"></section>
+  <section class="card"><div class="heading"><div><div class="eyebrow">Workspaces</div><h2>Branches and main workspace</h2></div><span class="muted" id="updatedAt"></span></div><div id="workspaceTable"></div></section>
+  <section class="card" style="margin-top:16px"><div class="eyebrow">Recovery</div><h2>What is protected now</h2><p class="muted">The system keeps local recovery snapshots and the dated backup files created during development. Before publishing, add server-side backups, account permissions, and error reporting.</p><div id="recoveryInfo" class="notice" style="margin:0"></div></section>
+</main>
+<script>
+(function(){
+  var registryKey='15m-branch-registry',keys={invoices:'15m-replica-invoices',expenses:'15m-recovery-expenses',payroll:'15m-recovery-payroll',feedback:'15m-replica-client-feedback',schedule:'15m-unit-schedule',snapshots:'15m-replica-data-snapshots'};
+  function get(key){return localStorage.getItem(key)}
+  function json(key,fallback){try{return JSON.parse(get(key)||JSON.stringify(fallback))}catch(e){return fallback}}
+  function scoped(id,key){return id?'15m-branch-'+id+'::'+key:key}
+  function records(id,key,fallback){try{return JSON.parse(get(scoped(id,key))||JSON.stringify(fallback))}catch(e){return fallback}}
+  function registry(){return json(registryKey,[])}
+  function workspace(id,name){var payroll=records(id,keys.payroll,{});return {id:id,name:name,invoices:records(id,keys.invoices,[]).length,expenses:records(id,keys.expenses,[]).length,workers:Array.isArray(payroll.workers)?payroll.workers.length:0,feedback:records(id,keys.feedback,[]).length,schedules:records(id,keys.schedule,[]).length,snapshots:records(id,keys.snapshots,[]).length}}
+  function money(value){return Number(value||0).toLocaleString('en-PH')}
+  function open(id){location.href=id?'index.html?branch='+encodeURIComponent(id):'index.html'}
+  function render(){
+    var header=json('15m-custom-header',{});document.getElementById('businessName').textContent=header.company||'Your Business Name';
+    var workspaces=[workspace('', 'Main workspace')].concat(registry().map(function(branch){return workspace(branch.id,branch.name)}));
+    var totals=workspaces.reduce(function(total,item){total.workspaces+=1;total.invoices+=item.invoices;total.expenses+=item.expenses;total.workers+=item.workers;return total},{workspaces:0,invoices:0,expenses:0,workers:0});
+    document.getElementById('metrics').innerHTML=[['Workspaces',totals.workspaces],['Invoices',totals.invoices],['Expense entries',totals.expenses],['Workers',totals.workers]].map(function(item){return '<div class="card"><div class="muted">'+item[0]+'</div><div class="metric">'+money(item[1])+'</div></div>'}).join('');
+    document.getElementById('workspaceTable').innerHTML=workspaces.length?'<table><thead><tr><th>Workspace</th><th class="hide-small">Invoices</th><th class="hide-small">Expenses</th><th>Workers</th><th>Feedback</th><th>Recovery snapshots</th><th></th></tr></thead><tbody>'+workspaces.map(function(item){return '<tr><td><b>'+item.name+'</b><br><small class="muted">'+(item.id?'Separate branch records':'Default records')+'</small></td><td class="hide-small">'+item.invoices+'</td><td class="hide-small">'+item.expenses+'</td><td>'+item.workers+'</td><td>'+item.feedback+'</td><td>'+item.snapshots+'</td><td><button class="secondary" data-open="'+item.id+'">Open</button></td></tr>'}).join('')+'</tbody></table>':'<div class="empty">No workspaces found.</div>';
+    var snapshotTotal=workspaces.reduce(function(sum,item){return sum+item.snapshots},0);document.getElementById('recoveryInfo').innerHTML='<b>'+snapshotTotal+' local recovery snapshot'+(snapshotTotal===1?'':'s')+'</b> are currently recorded across these workspaces. Export a browser backup before major changes.';
+    document.getElementById('updatedAt').textContent='Checked '+new Date().toLocaleString();
+  }
+  document.addEventListener('click',function(e){var button=e.target.closest('[data-open]');if(button)open(button.dataset.open)});
+  document.getElementById('refresh').onclick=render;
+  document.getElementById('exportBackup').onclick=function(){var data={exportedAt:new Date().toISOString(),registry:registry(),storage:{}};for(var i=0;i<localStorage.length;i++){var key=localStorage.key(i);if(key&&key.indexOf('15m-')===0)data.storage[key]=get(key)}var file=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(file),link=document.createElement('a');link.href=url;link.download='business-system-browser-backup-'+new Date().toISOString().slice(0,10)+'.json';link.click();URL.revokeObjectURL(url)};
+  render();
+})();
+</script>
+</body>
+</html>
