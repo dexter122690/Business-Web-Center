@@ -676,6 +676,39 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
   addAdminLink();window.addEventListener('load',addAdminLink);
 })();
 </script>
+<script>
+/* Online account gate. It activates only after app-config.js is added. */
+(function(){
+  var button=document.querySelector('.logout');
+  function sendToSignIn(){location.href='auth.html'}
+  if(button)button.onclick=sendToSignIn;
+  function load(src){
+    return new Promise(function(resolve,reject){
+      var script=document.createElement('script');script.src=src;script.onload=resolve;script.onerror=reject;document.head.appendChild(script);
+    });
+  }
+  load('app-config.js').then(function(){
+    var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};
+    if(!config.url||!config.publishableKey||config.url.indexOf('YOUR_')>=0||config.publishableKey.indexOf('YOUR_')>=0)return;
+    return load('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2').then(async function(){
+      var db=window.supabase.createClient(config.url,config.publishableKey);
+      window.businessSupabase=db;
+      if(button)button.onclick=async function(){await db.auth.signOut();localStorage.removeItem('bwc-active-business');localStorage.removeItem('bwc-active-business-name');sendToSignIn()};
+      var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;
+      if(!user){sendToSignIn();return}
+      var profile=await db.from('profiles').select('platform_role').eq('id',user.id).maybeSingle();
+      if(profile.data&&profile.data.platform_role==='platform_admin')return;
+      var memberships=await db.from('business_memberships').select('business_id').eq('user_id',user.id).eq('status','active');
+      if(memberships.error||!memberships.data||!memberships.data.length){await db.auth.signOut();sendToSignIn();return}
+      var businesses=await db.from('businesses').select('id,name,status').in('id',memberships.data.map(function(row){return row.business_id}));
+      var active=(businesses.data||[]).find(function(row){return row.status==='active'});
+      if(!active){await db.auth.signOut();sendToSignIn();return}
+      localStorage.setItem('bwc-active-business',active.id);
+      localStorage.setItem('bwc-active-business-name',active.name);
+    });
+  }).catch(function(){/* Local prototype mode remains available until Supabase configuration is added. */});
+})();
+</script>
 </body></html>
 
 
