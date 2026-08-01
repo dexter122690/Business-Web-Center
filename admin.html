@@ -2,44 +2,59 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>System Admin</title>
+<title>Business Web Center · Administrator</title>
 <style>
-:root{--accent:#ff5219;--ink:#191313;--muted:#75645d;--line:#e7ddd8;--soft:#f8f5f3}*{box-sizing:border-box}body{margin:0;background:var(--soft);color:var(--ink);font:14px Arial,sans-serif}header{background:#080808;color:#fff;padding:16px max(24px,5vw);display:flex;align-items:center;gap:14px}.logo{display:grid;place-items:center;width:42px;height:42px;border:2px solid var(--accent);border-radius:50%;color:var(--accent);font-weight:bold}.head-copy{flex:1}.head-copy b{display:block;font-size:18px;margin-top:2px}.eyebrow{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--accent);font-weight:bold}.back{color:#fff;text-decoration:none;border:1px solid #82685d;padding:9px 12px;border-radius:7px;font-size:12px}main{max-width:1120px;margin:auto;padding:28px 20px 50px}.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px}.notice{border-left:3px solid var(--accent);background:#fff0e9;padding:12px;margin-bottom:16px;color:#603c30}.heading{display:flex;justify-content:space-between;align-items:end;gap:18px;margin-bottom:16px}h1{font-size:23px;margin:4px 0}h2{font-size:16px;margin:4px 0 12px}.muted{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}.metric{font-size:25px;font-weight:bold;color:var(--accent);margin-top:8px}table{width:100%;border-collapse:collapse}th,td{padding:12px 9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted)}button{border:0;border-radius:7px;padding:9px 12px;background:var(--accent);color:#fff;font-weight:bold;cursor:pointer}.secondary{background:#fff;color:#342924;border:1px solid #cfc1b9}.actions{display:flex;gap:7px;flex-wrap:wrap}.empty{text-align:center;padding:24px;color:var(--muted)}@media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}table{font-size:12px}.hide-small{display:none}}@media(max-width:440px){.grid{grid-template-columns:1fr}main{padding:20px 12px}}
+:root{--accent:#ff5219;--ink:#191313;--muted:#75645d;--line:#e7ddd8;--soft:#f8f5f3;--danger:#a62b1b;--ok:#167547}*{box-sizing:border-box}body{margin:0;background:var(--soft);color:var(--ink);font:14px Arial,sans-serif}header{background:#080808;color:#fff;padding:16px max(24px,5vw);display:flex;align-items:center;gap:14px}.logo{display:grid;place-items:center;width:42px;height:42px;border:2px solid var(--accent);border-radius:50%;color:var(--accent);font-weight:bold}.head-copy{flex:1}.head-copy b{display:block;font-size:18px;margin-top:2px}.eyebrow{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--accent);font-weight:bold}.back{color:#fff;text-decoration:none;border:1px solid #82685d;padding:9px 12px;border-radius:7px;font-size:12px}main{max-width:1180px;margin:auto;padding:28px 20px 50px}.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px}.notice{border-left:3px solid var(--accent);background:#fff0e9;padding:12px;margin-bottom:16px;color:#603c30}.heading{display:flex;justify-content:space-between;align-items:end;gap:18px;margin-bottom:16px}h1{font-size:23px;margin:4px 0}h2{font-size:16px;margin:4px 0 12px}.muted{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}.metric{font-size:25px;font-weight:bold;color:var(--accent);margin-top:8px}table{width:100%;border-collapse:collapse}th,td{padding:12px 9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted)}button{border:0;border-radius:7px;padding:9px 12px;background:var(--accent);color:#fff;font-weight:bold;cursor:pointer}.secondary{background:#fff;color:#342924;border:1px solid #cfc1b9}.danger{background:#fff1ef;color:var(--danger);border:1px solid #efc4bd}.actions{display:flex;gap:7px;flex-wrap:wrap}.empty{text-align:center;padding:28px;color:var(--muted)}.status{display:inline-block;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:bold;text-transform:capitalize}.status.pending{background:#fff0d9;color:#935900}.status.active{background:#e6f7ed;color:var(--ok)}.status.suspended{background:#fff0ef;color:var(--danger)}.loading{padding:36px;text-align:center;color:var(--muted)}@media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}table{font-size:12px}.hide-small{display:none}}@media(max-width:440px){.grid{grid-template-columns:1fr}main{padding:20px 12px}}
 </style>
 </head>
 <body>
-<header><div class="logo">A</div><div class="head-copy"><div class="eyebrow">Management system</div><b id="businessName">Your Business Name</b></div><a class="back" href="index.html">Open main workspace</a></header>
+<header><div class="logo">A</div><div class="head-copy"><div class="eyebrow">Business Web Center</div><b>Administrator approval center</b></div><a class="back" href="index.html">Open my workspace</a></header>
 <main>
-  <div class="heading"><div><div class="eyebrow">Admin control center</div><h1>Workspace health and backups</h1><p class="muted">Review the workspaces stored in this browser and open the correct branch safely.</p></div><div class="actions"><button class="secondary" id="refresh">Refresh</button><button id="exportBackup">Export browser backup</button></div></div>
-  <div class="notice"><b>Prototype notice:</b> This local admin page can manage only data stored in this browser. When the system moves online, this screen should be protected with your administrator account and connected to Supabase so you can assist every customer remotely.</div>
-  <section class="grid" id="metrics"></section>
-  <section class="card"><div class="heading"><div><div class="eyebrow">Workspaces</div><h2>Branches and main workspace</h2></div><span class="muted" id="updatedAt"></span></div><div id="workspaceTable"></div></section>
-  <section class="card" style="margin-top:16px"><div class="eyebrow">Recovery</div><h2>What is protected now</h2><p class="muted">The system keeps local recovery snapshots and the dated backup files created during development. Before publishing, add server-side backups, account permissions, and error reporting.</p><div id="recoveryInfo" class="notice" style="margin:0"></div></section>
+  <div class="heading"><div><div class="eyebrow">Secure account administration</div><h1>Business account requests</h1><p class="muted">Approve paid customers, suspend access when needed, and keep an audit record of each action.</p></div><div class="actions"><button class="secondary" id="refresh">Refresh</button><button class="secondary" id="signOut">Sign out</button></div></div>
+  <div id="notice" class="notice">Loading secure account requests…</div>
+  <section class="grid" id="metrics"><div class="card loading">Loading…</div></section>
+  <section class="card"><div class="heading"><div><div class="eyebrow">Customer workspaces</div><h2>Approve or manage access</h2></div><span class="muted" id="updatedAt"></span></div><div id="businessTable" class="loading">Loading business requests…</div></section>
 </main>
+<script src="app-config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 (function(){
-  var registryKey='15m-branch-registry',keys={invoices:'15m-replica-invoices',expenses:'15m-recovery-expenses',payroll:'15m-recovery-payroll',feedback:'15m-replica-client-feedback',schedule:'15m-unit-schedule',snapshots:'15m-replica-data-snapshots'};
-  function get(key){return localStorage.getItem(key)}
-  function json(key,fallback){try{return JSON.parse(get(key)||JSON.stringify(fallback))}catch(e){return fallback}}
-  function scoped(id,key){return id?'15m-branch-'+id+'::'+key:key}
-  function records(id,key,fallback){try{return JSON.parse(get(scoped(id,key))||JSON.stringify(fallback))}catch(e){return fallback}}
-  function registry(){return json(registryKey,[])}
-  function workspace(id,name){var payroll=records(id,keys.payroll,{});return {id:id,name:name,invoices:records(id,keys.invoices,[]).length,expenses:records(id,keys.expenses,[]).length,workers:Array.isArray(payroll.workers)?payroll.workers.length:0,feedback:records(id,keys.feedback,[]).length,schedules:records(id,keys.schedule,[]).length,snapshots:records(id,keys.snapshots,[]).length}}
-  function money(value){return Number(value||0).toLocaleString('en-PH')}
-  function open(id){location.href=id?'index.html?branch='+encodeURIComponent(id):'index.html'}
-  function render(){
-    var header=json('15m-custom-header',{});document.getElementById('businessName').textContent=header.company||'Your Business Name';
-    var workspaces=[workspace('', 'Main workspace')].concat(registry().map(function(branch){return workspace(branch.id,branch.name)}));
-    var totals=workspaces.reduce(function(total,item){total.workspaces+=1;total.invoices+=item.invoices;total.expenses+=item.expenses;total.workers+=item.workers;return total},{workspaces:0,invoices:0,expenses:0,workers:0});
-    document.getElementById('metrics').innerHTML=[['Workspaces',totals.workspaces],['Invoices',totals.invoices],['Expense entries',totals.expenses],['Workers',totals.workers]].map(function(item){return '<div class="card"><div class="muted">'+item[0]+'</div><div class="metric">'+money(item[1])+'</div></div>'}).join('');
-    document.getElementById('workspaceTable').innerHTML=workspaces.length?'<table><thead><tr><th>Workspace</th><th class="hide-small">Invoices</th><th class="hide-small">Expenses</th><th>Workers</th><th>Feedback</th><th>Recovery snapshots</th><th></th></tr></thead><tbody>'+workspaces.map(function(item){return '<tr><td><b>'+item.name+'</b><br><small class="muted">'+(item.id?'Separate branch records':'Default records')+'</small></td><td class="hide-small">'+item.invoices+'</td><td class="hide-small">'+item.expenses+'</td><td>'+item.workers+'</td><td>'+item.feedback+'</td><td>'+item.snapshots+'</td><td><button class="secondary" data-open="'+item.id+'">Open</button></td></tr>'}).join('')+'</tbody></table>':'<div class="empty">No workspaces found.</div>';
-    var snapshotTotal=workspaces.reduce(function(sum,item){return sum+item.snapshots},0);document.getElementById('recoveryInfo').innerHTML='<b>'+snapshotTotal+' local recovery snapshot'+(snapshotTotal===1?'':'s')+'</b> are currently recorded across these workspaces. Export a browser backup before major changes.';
-    document.getElementById('updatedAt').textContent='Checked '+new Date().toLocaleString();
+  var config=window.BUSINESS_WEB_CENTER_SUPABASE||{},db=config.url&&config.publishableKey?window.supabase.createClient(config.url,config.publishableKey):null;
+  var metrics=document.getElementById('metrics'),table=document.getElementById('businessTable'),notice=document.getElementById('notice');
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  function tell(message,kind){notice.textContent=message;notice.style.borderLeftColor=kind==='error'?'#a62b1b':'var(--accent)';notice.style.background=kind==='error'?'#fff0ef':'#fff0e9'}
+  function status(value){return '<span class="status '+esc(value)+'">'+esc(value)+'</span>'}
+  async function requireAdmin(){
+    if(!db){tell('Supabase has not been configured for this deployment.','error');return false}
+    var session=await db.auth.getSession();if(!session.data.session){location.href='auth.html';return false}
+    var profile=await db.from('profiles').select('platform_role').eq('id',session.data.session.user.id).maybeSingle();
+    if(profile.error||!profile.data||profile.data.platform_role!=='platform_admin'){await db.auth.signOut();tell('Administrator access is required. Please sign in with your administrator account.','error');return false}
+    return session.data.session.user;
   }
-  document.addEventListener('click',function(e){var button=e.target.closest('[data-open]');if(button)open(button.dataset.open)});
-  document.getElementById('refresh').onclick=render;
-  document.getElementById('exportBackup').onclick=function(){var data={exportedAt:new Date().toISOString(),registry:registry(),storage:{}};for(var i=0;i<localStorage.length;i++){var key=localStorage.key(i);if(key&&key.indexOf('15m-')===0)data.storage[key]=get(key)}var file=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(file),link=document.createElement('a');link.href=url;link.download='business-system-browser-backup-'+new Date().toISOString().slice(0,10)+'.json';link.click();URL.revokeObjectURL(url)};
-  render();
+  async function load(){
+    var user=await requireAdmin();if(!user)return;
+    tell('Loading account requests…');table.className='loading';table.textContent='Loading business requests…';
+    var result=await db.from('businesses').select('id,name,status,plan,created_by,created_at,updated_at').order('created_at',{ascending:false});
+    if(result.error){tell(result.error.message,'error');table.className='empty';table.textContent='Could not load the business requests.';return}
+    var list=result.data||[],ids=list.map(function(b){return b.created_by}),profiles={};
+    if(ids.length){var p=await db.from('profiles').select('id,email,full_name,mobile_number').in('id',ids);if(!p.error)(p.data||[]).forEach(function(row){profiles[row.id]=row})}
+    var counts=list.reduce(function(a,b){a[b.status]=(a[b.status]||0)+1;return a},{pending:0,active:0,suspended:0});
+    metrics.innerHTML=[['All businesses',list.length],['Waiting approval',counts.pending||0],['Active customers',counts.active||0],['Suspended',counts.suspended||0]].map(function(item){return '<div class="card"><div class="muted">'+item[0]+'</div><div class="metric">'+item[1]+'</div></div>'}).join('');
+    table.className='';
+    table.innerHTML=list.length?'<div style="overflow:auto"><table><thead><tr><th>Business</th><th>Owner</th><th class="hide-small">Mobile / email</th><th>Requested</th><th>Status</th><th>Action</th></tr></thead><tbody>'+list.map(function(b){var p=profiles[b.created_by]||{};return '<tr><td><b>'+esc(b.name)+'</b><br><small class="muted">Plan: '+esc(b.plan||'starter')+'</small></td><td>'+esc(p.full_name||'Not available')+'</td><td class="hide-small">'+esc(p.mobile_number||'—')+'<br><small>'+esc(p.email||'—')+'</small></td><td>'+new Date(b.created_at).toLocaleDateString()+'</td><td>'+status(b.status)+'</td><td><div class="actions">'+(b.status!=='active'?'<button data-set="active" data-id="'+esc(b.id)+'">Approve</button>':'<button class="secondary" data-open="'+esc(b.id)+'">Active</button>')+(b.status!=='suspended'?'<button class="danger" data-set="suspended" data-id="'+esc(b.id)+'">Suspend</button>':'<button data-set="active" data-id="'+esc(b.id)+'">Restore</button>')+'</div></td></tr>'}).join('')+'</tbody></table></div>':'<div class="empty">No business account requests yet.</div>';
+    document.getElementById('updatedAt').textContent='Updated '+new Date().toLocaleString();tell('Account requests are up to date.');
+  }
+  async function updateBusiness(id,nextStatus){
+    if(!confirm((nextStatus==='active'?'Approve and activate':'Suspend')+' this business account?'))return;
+    tell('Saving account access…');var changed=await db.from('businesses').update({status:nextStatus}).eq('id',id).select('id,name,status').maybeSingle();
+    if(changed.error){tell(changed.error.message,'error');return}
+    var actor=await db.auth.getUser();await db.from('audit_logs').insert({business_id:id,actor_id:actor.data.user&&actor.data.user.id,action:'business_'+nextStatus,entity_type:'business',entity_id:id,details:{business_name:changed.data&&changed.data.name,status:nextStatus}});
+    tell('Business account '+(nextStatus==='active'?'approved and activated.':'suspended.')+'');load();
+  }
+  document.getElementById('refresh').onclick=load;
+  document.getElementById('signOut').onclick=async function(){if(db)await db.auth.signOut();location.href='auth.html'};
+  document.addEventListener('click',function(e){var b=e.target.closest('[data-set]');if(b)updateBusiness(b.dataset.id,b.dataset.set)});
+  load();
 })();
 </script>
 </body>
