@@ -1,0 +1,30 @@
+/* Online expense adapter. It keeps the familiar expense screen while storing
+   each business's entries securely in Supabase. */
+(function(){
+  var db=null,businessId='',userId='',online=false,key='15m-recovery-expenses';
+  function message(text){var box=document.getElementById('expenseOnlineStatus');if(!box){box=document.createElement('div');box.id='expenseOnlineStatus';box.className='notice';var view=document.getElementById('expenses');if(view)view.insertBefore(box,view.firstChild)}if(box)box.textContent=text}
+  function cache(rows){localStorage.setItem(key,JSON.stringify(rows))}
+  function map(row){return {id:'expense-'+row.id,remoteId:row.id,date:row.expense_date,supplier:row.supplier_name||'',receiptNumber:row.receipt_number||'',category:row.category,description:row.description,amount:Number(row.unit_amount||0),quantity:Number(row.quantity||1),payment:row.payment_method||'',reference:row.reference_number||'',remarks:row.remarks||''}}
+  async function resolveBusiness(){
+    var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;if(!user)return null;userId=user.id;
+    var saved=localStorage.getItem('bwc-active-business');if(saved)return saved;
+    var memberships=await db.from('business_memberships').select('business_id,businesses!inner(id,name,status)').eq('user_id',user.id).eq('status','active');
+    var active=(memberships.data||[]).find(function(row){return row.businesses&&row.businesses.status==='active'});if(active){localStorage.setItem('bwc-active-business',active.business_id);localStorage.setItem('bwc-active-business-name',active.businesses.name);return active.business_id}
+    var own=await db.from('businesses').select('id,name').eq('created_by',user.id).order('created_at',{ascending:true}).limit(2);if(own.data&&own.data.length===1){localStorage.setItem('bwc-active-business',own.data[0].id);localStorage.setItem('bwc-active-business-name',own.data[0].name);return own.data[0].id}
+    return null;
+  }
+  async function loadRemote(){var result=await db.from('expenses').select('*').eq('business_id',businessId).order('expense_date',{ascending:false}).order('created_at',{ascending:false});if(result.error){message('Online expenses could not load: '+result.error.message);return}cache((result.data||[]).map(map));message('Online expense records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');document.dispatchEvent(new Event('bwc:expenses-loaded'))}
+  function value(id){var el=document.getElementById(id);return el?el.value.trim():''}
+  function ensureFields(){var description=document.getElementById('exDescription');if(!description||document.getElementById('exSupplier'))return;var label=description.closest('label');if(!label)return;label.insertAdjacentHTML('beforebegin','<label>Supplier name<input id="exSupplier" placeholder="Optional"></label><label>Receipt number<input id="exReceipt" placeholder="Optional"></label>')}
+  function enhanceTable(){var table=document.querySelector('#exTable table');if(!table||table.dataset.receiptColumns)return;var rows=[];try{rows=JSON.parse(localStorage.getItem(key)||'[]')}catch(e){}var month=(document.getElementById('exMonth')||{}).value||'',year=(document.getElementById('exYear')||{}).value||'',shown=rows.filter(function(item){var date=new Date(item.date+'T00:00:00');return(!month||date.getMonth()===Number(month))&&(!year||String(date.getFullYear())===String(year))});var heading=table.querySelector('thead tr');if(!heading)return;var supplierHead=document.createElement('th');supplierHead.textContent='Supplier';var receiptHead=document.createElement('th');receiptHead.textContent='Receipt no.';heading.insertBefore(receiptHead,heading.children[1]);heading.insertBefore(supplierHead,heading.children[1]);Array.prototype.forEach.call(table.querySelectorAll('tbody tr'),function(row,index){var item=shown[index]||{},supplier=document.createElement('td'),receipt=document.createElement('td');supplier.textContent=item.supplier||'—';receipt.textContent=item.receiptNumber||'—';row.insertBefore(receipt,row.children[1]);row.insertBefore(supplier,row.children[1])});table.dataset.receiptColumns='1'}
+  async function saveExpense(){
+    var description=value('exDescription'),amount=Number(value('exAmount'))||0;if(!description||!amount){alert('Enter an expense description and amount.');return}
+    message('Saving expense securely…');
+    var payload={business_id:businessId,expense_date:value('exDate'),supplier_name:value('exSupplier')||null,receipt_number:value('exReceipt')||null,category:value('exType'),description:description,quantity:Number(value('exQty'))||1,unit_amount:amount,payment_method:value('exPayment')||null,reference_number:value('exReference')||null,remarks:value('exRemarks')||null,created_by:userId};
+    var result=await db.from('expenses').insert(payload);if(result.error){message('Expense was not saved online: '+result.error.message);alert('The expense could not be saved online. Please try again.');return}
+    await loadRemote();var tab=document.querySelector('[data-t="expenses"]');if(tab)tab.click();setTimeout(enhanceTable,80);alert('Expense recorded securely and connected to Dashboard reporting.');
+  }
+  document.addEventListener('click',function(event){if(event.target.closest('[data-t="expenses"]'))setTimeout(function(){ensureFields();enhanceTable()},80);var add=event.target.closest('[data-exp-add]');if(!add||!online)return;event.preventDefault();event.stopImmediatePropagation();saveExpense()},true);
+  async function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=await resolveBusiness();if(!businessId){message('Online expenses are ready, but this account has no selected active business yet.');return}online=true;loadRemote();setTimeout(function(){ensureFields();enhanceTable()},850)}
+  setTimeout(start,650);
+})();
