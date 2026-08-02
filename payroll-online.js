@@ -202,7 +202,15 @@
   function decoratePayrollActions(){
     var data=read(),dates=payrollDates(data),saved=archive(data);Array.prototype.forEach.call(document.querySelectorAll('[data-pr="approve-payslip"]'),function(button){var workerId=button.dataset.id,period=(saved.periods||[]).find(function(item){return item.period_start===dates.start&&item.period_end===dates.end}),slip=period&&(saved.payslips||[]).find(function(item){return item.payroll_period_id===period.id&&item.worker_id===workerId});if(!slip)return;if(slip.status==='issued'){button.textContent='Issued ✓';button.disabled=true;var old=button.parentNode.querySelector('[data-pr-issue-payslip="'+workerId+'"]');if(old)old.remove();return}if(slip.status==='approved'){button.textContent='Approved ✓';var issue=button.parentNode.querySelector('[data-pr-issue-payslip="'+workerId+'"]');if(!issue){issue=document.createElement('button');issue.type='button';issue.className='primary';issue.dataset.prIssuePayslip=workerId;issue.textContent='Issue';button.insertAdjacentText('afterend',' ');button.insertAdjacentElement('afterend',issue)}}});
   }
-  function replaceLegacyIssueButtons(){Array.prototype.forEach.call(document.querySelectorAll('[data-pr-issued]'),function(button){button.dataset.prIssuePayslip=button.dataset.prIssued;button.removeAttribute('data-pr-issued');if(button.textContent.trim()==='Issued')button.textContent='Issue'})}
+  function replaceLegacyIssueButtons(){Array.prototype.forEach.call(document.querySelectorAll('[data-pr-issued]'),function(button){
+    var workerId=button.dataset.prIssued,wasLegacyIssued=/^Issued/.test(button.textContent.trim());
+    button.dataset.prIssuePayslip=workerId;button.removeAttribute('data-pr-issued');
+    if(wasLegacyIssued){
+      button.textContent='Issue online';button.title='This earlier record needs online approval before it can be posted to Expenses.';
+      var approve=button.parentNode&&button.parentNode.querySelector('[data-pr="approve-payslip"][data-id="'+workerId+'"]');
+      if(approve){approve.disabled=false;approve.textContent='Approve online';approve.title='Save this payroll approval securely online first.'}
+    }else if(button.textContent.trim()==='Issued')button.textContent='Issue';
+  })}
   async function ensurePayrollPeriod(user,start,end){
     var found=await db.from('payroll_periods').select('*').eq('business_id',businessId()).eq('period_start',start).eq('period_end',end).maybeSingle();if(found.error)throw found.error;if(found.data)return found.data;
     var created=await db.from('payroll_periods').insert({business_id:businessId(),schedule_type:'weekly',period_start:start,period_end:end,status:'draft',created_by:user.id}).select().single();if(created.error)throw created.error;return created.data;
