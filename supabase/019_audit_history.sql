@@ -19,7 +19,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path = public
-as $$
+as $audit$
 declare
   row_data jsonb;
   old_data jsonb;
@@ -67,26 +67,38 @@ begin
   if tg_op = 'DELETE' then return old; end if;
   return new;
 end;
-$$;
+$audit$;
 
-do $$
-declare
-  table_name text;
-begin
-  foreach table_name in array array[
-    'invoices', 'expenses', 'quotations', 'scheduled_appointments',
-    'payroll_workers', 'payroll_attendance', 'payroll_vehicle_jobs',
-    'payroll_job_payments', 'payroll_obligations',
-    'payroll_obligation_payments', 'payroll_periods', 'payslips',
-    'cash_collections', 'service_repair_orders', 'business_feedback'
-  ] loop
-    execute format('drop trigger if exists %I on public.%I', 'audit_' || table_name, table_name);
-    execute format(
-      'create trigger %I after insert or update or delete on public.%I for each row execute procedure public.capture_business_audit()',
-      'audit_' || table_name, table_name
-    );
-  end loop;
-end $$;
+drop trigger if exists audit_invoices on public.invoices;
+create trigger audit_invoices after insert or update or delete on public.invoices for each row execute procedure public.capture_business_audit();
+drop trigger if exists audit_expenses on public.expenses;
+create trigger audit_expenses after insert or update or delete on public.expenses for each row execute procedure public.capture_business_audit();
+drop trigger if exists audit_quotations on public.quotations;
+create trigger audit_quotations after insert or update or delete on public.quotations for each row execute procedure public.capture_business_audit();
+drop trigger if exists audit_scheduled_appointments on public.scheduled_appointments;
+create trigger audit_scheduled_appointments after insert or update or delete on public.scheduled_appointments for each row execute procedure public.capture_business_audit();
+drop trigger if exists audit_payroll_workers on public.payroll_workers;
+create trigger audit_payroll_workers after insert or update or delete on public.payroll_workers for each row execute procedure public.capture_business_audit();
+drop trigger if exists audit_payroll_attendance on public.payroll_attendance;
+create trigger audit_payroll_attendance after insert or update or delete on public.payroll_attendance for each row execute procedure public.capture_business_audit();
+drop trigger if exists audit_payroll_vehicle_jobs on public.payroll_vehicle_jobs;
+create trigger audit_payroll_vehicle_jobs after insert or update or delete on public.payroll_vehicle_jobs for each row execute procedure public.capture_business_audit();
+drop trigger if exists audit_payroll_job_payments on public.payroll_job_payments;
+create trigger audit_payroll_job_payments after insert or update or delete on public.payroll_job_payments for each row execute procedure public.capture_business_audit();
+drop trigger if exists audit_payroll_obligations on public.payroll_obligations;
+create trigger audit_payroll_obligations after insert or update or delete on public.payroll_obligations for each row execute procedure public.capture_business_audit();
+drop trigger if exists audit_payroll_obligation_payments on public.payroll_obligation_payments;
+create trigger audit_payroll_obligation_payments after insert or update or delete on public.payroll_obligation_payments for each row execute procedure public.capture_business_audit();
+drop trigger if exists audit_payroll_periods on public.payroll_periods;
+create trigger audit_payroll_periods after insert or update or delete on public.payroll_periods for each row execute procedure public.capture_business_audit();
+drop trigger if exists audit_payslips on public.payslips;
+create trigger audit_payslips after insert or update or delete on public.payslips for each row execute procedure public.capture_business_audit();
+drop trigger if exists audit_cash_collections on public.cash_collections;
+create trigger audit_cash_collections after insert or update or delete on public.cash_collections for each row execute procedure public.capture_business_audit();
+drop trigger if exists audit_service_repair_orders on public.service_repair_orders;
+create trigger audit_service_repair_orders after insert or update or delete on public.service_repair_orders for each row execute procedure public.capture_business_audit();
+drop trigger if exists audit_business_feedback on public.business_feedback;
+create trigger audit_business_feedback after insert or update or delete on public.business_feedback for each row execute procedure public.capture_business_audit();
 
 /* Activity history is available to the business owner/admin and to the platform
    administrator, but never to ordinary staff members. */
