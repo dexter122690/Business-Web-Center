@@ -55,6 +55,22 @@
       data.jobs=remote;write(data);jobStatus('Vehicle jobs and payment balances are saved securely online.','info');
     }catch(error){jobStatus('Online vehicle jobs could not load: '+error.message,'error')}
   }
+  function localObligation(row,payments){return {id:row.id,workerId:row.worker_id,reference:row.reference||'',amount:Number(row.original_amount||0),weekly:Number(row.planned_weekly_deduction||0),status:row.status||'Open',payments:(payments||[]).map(function(payment){return {id:payment.id,date:payment.payment_date,amount:Number(payment.amount||0),notes:payment.notes||''}}),online:true}}
+  function obligationStatus(text,kind){var form=document.getElementById('prDebtWorker');if(!form)return;var note=document.getElementById('prOnlineObligationStatus');if(!note){note=document.createElement('div');note.id='prOnlineObligationStatus';note.className='notice';note.style.marginTop='12px';form.closest('.formgrid').insertAdjacentElement('afterend',note)}note.textContent=text;note.style.borderLeftColor=kind==='error'?'#b63d25':''}
+  function obligationKey(item){return String(item.workerId||'')+'|'+String(item.reference||'').trim().toLowerCase()+'|'+Number(item.amount||0)}
+  async function syncObligations(){
+    if(!online||!businessId())return;
+    try{
+      var obligationsResult=await db.from('payroll_obligations').select('id,worker_id,obligation_type,reference,original_amount,planned_weekly_deduction,status').eq('business_id',businessId()).order('created_at',{ascending:false});
+      if(obligationsResult.error)throw obligationsResult.error;
+      var paymentsResult=await db.from('payroll_obligation_payments').select('id,obligation_id,payment_date,amount,notes').eq('business_id',businessId()).order('payment_date');
+      if(paymentsResult.error)throw paymentsResult.error;
+      var grouped={};(paymentsResult.data||[]).forEach(function(payment){(grouped[payment.obligation_id]=grouped[payment.obligation_id]||[]).push(payment)});
+      var data=read(),remoteAdvances=[],remoteLoans=[];(obligationsResult.data||[]).forEach(function(row){var item=localObligation(row,grouped[row.id]);if(row.obligation_type==='cash_advance')remoteAdvances.push(item);else remoteLoans.push(item)});
+      ['advances','loans'].forEach(function(kind){var remote=kind==='advances'?remoteAdvances:remoteLoans,keys={};remote.forEach(function(item){keys[obligationKey(item)]=true});(data[kind]||[]).forEach(function(item){if(!item.online&&!keys[obligationKey(item)])remote.push(item)});data[kind]=remote});
+      write(data);obligationStatus('Cash advances and loans are saved securely online with their payment records.','info');
+    }catch(error){obligationStatus('Online cash advances and loans could not load: '+error.message,'error')}
+  }
   async function saveWorker(event,button){
     var code=value('prWorkerCode'),name=value('prWorkerName'),position=value('prWorkerPosition'),type=value('prWorkerType'),rate=Math.max(0,Number(value('prWorkerRate'))||0),retention=Math.min(100,Math.max(0,Number(value('prWorkerRetention'))||0));
     if(!code||!name){alert('Employee ID and complete name are required.');return}
@@ -121,6 +137,48 @@
       var saved=localJob(result.data,job.payments);Object.assign(job,saved);write(data);var tab=document.querySelector('[data-pr-tab="jobs"]');if(tab)tab.click();alert('Vehicle job changes were saved online.');
     }catch(error){alert('The vehicle job could not be updated online. '+error.message);button.disabled=false;button.textContent=original}
   }
+  function obligationList(data,kind){return kind==='advance'?data.advances:data.loans}
+  function obligationType(kind){return kind==='advance'?'cash_advance':'loan'}
+  function obligationTab(kind){return kind==='advance'?'advances':'loans'}
+  async function saveObligation(button,kind){
+    var data=read(),workerId=value('prDebtWorker'),worker=(data.workers||[]).find(function(item){return item.id===workerId}),reference=value('prDebtReference'),amount=Math.max(0,Number(value('prDebtAmount'))||0),weekly=Math.max(0,Number(value('prDebtWeekly'))||0);
+    if(!workerId||!worker||amount<=0){alert('Worker and an amount greater than zero are required.');return}
+    if(!worker.online){alert('This worker is not online yet. Save the worker online before adding a cash advance or loan.');return}
+    var user=await getUser();if(!user){alert('Please sign in again before saving this record.');return}
+    button.disabled=true;var original=button.textContent;button.textContent='Saving securely...';
+    try{
+      var result=await db.from('payroll_obligations').insert({business_id:businessId(),worker_id:workerId,obligation_type:obligationType(kind),reference:reference||null,original_amount:amount,planned_weekly_deduction:weekly,status:'Open',created_by:user.id}).select().single();if(result.error)throw result.error;
+      var saved=localObligation(result.data,[]),list=obligationList(data,kind),index=list.findIndex(function(item){return item.id===saved.id||(!item.online&&obligationKey(item)===obligationKey(saved))});if(index>=0)list[index]=saved;else list.unshift(saved);write(data);var tab=document.querySelector('[data-pr-tab="'+obligationTab(kind)+'"]');if(tab)tab.click();alert((kind==='advance'?'Cash advance':'Loan')+' saved securely online. Each payment will update the remaining balance.');
+    }catch(error){alert('The record could not be saved online. '+error.message);button.disabled=false;button.textContent=original}
+  }
+  async function recordObligationPayment(button,kind){
+    var data=read(),item=obligationList(data,kind).find(function(record){return record.id===button.dataset.id});if(!item||!item.online){alert('This record is not online yet. Save it online before recording a payment.');return}
+    var paid=(item.payments||[]).reduce(function(sum,payment){return sum+Number(payment.amount||0)},0),remaining=Math.max(0,Number(item.amount||0)-paid),amount=Number(prompt('Payment amount (PHP). Remaining balance: '+remaining.toFixed(2),'0')||0);if(!amount||amount<=0)return;if(amount>remaining){alert('Payment cannot be more than the remaining balance.');return}var date=prompt('Payment date (YYYY-MM-DD):',new Date().toISOString().slice(0,10));if(!date)return;
+    var user=await getUser();if(!user){alert('Please sign in again before recording a payment.');return}
+    button.disabled=true;var original=button.textContent;button.textContent='Saving payment...';
+    try{
+      var result=await db.from('payroll_obligation_payments').insert({business_id:businessId(),obligation_id:item.id,payment_date:date,amount:amount,created_by:user.id}).select().single();if(result.error)throw result.error;
+      item.payments=item.payments||[];item.payments.push({id:result.data.id,date:result.data.payment_date,amount:Number(result.data.amount||0),notes:result.data.notes||''});if(Math.abs(remaining-amount)<0.005){var statusResult=await db.from('payroll_obligations').update({status:'Paid'}).eq('id',item.id).eq('business_id',businessId()).select().single();if(statusResult.error)throw statusResult.error;item.status=statusResult.data.status}write(data);var tab=document.querySelector('[data-pr-tab="'+obligationTab(kind)+'"]');if(tab)tab.click();alert('Payment saved online. The outstanding balance has been updated.');
+    }catch(error){alert('The payment could not be saved online. '+error.message);button.disabled=false;button.textContent=original}
+  }
+  async function editObligation(button,kind){
+    var data=read(),item=obligationList(data,kind).find(function(record){return record.id===button.dataset.id});if(!item||!item.online){alert('This record is not online yet. Save it online before editing it.');return}
+    var reference=prompt('Reference:',item.reference||'');if(reference===null)return;var amount=Number(prompt('Original amount (PHP):',item.amount)||0),weekly=Number(prompt('Weekly deduction (PHP):',item.weekly)||0);if(amount<=0||weekly<0){alert('Enter a valid original amount and weekly deduction.');return}var paid=(item.payments||[]).reduce(function(sum,payment){return sum+Number(payment.amount||0)},0);if(amount<paid){alert('The original amount cannot be less than the total payments already recorded.');return}
+    button.disabled=true;var original=button.textContent;button.textContent='Saving changes...';
+    try{
+      var result=await db.from('payroll_obligations').update({reference:reference.trim()||null,original_amount:amount,planned_weekly_deduction:weekly,status:amount===paid?'Paid':'Open'}).eq('id',item.id).eq('business_id',businessId()).select().single();if(result.error)throw result.error;
+      Object.assign(item,localObligation(result.data,item.payments));write(data);var tab=document.querySelector('[data-pr-tab="'+obligationTab(kind)+'"]');if(tab)tab.click();alert('Record changes were saved online.');
+    }catch(error){alert('The record could not be updated online. '+error.message);button.disabled=false;button.textContent=original}
+  }
+  async function editObligationHistory(button,kind){
+    var data=read(),item=obligationList(data,kind).find(function(record){return record.id===button.dataset.id});if(!item||!item.online){alert('This record is not online yet. Save it online before editing payment history.');return}var payments=item.payments||[];if(!payments.length){alert('No payment entries have been recorded yet.');return}
+    var drafts=[],total=0;for(var i=0;i<payments.length;i++){var payment=payments[i],amount=Number(prompt('Payment '+(i+1)+' amount (PHP):',payment.amount)||0);if(amount<=0){alert('Each payment must be greater than zero.');return}var date=prompt('Payment '+(i+1)+' date (YYYY-MM-DD):',payment.date);if(!date)return;drafts.push({id:payment.id,amount:amount,date:date});total+=amount}if(total>Number(item.amount||0)){alert('Total payments cannot be more than the original amount.');return}
+    button.disabled=true;var original=button.textContent;button.textContent='Saving history...';
+    try{
+      for(var j=0;j<drafts.length;j++){var update=await db.from('payroll_obligation_payments').update({amount:drafts[j].amount,payment_date:drafts[j].date}).eq('id',drafts[j].id).eq('business_id',businessId());if(update.error)throw update.error}
+      item.payments=drafts.map(function(payment){return {id:payment.id,amount:payment.amount,date:payment.date,notes:''}});var state=total>=Number(item.amount||0)?'Paid':'Open';var stateUpdate=await db.from('payroll_obligations').update({status:state}).eq('id',item.id).eq('business_id',businessId());if(stateUpdate.error)throw stateUpdate.error;item.status=state;write(data);var tab=document.querySelector('[data-pr-tab="'+obligationTab(kind)+'"]');if(tab)tab.click();alert('Payment history was saved online.');
+    }catch(error){alert('The payment history could not be updated online. '+error.message);button.disabled=false;button.textContent=original}
+  }
   async function approveOvertime(button){
     var recordId=button.dataset.prApproveOt,data=read(),entry=(data.attendance||[]).find(function(item){return item.id===recordId});
     if(!entry||!entry.online){alert('This attendance record is not online yet. Save the time record again first.');return}
@@ -131,11 +189,11 @@
     }catch(error){alert('The overtime approval could not be saved online. '+error.message);button.disabled=false;button.textContent=original}
   }
   window.addEventListener('click',function(event){
-    var button=event.target.closest('[data-pr="add-worker"], [data-worker-edit-save="1"], [data-pr="save-attendance"], [data-pr="add-job"], [data-pr-payment="job"], [data-pr-edit="job"], [data-pr-approve-ot]');if(!button||!online)return;
+    var button=event.target.closest('[data-pr="add-worker"], [data-worker-edit-save="1"], [data-pr="save-attendance"], [data-pr="add-job"], [data-pr="add-advances"], [data-pr="add-loans"], [data-pr-payment="job"], [data-pr-payment="advance"], [data-pr-payment="loan"], [data-pr-edit="job"], [data-pr-edit="advance"], [data-pr-edit="loan"], [data-pr-history="advance"], [data-pr-history="loan"], [data-pr-approve-ot]');if(!button||!online)return;
     event.preventDefault();event.stopImmediatePropagation();
     if(!businessId()){alert('Choose an active business before saving workers.');return}
-    if(button.dataset.prApproveOt)approveOvertime(button);else if(button.dataset.prEdit==='job')editJob(button);else if(button.dataset.prPayment==='job')recordJobPayment(button);else if(button.dataset.pr==='add-job')saveJob(button);else if(button.dataset.pr==='save-attendance')saveAttendance(button);else saveWorker(event,button);
+    if(button.dataset.prApproveOt)approveOvertime(button);else if(button.dataset.prHistory==='advance'||button.dataset.prHistory==='loan')editObligationHistory(button,button.dataset.prHistory);else if(button.dataset.prEdit==='advance'||button.dataset.prEdit==='loan')editObligation(button,button.dataset.prEdit);else if(button.dataset.prEdit==='job')editJob(button);else if(button.dataset.prPayment==='advance'||button.dataset.prPayment==='loan')recordObligationPayment(button,button.dataset.prPayment);else if(button.dataset.prPayment==='job')recordJobPayment(button);else if(button.dataset.pr==='add-advances')saveObligation(button,'advance');else if(button.dataset.pr==='add-loans')saveObligation(button,'loan');else if(button.dataset.pr==='add-job')saveJob(button);else if(button.dataset.pr==='save-attendance')saveAttendance(button);else saveWorker(event,button);
   },true);
-  window.addEventListener('load',function(){setTimeout(function(){syncWorkers();syncAttendance();syncJobs()},120)});
-  document.addEventListener('click',function(event){if(event.target.closest('[data-pr-tab="workers"]'))setTimeout(function(){syncWorkers();showStatus('Workers are saved securely online for this business.','info')},100);if(event.target.closest('[data-pr-tab="attendance"]'))setTimeout(syncAttendance,100);if(event.target.closest('[data-pr-tab="jobs"]'))setTimeout(syncJobs,100)});
+  window.addEventListener('load',function(){setTimeout(function(){syncWorkers();syncAttendance();syncJobs();syncObligations()},120)});
+  document.addEventListener('click',function(event){if(event.target.closest('[data-pr-tab="workers"]'))setTimeout(function(){syncWorkers();showStatus('Workers are saved securely online for this business.','info')},100);if(event.target.closest('[data-pr-tab="attendance"]'))setTimeout(syncAttendance,100);if(event.target.closest('[data-pr-tab="jobs"]'))setTimeout(syncJobs,100);if(event.target.closest('[data-pr-tab="advances"], [data-pr-tab="loans"]'))setTimeout(syncObligations,100)});
 })();
