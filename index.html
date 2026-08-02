@@ -686,6 +686,28 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
 <script src="branding-online.js"></script>
 <script src="branch-online.js"></script>
 <script src="cash-remittance-online.js"></script>
+<script>
+/*
+  The recovery navigation uses data-restore-tab buttons.  The full quotation
+  builder listens for the normal data-t navigation event, so replay that event
+  when Quotes is opened from a recovered page.  This keeps every workspace
+  (Main and all branches) on the same quotation form.
+*/
+(function () {
+  document.addEventListener('click', function (event) {
+    if (!event.target.closest('[data-restore-tab="quotes"]')) return;
+    window.setTimeout(function () {
+      var quoteTrigger = document.createElement('button');
+      quoteTrigger.type = 'button';
+      quoteTrigger.hidden = true;
+      quoteTrigger.setAttribute('data-t', 'quotes');
+      document.body.appendChild(quoteTrigger);
+      quoteTrigger.click();
+      quoteTrigger.remove();
+    }, 0);
+  }, true);
+}());
+</script>
 </body></html>
 
 

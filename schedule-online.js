@@ -18,7 +18,8 @@
       var query=db.from('scheduled_appointments').select('*').eq('business_id',businessId()),branchId=localStorage.getItem('bwc-active-branch');if(branchId)query=query.eq('branch_id',branchId);var result=await query.order('scheduled_date').order('scheduled_time');if(result.error)throw result.error;
       var remote=(result.data||[]).map(localAppointment),ids={};remote.forEach(function(item){ids[item.id]=true});read().forEach(function(item){if(!item.online&&!ids[item.id])remote.push(item)});write(remote);
       status('Appointments are saved securely online for this business.','info');
-      if(repaint){var tab=document.getElementById('scheduleTab');if(tab&&typeof tab.onclick==='function')tab.onclick()}
+      /* A background refresh must never click a navigation tab. */
+      if(repaint&&document.getElementById('schedule')&&document.getElementById('schedule').classList.contains('active'))document.dispatchEvent(new Event('bwc:schedule-loaded'));
     }catch(error){status('Online appointments could not load: '+error.message,'error')}finally{syncing=false}
   }
   async function save(button){
