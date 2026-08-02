@@ -24,7 +24,16 @@
     var result=await db.from('expenses').insert(payload);if(result.error){message('Expense was not saved online: '+result.error.message);alert('The expense could not be saved online. Please try again.');return}
     await loadRemote();var tab=document.querySelector('[data-t="expenses"]');if(tab)tab.click();setTimeout(enhanceTable,80);alert('Expense recorded securely and connected to Dashboard reporting.');
   }
-  document.addEventListener('click',function(event){if(event.target.closest('[data-t="expenses"]'))setTimeout(function(){ensureFields();enhanceTable()},80);var add=event.target.closest('[data-exp-add]');if(!add||!online)return;event.preventDefault();event.stopImmediatePropagation();saveExpense()},true);
+  function money(text){return Number(String(text||'').replace(/[^0-9.-]/g,''))||0}
+  function receiptLines(){var rows=document.querySelectorAll('#receiptItems tbody tr'),lines=[];Array.prototype.forEach.call(rows,function(row){var cells=row.querySelectorAll('td');if(cells.length<5)return;var quantity=Number(cells[2].textContent)||0,amount=money(cells[3].textContent);if(cells[0].textContent.trim()&&quantity>0&&amount>0)lines.push({description:cells[0].textContent.trim(),category:cells[1].textContent.trim()||'Other',quantity:quantity,amount:amount})});return lines}
+  async function saveReceipt(){
+    var supplier=value('receiptSupplier'),receipt=value('receiptNumber'),lines=receiptLines();if(!supplier||!receipt||!lines.length){alert('Enter supplier name, receipt number, and at least one receipt item.');return}
+    message('Saving receipt items securely...');
+    var date=value('receiptDate'),payment=value('receiptPayment'),payload=lines.map(function(line){return {business_id:businessId,expense_date:date,supplier_name:supplier,receipt_number:receipt,category:line.category,description:line.description,quantity:line.quantity,unit_amount:line.amount,payment_method:payment||null,reference_number:receipt,remarks:'Manual multi-item receipt entry',created_by:userId}});
+    var result=await db.from('expenses').insert(payload);if(result.error){message('Receipt items were not saved online: '+result.error.message);alert('The receipt could not be saved online. Please try again.');return}
+    await loadRemote();var tab=document.querySelector('[data-t="expenses"]');if(tab)tab.click();alert('All receipt items were saved securely to Expenses and Dashboard reporting.');
+  }
+  document.addEventListener('click',function(event){if(event.target.closest('[data-t="expenses"]'))setTimeout(function(){ensureFields();enhanceTable()},80);var receiptSave=event.target.closest('[data-receipt-save]');if(receiptSave&&online){event.preventDefault();event.stopImmediatePropagation();saveReceipt();return}var add=event.target.closest('[data-exp-add]');if(!add||!online)return;event.preventDefault();event.stopImmediatePropagation();saveExpense()},true);
   async function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=await resolveBusiness();if(!businessId){message('Online expenses are ready, but this account has no selected active business yet.');return}online=true;loadRemote();setTimeout(function(){ensureFields();enhanceTable()},850)}
   setTimeout(start,650);
 })();
