@@ -667,13 +667,17 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
 })();
 </script>
 <script>
-/* Admin Control Center entry. The page is local-only until secure online accounts are added. */
+/* The platform dashboard is visible only to the platform administrator, never to customers. */
 (function(){
-  function addAdminLink(){
-    var menu=document.getElementById('settingsMenu');if(!menu||document.getElementById('adminDashboardMenuButton'))return;
+  async function addAdminLink(){
+    var menu=document.getElementById('settingsMenu');if(!menu||document.getElementById('adminDashboardMenuButton')||!window.businessSupabase)return;
+    var session=await window.businessSupabase.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;
+    if(!user)return;
+    var profile=await window.businessSupabase.from('profiles').select('platform_role').eq('id',user.id).maybeSingle();
+    if(!profile.data||profile.data.platform_role!=='platform_admin')return;
     var button=document.createElement('button');button.type='button';button.id='adminDashboardMenuButton';button.textContent='Admin dashboard';button.onclick=function(){location.href='admin.html'};menu.appendChild(button);
   }
-  addAdminLink();window.addEventListener('load',addAdminLink);
+  window.addEventListener('load',function(){setTimeout(addAdminLink,1200)});
 })();
 </script>
 <script>
