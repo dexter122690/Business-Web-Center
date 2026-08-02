@@ -1,0 +1,6 @@
+/* Shows each customer only the features enabled by the platform administrator. */
+(function(){
+  var map={invoices:'invoices',reports:'reports',clients:'clients',expenses:'expenses',feedback:'feedback',owner:'feedback',quotes:'quotations',payroll:'payroll',schedule:'schedule'};
+  async function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,350);return}var db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey),session=await db.auth.getSession(),businessId=localStorage.getItem('bwc-active-business');if(!(session.data&&session.data.session&&businessId))return;var result=await db.from('business_management').select('enabled_features').eq('business_id',businessId).maybeSingle();if(result.error||!result.data)return;var features=result.data.enabled_features||{};Object.keys(map).forEach(function(tab){if(features[map[tab]]!==false)return;document.querySelectorAll('[data-t="'+tab+'"]').forEach(function(item){item.style.display='none'});var view=document.getElementById(tab);if(view)view.style.display='none'});var active=document.querySelector('.view.active');if(active&&active.style.display==='none'&&window.show)window.show('dashboard')}
+  setTimeout(start,1000);
+})();
