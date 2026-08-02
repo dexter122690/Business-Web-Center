@@ -7,9 +7,8 @@
   function map(row){return {id:'expense-'+row.id,remoteId:row.id,date:row.expense_date,supplier:row.supplier_name||'',receiptNumber:row.receipt_number||'',category:row.category,description:row.description,amount:Number(row.unit_amount||0),quantity:Number(row.quantity||1),payment:row.payment_method||'',reference:row.reference_number||'',remarks:row.remarks||''}}
   async function resolveBusiness(){
     var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;if(!user)return null;userId=user.id;
-    var saved=localStorage.getItem('bwc-active-business');if(saved)return saved;
     var memberships=await db.from('business_memberships').select('business_id,businesses!inner(id,name,status)').eq('user_id',user.id).eq('status','active');
-    var active=(memberships.data||[]).find(function(row){return row.businesses&&row.businesses.status==='active'});if(active){localStorage.setItem('bwc-active-business',active.business_id);localStorage.setItem('bwc-active-business-name',active.businesses.name);return active.business_id}
+    var saved=localStorage.getItem('bwc-active-business'),activeRows=(memberships.data||[]).filter(function(row){return row.businesses&&row.businesses.status==='active'}),active=activeRows.find(function(row){return row.business_id===saved})||activeRows[0];if(active){localStorage.setItem('bwc-active-business',active.business_id);localStorage.setItem('bwc-active-business-name',active.businesses.name);return active.business_id}
     var own=await db.from('businesses').select('id,name').eq('created_by',user.id).order('created_at',{ascending:true}).limit(2);if(own.data&&own.data.length===1){localStorage.setItem('bwc-active-business',own.data[0].id);localStorage.setItem('bwc-active-business-name',own.data[0].name);return own.data[0].id}
     return null;
   }
