@@ -15,7 +15,7 @@
   async function sync(repaint){
     if(!online||!businessId()||syncing)return;syncing=true;
     try{
-      var result=await db.from('scheduled_appointments').select('*').eq('business_id',businessId()).order('scheduled_date').order('scheduled_time');if(result.error)throw result.error;
+      var query=db.from('scheduled_appointments').select('*').eq('business_id',businessId()),branchId=localStorage.getItem('bwc-active-branch');if(branchId)query=query.eq('branch_id',branchId);var result=await query.order('scheduled_date').order('scheduled_time');if(result.error)throw result.error;
       var remote=(result.data||[]).map(localAppointment),ids={};remote.forEach(function(item){ids[item.id]=true});read().forEach(function(item){if(!item.online&&!ids[item.id])remote.push(item)});write(remote);
       status('Appointments are saved securely online for this business.','info');
       if(repaint){var tab=document.getElementById('scheduleTab');if(tab&&typeof tab.onclick==='function')tab.onclick()}
@@ -26,7 +26,7 @@
     if(!date||!client||!unit||!contact){alert('Enter the appointment date, client name, unit / vehicle, and contact number.');return}
     if(!businessId()){alert('Choose an active business before saving an appointment.');return}
     var account=await user();if(!account){alert('Please sign in again before saving this appointment.');return}
-    var payload={scheduled_date:date,scheduled_time:value('scheduleTime')||null,client_name:client,contact_number:contact,vehicle:unit,year_model:value('scheduleYear')||null,color:value('scheduleColor')||null,procedure:value('scheduleService')||null,reference_number:value('scheduleReference')||null,notes:value('scheduleNotes')||null};
+    var payload={branch_id:localStorage.getItem('bwc-active-branch'),scheduled_date:date,scheduled_time:value('scheduleTime')||null,client_name:client,contact_number:contact,vehicle:unit,year_model:value('scheduleYear')||null,color:value('scheduleColor')||null,procedure:value('scheduleService')||null,reference_number:value('scheduleReference')||null,notes:value('scheduleNotes')||null};
     button.disabled=true;var label=button.textContent;button.textContent='Saving securely...';
     try{
       var previousId=editingId,result;if(uuid(editingId))result=await db.from('scheduled_appointments').update(payload).eq('id',editingId).eq('business_id',businessId()).select().single();else{payload.business_id=businessId();payload.created_by=account.id;result=await db.from('scheduled_appointments').insert(payload).select().single()}if(result.error)throw result.error;

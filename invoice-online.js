@@ -16,11 +16,12 @@
     return null;
   }
   async function loadRemote(){
-    var result=await db.from('invoices').select('*,invoice_services(*),invoice_parts(*)').eq('business_id',businessId).order('invoice_date',{ascending:false}).order('invoice_number',{ascending:false});
+    var query=db.from('invoices').select('*,invoice_services(*),invoice_parts(*)').eq('business_id',businessId),branchId=localStorage.getItem('bwc-active-branch');if(branchId)query=query.eq('branch_id',branchId);
+    var result=await query.order('invoice_date',{ascending:false}).order('invoice_number',{ascending:false});
     if(result.error){message('Online invoices could not load: '+result.error.message);return}
     inv=(result.data||[]).map(normalize);cache();render();renderLists();document.dispatchEvent(new Event('bwc:invoices-loaded'));message('Online invoice records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');
   }
-  function invoicePayload(x){return {business_id:businessId,client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,total_amount:x.total,amount_paid:x.paid,status:x.status,created_by:userId}}
+  function invoicePayload(x){return {business_id:businessId,branch_id:localStorage.getItem('bwc-active-branch'),client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,total_amount:x.total,amount_paid:x.paid,status:x.status,created_by:userId}}
   async function writeLines(remoteId,x){
     var servicesRows=x.services.map(function(s){return {invoice_id:remoteId,service_name:s.n,service_detail:s.d||null,amount:Number(s.a||0)}}),partsRows=x.parts.map(function(p){return {invoice_id:remoteId,part_name:p.n,quantity:Number(p.q||0),unit_price:Number(p.p||0)}});
     if(servicesRows.length){var s=await db.from('invoice_services').insert(servicesRows);if(s.error)throw new Error(s.error.message)}
