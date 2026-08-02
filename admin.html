@@ -31,17 +31,24 @@
     if(profile.error||!profile.data||profile.data.platform_role!=='platform_admin'){await db.auth.signOut();tell('Administrator access is required. Please sign in with your administrator account.','error');return false}
     return session.data.session.user;
   }
+  function renderAccessTable(list,profiles,accessByBusiness){
+    table.className='';
+    table.innerHTML=list.length?'<div style="overflow:auto"><table><thead><tr><th>Business</th><th>Owner</th><th class="hide-small">Mobile / email</th><th>Requested</th><th>Access period</th><th>Status</th><th>Action</th></tr></thead><tbody>'+list.map(function(b){var p=profiles[b.created_by]||{},access=accessByBusiness[b.id]||{},days=Math.max(1,Number(access.access_days)||30),ends=access.access_ends_at?new Date(access.access_ends_at):null,accessText=ends?'Ends '+ends.toLocaleDateString():'Starts when approved';return '<tr><td><b>'+esc(b.name)+'</b><br><small class="muted">Plan: '+esc(b.plan||'starter')+'</small></td><td>'+esc(p.full_name||'Not available')+'</td><td class="hide-small">'+esc(p.mobile_number||'—')+'<br><small>'+esc(p.email||'—')+'</small></td><td>'+new Date(b.created_at).toLocaleDateString()+'</td><td><label><input aria-label="Access days" data-access-days="'+esc(b.id)+'" type="number" min="1" max="3650" value="'+days+'" style="width:74px;padding:7px"> days</label><br><small class="muted">'+esc(accessText)+'</small></td><td>'+status(b.status)+'</td><td><div class="actions">'+(b.status!=='active'?'<button data-set="active" data-id="'+esc(b.id)+'">Approve</button>':'<button class="secondary" data-set="active" data-id="'+esc(b.id)+'">Renew access</button>')+(b.status!=='suspended'?'<button class="danger" data-set="suspended" data-id="'+esc(b.id)+'">Suspend</button>':'<button data-set="active" data-id="'+esc(b.id)+'">Restore</button>')+'</div></td></tr>'}).join('')+'</tbody></table></div>':'<div class="empty">No business account requests yet.</div>';
+  }
   async function load(){
     var user=await requireAdmin();if(!user)return;
     tell('Loading account requests…');table.className='loading';table.textContent='Loading business requests…';
     var result=await db.from('businesses').select('id,name,status,plan,created_by,created_at,updated_at').order('created_at',{ascending:false});
     if(result.error){tell(result.error.message,'error');table.className='empty';table.textContent='Could not load the business requests.';return}
-    var list=result.data||[],ids=list.map(function(b){return b.created_by}),profiles={};
+    var list=result.data||[],ids=list.map(function(b){return b.created_by}),profiles={},accessByBusiness={};
+    var access=await db.from('business_management').select('business_id,access_days,access_started_at,access_ends_at').in('business_id',list.map(function(b){return b.id}));
+    if(!access.error)(access.data||[]).forEach(function(row){accessByBusiness[row.business_id]=row});
     if(ids.length){var p=await db.from('profiles').select('id,email,full_name,mobile_number').in('id',ids);if(!p.error)(p.data||[]).forEach(function(row){profiles[row.id]=row})}
     var counts=list.reduce(function(a,b){a[b.status]=(a[b.status]||0)+1;return a},{pending:0,active:0,suspended:0});
     metrics.innerHTML=[['All businesses',list.length],['Waiting approval',counts.pending||0],['Active customers',counts.active||0],['Suspended',counts.suspended||0]].map(function(item){return '<div class="card"><div class="muted">'+item[0]+'</div><div class="metric">'+item[1]+'</div></div>'}).join('');
     table.className='';
     table.innerHTML=list.length?'<div style="overflow:auto"><table><thead><tr><th>Business</th><th>Owner</th><th class="hide-small">Mobile / email</th><th>Requested</th><th>Status</th><th>Action</th></tr></thead><tbody>'+list.map(function(b){var p=profiles[b.created_by]||{};return '<tr><td><b>'+esc(b.name)+'</b><br><small class="muted">Plan: '+esc(b.plan||'starter')+'</small></td><td>'+esc(p.full_name||'Not available')+'</td><td class="hide-small">'+esc(p.mobile_number||'—')+'<br><small>'+esc(p.email||'—')+'</small></td><td>'+new Date(b.created_at).toLocaleDateString()+'</td><td>'+status(b.status)+'</td><td><div class="actions">'+(b.status!=='active'?'<button data-set="active" data-id="'+esc(b.id)+'">Approve</button>':'<button class="secondary" data-open="'+esc(b.id)+'">Active</button>')+(b.status!=='suspended'?'<button class="danger" data-set="suspended" data-id="'+esc(b.id)+'">Suspend</button>':'<button data-set="active" data-id="'+esc(b.id)+'">Restore</button>')+'</div></td></tr>'}).join('')+'</tbody></table></div>':'<div class="empty">No business account requests yet.</div>';
+    renderAccessTable(list,profiles,accessByBusiness);
     document.getElementById('updatedAt').textContent='Updated '+new Date().toLocaleString();tell('Account requests are up to date.');
   }
   async function updateBusiness(id,nextStatus){
@@ -50,6 +57,21 @@
     if(changed.error){tell(changed.error.message,'error');return}
     var actor=await db.auth.getUser();await db.from('audit_logs').insert({business_id:id,actor_id:actor.data.user&&actor.data.user.id,action:'business_'+nextStatus,entity_type:'business',entity_id:id,details:{business_name:changed.data&&changed.data.name,status:nextStatus}});
     tell('Business account '+(nextStatus==='active'?'approved and activated.':'suspended.')+'');load();
+  }
+  async function updateBusiness(id,nextStatus){
+    var daysInput=document.querySelector('[data-access-days="'+id+'"]'),days=Math.max(1,Math.min(3650,Number(daysInput&&daysInput.value)||30));
+    if(!confirm((nextStatus==='active'?'Approve / renew access for '+days+' days':'Suspend')+' this business account?'))return;
+    tell('Saving account access...');
+    var actor=await db.auth.getUser();
+    if(nextStatus==='active'){
+      var started=new Date(),ends=new Date(started.getTime()+days*86400000);
+      var access=await db.from('business_management').upsert({business_id:id,access_days:days,access_started_at:started.toISOString(),access_ends_at:ends.toISOString(),updated_by:actor.data.user&&actor.data.user.id},{onConflict:'business_id'});
+      if(access.error){tell('Could not save the access period: '+access.error.message,'error');return}
+    }
+    var changed=await db.from('businesses').update({status:nextStatus}).eq('id',id).select('id,name,status').maybeSingle();
+    if(changed.error){tell(changed.error.message,'error');return}
+    await db.from('audit_logs').insert({business_id:id,actor_id:actor.data.user&&actor.data.user.id,action:'business_'+nextStatus,entity_type:'business',entity_id:id,details:{business_name:changed.data&&changed.data.name,status:nextStatus,access_days:nextStatus==='active'?days:null}});
+    tell('Business account '+(nextStatus==='active'?'approved. Access ends in '+days+' days.':'suspended.')+'');load();
   }
   document.getElementById('refresh').onclick=load;
   document.getElementById('signOut').onclick=async function(){if(db)await db.auth.signOut();location.href='auth.html'};

@@ -18,4 +18,46 @@ async function open(user){var p=await db.from('profiles').select('platform_role'
 login.onsubmit=async function(e){e.preventDefault();if(!db)return unavailable();var btn=e.submitter;btn.disabled=true;btn.textContent='Signing in…';var r=await db.auth.signInWithPassword({email:loginEmail.value.trim(),password:loginPassword.value});btn.disabled=false;btn.textContent='Sign in';if(r.error)return say(r.error.message,'error');open(r.data.user)};
 signup.onsubmit=async function(e){e.preventDefault();if(!db)return unavailable();var btn=e.submitter,name=(firstName.value.trim()+' '+lastName.value.trim()).trim();btn.disabled=true;btn.textContent='Submitting…';var r=await db.auth.signUp({email:signEmail.value.trim(),password:signPassword.value,options:{data:{full_name:name,business_name:businessName.value.trim(),mobile_number:mobile.value.trim()}}});btn.disabled=false;btn.textContent='Submit account request';if(r.error)return say(r.error.message,'error');signup.reset();mode(true);say('Account request submitted. Check your email for verification, then wait for administrator approval.','info')};
 forgot.onclick=async function(){if(!db)return unavailable();if(!loginEmail.value.trim())return say('Enter your email address first.','error');var r=await db.auth.resetPasswordForEmail(loginEmail.value.trim(),{redirectTo:location.origin+'/auth.html'});say(r.error?r.error.message:'Password reset instructions were sent. ',r.error?'error':'info')};if(!ready)say('Account pages are ready. Connect Supabase to activate them.','info')})();
+</script>
+<script>
+/* Enforce the administrator-controlled access period before a business can enter. */
+(function(){
+  var held=new URLSearchParams(location.search).get('access')==='on-hold';
+  function showHold(){
+    document.querySelector('.tabs').style.display='none';
+    document.getElementById('inForm').style.display='none';
+    document.getElementById('upForm').style.display='none';
+    var message=document.getElementById('message');
+    message.textContent='Account access is on hold. Your access period has ended. Please contact the Business Web Center administrator to renew your plan. Your business records remain secure.';
+    message.className='message show error';
+  }
+  if(held){showHold();return}
+  var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};
+  if(!config.url||!config.publishableKey||!window.supabase)return;
+  var db=window.supabase.createClient(config.url,config.publishableKey);
+  var login=document.getElementById('login'),message=document.getElementById('message');
+  function say(text,kind){message.textContent=text;message.className='message show '+(kind||'info')}
+  login.onsubmit=async function(event){
+    event.preventDefault();
+    var button=event.submitter;button.disabled=true;button.textContent='Signing in...';
+    var signed=await db.auth.signInWithPassword({email:document.getElementById('loginEmail').value.trim(),password:document.getElementById('loginPassword').value});
+    button.disabled=false;button.textContent='Sign in';
+    if(signed.error){say(signed.error.message,'error');return}
+    var user=signed.data.user;
+    var profile=await db.from('profiles').select('platform_role').eq('id',user.id).maybeSingle();
+    if(profile.data&&profile.data.platform_role==='platform_admin'){location.href='index.html';return}
+    var membership=await db.from('business_memberships').select('business_id').eq('user_id',user.id).eq('status','active');
+    if(membership.error||!membership.data||!membership.data.length){await db.auth.signOut();say('Your account is waiting for approval.','info');return}
+    var businesses=await db.from('businesses').select('id,name,status').in('id',membership.data.map(function(row){return row.business_id}));
+    var active=(businesses.data||[]).find(function(row){return row.status==='active'});
+    if(!active){await db.auth.signOut();say('Your business account is waiting for approval.','info');return}
+    var access=await db.from('business_management').select('access_ends_at').eq('business_id',active.id).maybeSingle();
+    if(access.data&&access.data.access_ends_at&&new Date(access.data.access_ends_at).getTime()<=Date.now()){
+      await db.auth.signOut();location.replace('auth.html?access=on-hold');return;
+    }
+    localStorage.setItem('bwc-active-business',active.id);
+    localStorage.setItem('bwc-active-business-name',active.name);
+    location.href='index.html';
+  };
+})();
 </script><script src="auth-team.js"></script></body></html>
