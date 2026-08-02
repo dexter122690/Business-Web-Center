@@ -15,6 +15,9 @@
     var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user,businessId=localStorage.getItem('bwc-active-business');
     return user&&businessId?{user:user,businessId:businessId}:null;
   }
+  function cacheKey(){return 'bwc-branch-directory:'+(localStorage.getItem('bwc-active-business')||'local')}
+  function cachedBranches(){try{var rows=JSON.parse(localStorage.getItem(cacheKey())||'[]');return Array.isArray(rows)?rows:[]}catch(error){return []}}
+  function cacheBranches(rows){if(rows&&rows.length)localStorage.setItem(cacheKey(),JSON.stringify(rows));}
   function displayName(name){return name==='Main workspace'?'MAIN':name;}
   function escapeHtml(value){return String(value||'').replace(/[&<>"']/g,function(character){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character];});}
   function holder(){
@@ -43,7 +46,8 @@
   async function list(){
     var c=await context();if(!c)return [];
     var result=await db.from('branches').select('id,name,address,contact_number,email').eq('business_id',c.businessId).eq('is_active',true).order('created_at');
-    return result.error?[]:(result.data||[]);
+    if(result.error)return cachedBranches();
+    var rows=result.data||[];cacheBranches(rows);return rows;
   }
   async function ensureMain(){
     var c=await context(),rows=await list();
@@ -54,6 +58,9 @@
   }
   function render(rows){
     var picker=mount();if(!picker)return;
+    if(!rows.length)rows=cachedBranches();
+    /* Do not replace a branch picker while someone is using it. */
+    if(document.activeElement===picker)return;
     var active=localStorage.getItem(activeKey)||'',chosen=rows.find(function(row){return row.id===active;})||rows[0];
     if(chosen)localStorage.setItem(activeKey,chosen.id);
     picker.innerHTML=rows.length?rows.map(function(row){return '<option value="'+escapeHtml(row.id)+'" '+(chosen&&row.id===chosen.id?'selected':'')+'>'+escapeHtml(displayName(row.name))+'</option>';}).join(''):'<option value="">MAIN</option>';
@@ -87,6 +94,6 @@
   function bindCreate(){var button=document.getElementById('createBranchMenuButton');if(button)button.onclick=create;}
   function start(){refresh();bindCreate();}
   installStyle();mount();
-  window.addEventListener('load',function(){setTimeout(start,80);setInterval(bindCreate,1000);setInterval(refresh,10000);});
+  window.addEventListener('load',function(){setTimeout(start,80);setInterval(bindCreate,1000);});
   document.addEventListener('bwc:business-ready',start);
 })();
