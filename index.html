@@ -756,6 +756,65 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
   });
 }());
 </script>
+<script>
+/* Preserve an unfinished appointment while Schedule redraws in the background.
+   Drafts are intentionally separate for every business and every branch. */
+(function () {
+  function key() {
+    return 'bwc-schedule-draft:' +
+      (localStorage.getItem('bwc-active-business') || 'local') + ':' +
+      (localStorage.getItem('bwc-active-branch') || 'main');
+  }
+  function saveDraft() {
+    var page = document.getElementById('schedule');
+    if (!page) return;
+    var draft = {};
+    page.querySelectorAll('input, select, textarea').forEach(function (field) {
+      if (field.id && field.id.indexOf('schedule') === 0) draft[field.id] = field.value;
+    });
+    if (Object.keys(draft).length) localStorage.setItem(key(), JSON.stringify(draft));
+  }
+  function clearDraft() {
+    localStorage.removeItem(key());
+  }
+  function restoreDraft() {
+    var page = document.getElementById('schedule');
+    if (!page || !page.classList.contains('active')) return;
+    var draft;
+    try { draft = JSON.parse(localStorage.getItem(key()) || '{}'); } catch (error) { draft = {}; }
+    Object.keys(draft).forEach(function (id) {
+      var field = document.getElementById(id);
+      if (field && field.value !== draft[id]) field.value = draft[id];
+    });
+  }
+  function isScheduleAction(target) {
+    return target && target.closest('[data-schedule-save],[data-schedule-edit],[data-schedule-cancel]');
+  }
+
+  document.addEventListener('input', function (event) {
+    if (event.target.closest('#schedule')) saveDraft();
+  }, true);
+  document.addEventListener('change', function (event) {
+    if (event.target.closest('#schedule')) saveDraft();
+  }, true);
+  /* Clear only when the user deliberately saves, edits a saved item, or cancels. */
+  window.addEventListener('pointerdown', function (event) {
+    if (isScheduleAction(event.target)) clearDraft();
+  }, true);
+  window.addEventListener('keydown', function (event) {
+    if ((event.key === 'Enter' || event.key === ' ') && isScheduleAction(document.activeElement)) clearDraft();
+  }, true);
+
+  var pending;
+  new MutationObserver(function () {
+    clearTimeout(pending);
+    pending = setTimeout(restoreDraft, 0);
+  }).observe(document.documentElement, { childList: true, subtree: true });
+  document.addEventListener('bwc:schedule-loaded', function () { setTimeout(restoreDraft, 0); });
+  document.addEventListener('bwc:branch-ready', function () { setTimeout(restoreDraft, 450); });
+  window.addEventListener('load', function () { setTimeout(restoreDraft, 600); });
+}());
+</script>
 </body></html>
 
 
