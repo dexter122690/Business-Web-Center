@@ -18,7 +18,7 @@
   async function loadRemote(){
     var result=await db.from('invoices').select('*,invoice_services(*),invoice_parts(*)').eq('business_id',businessId).order('invoice_date',{ascending:false}).order('invoice_number',{ascending:false});
     if(result.error){message('Online invoices could not load: '+result.error.message);return}
-    inv=(result.data||[]).map(normalize);cache();render();renderLists();message('Online invoice records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');
+    inv=(result.data||[]).map(normalize);cache();render();renderLists();document.dispatchEvent(new Event('bwc:invoices-loaded'));message('Online invoice records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');
   }
   function invoicePayload(x){return {business_id:businessId,client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,total_amount:x.total,amount_paid:x.paid,status:x.status,created_by:userId}}
   async function writeLines(remoteId,x){
