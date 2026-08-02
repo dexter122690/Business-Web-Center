@@ -21,6 +21,21 @@
     if(result.error){message('Online invoices could not load: '+result.error.message);return}
     inv=(result.data||[]).map(normalize);cache();render();renderLists();document.dispatchEvent(new Event('bwc:invoices-loaded'));message('Online invoice records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');
   }
+  function escapeHtml(value){return String(value||'').replace(/[&<>"']/g,function(character){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]})}
+  function isAdmin(worker){return /\badmin(istrator)?\b/i.test(String(worker.position||''))}
+  function renderAdmins(rows){
+    var field=document.getElementById('admin');if(!field)return;
+    var selected=field.value,admins=(rows||[]).filter(function(worker){return worker.is_active!==false&&isAdmin(worker)});
+    field.dataset.onlineAdmins='1';
+    field.innerHTML='<option value="">Select admin</option>'+admins.map(function(worker){return '<option value="'+escapeHtml(worker.full_name)+'">'+escapeHtml(worker.full_name)+'</option>'}).join('');
+    if(admins.some(function(worker){return worker.full_name===selected}))field.value=selected;
+  }
+  async function loadAdmins(){
+    var branchId=localStorage.getItem('bwc-active-branch');if(!businessId||!branchId){renderAdmins([]);return}
+    var result=await db.from('payroll_workers').select('full_name,position,is_active').eq('business_id',businessId).eq('branch_id',branchId).eq('is_active',true).order('full_name');
+    if(result.error){renderAdmins([]);message('Admin list could not load: '+result.error.message);return}
+    renderAdmins(result.data||[]);
+  }
   function invoicePayload(x){return {business_id:businessId,branch_id:localStorage.getItem('bwc-active-branch'),client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,total_amount:x.total,amount_paid:x.paid,status:x.status,created_by:userId}}
   async function writeLines(remoteId,x){
     var servicesRows=x.services.map(function(s){return {invoice_id:remoteId,service_name:s.n,service_detail:s.d||null,amount:Number(s.a||0)}}),partsRows=x.parts.map(function(p){return {invoice_id:remoteId,part_name:p.n,quantity:Number(p.q||0),unit_price:Number(p.p||0)}});
@@ -45,7 +60,8 @@
   };
   async function start(){
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}
-    db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=await resolveBusiness();if(!businessId){message('Online invoices are ready, but this account has no selected active business yet. Approve or select the business first.');return}online=true;loadRemote();
+    db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=await resolveBusiness();if(!businessId){message('Online invoices are ready, but this account has no selected active business yet. Approve or select the business first.');return}online=true;await loadAdmins();loadRemote();
   }
+  document.addEventListener('click',function(event){if(online&&event.target.closest('[data-t="invoices"]'))setTimeout(loadAdmins,80)});
   setTimeout(start,500);
 })();
