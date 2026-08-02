@@ -669,6 +669,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
       if(!active){await db.auth.signOut();sendToSignIn();return}
       localStorage.setItem('bwc-active-business',active.id);
       localStorage.setItem('bwc-active-business-name',active.name);
+      document.dispatchEvent(new Event('bwc:business-ready'));
     });
   }).catch(function(){/* Local prototype mode remains available until Supabase configuration is added. */});
 })();
