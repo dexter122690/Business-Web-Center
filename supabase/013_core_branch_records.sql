@@ -2,7 +2,7 @@
 begin;
 
 insert into public.branches (business_id, name)
-select b.id, 'Main workspace'
+select b.id, 'MAIN'
 from public.businesses b
 where not exists (select 1 from public.branches br where br.business_id = b.id);
 
