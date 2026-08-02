@@ -89,7 +89,7 @@
       }
       if(result.error)throw result.error;
       var data=read();data.workers=data.workers||[];var saved=localWorker(result.data),index=data.workers.findIndex(function(worker){return worker.id===saved.id||String(worker.code||'').toLowerCase()===String(saved.code).toLowerCase()});
-      if(index>=0)data.workers[index]=saved;else data.workers.unshift(saved);write(data);localStorage.removeItem('15m-worker-editor');
+      if(index>=0)data.workers[index]=saved;else data.workers.unshift(saved);write(data);localStorage.removeItem('15m-worker-editor');document.dispatchEvent(new Event('bwc:workers-updated'));
       var tab=document.querySelector('[data-pr-tab="workers"]');if(tab)tab.click();
       alert(editingId?'Worker details saved securely online.':'Worker added securely to this business.');
     }catch(error){alert('The worker could not be saved online. '+error.message);button.disabled=false;button.textContent=original}
@@ -251,5 +251,6 @@
     if(button.dataset.prApproveOt)approveOvertime(button);else if(button.dataset.prIssuePayslip)issuePayroll(button);else if(button.dataset.pr==='approve-payslip')approvePayroll(button);else if(button.dataset.prHistory==='advance'||button.dataset.prHistory==='loan')editObligationHistory(button,button.dataset.prHistory);else if(button.dataset.prEdit==='advance'||button.dataset.prEdit==='loan')editObligation(button,button.dataset.prEdit);else if(button.dataset.prEdit==='job')editJob(button);else if(button.dataset.prPayment==='advance'||button.dataset.prPayment==='loan')recordObligationPayment(button,button.dataset.prPayment);else if(button.dataset.prPayment==='job')recordJobPayment(button);else if(button.dataset.pr==='add-advances')saveObligation(button,'advance');else if(button.dataset.pr==='add-loans')saveObligation(button,'loan');else if(button.dataset.pr==='add-job')saveJob(button);else if(button.dataset.pr==='save-attendance')saveAttendance(button);else saveWorker(event,button);
   },true);
   window.addEventListener('load',function(){setTimeout(function(){replaceLegacyIssueButtons();syncWorkers();syncAttendance();syncJobs();syncObligations();syncPayrollArchive();new MutationObserver(replaceLegacyIssueButtons).observe(document.body,{childList:true,subtree:true})},120)});
+  document.addEventListener('bwc:branch-ready',function(){setTimeout(function(){syncWorkers();syncAttendance();syncJobs();syncObligations();syncPayrollArchive()},40)});
   document.addEventListener('click',function(event){if(event.target.closest('[data-pr-tab="workers"]'))setTimeout(function(){syncWorkers();showStatus('Workers are saved securely online for this business.','info')},100);if(event.target.closest('[data-pr-tab="attendance"]'))setTimeout(syncAttendance,100);if(event.target.closest('[data-pr-tab="jobs"]'))setTimeout(syncJobs,100);if(event.target.closest('[data-pr-tab="advances"], [data-pr-tab="loans"]'))setTimeout(syncObligations,100);if(event.target.closest('[data-pr-tab="summary"], [data-pr-tab="calculated"]'))setTimeout(function(){syncPayrollArchive();decoratePayrollActions()},100)});
 })();

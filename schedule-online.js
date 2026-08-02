@@ -41,5 +41,6 @@
     event.preventDefault();event.stopImmediatePropagation();save(saveButton);
   },true);
   document.addEventListener('click',function(event){if(event.target.closest('#scheduleTab'))setTimeout(function(){sync(true)},120)});
+  document.addEventListener('bwc:branch-ready',function(){if(online)setTimeout(function(){sync(true)},40)});
   window.addEventListener('load',function(){setTimeout(function(){if(document.getElementById('schedule')&&document.getElementById('schedule').classList.contains('active'))sync(true)},350)});
 })();

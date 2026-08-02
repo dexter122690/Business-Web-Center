@@ -34,5 +34,6 @@
   }
   document.addEventListener('click',function(event){if(event.target.closest('[data-t="expenses"]'))setTimeout(function(){ensureFields();enhanceTable()},80);var receiptSave=event.target.closest('[data-receipt-save]');if(receiptSave&&online){event.preventDefault();event.stopImmediatePropagation();saveReceipt();return}var add=event.target.closest('[data-exp-add]');if(!add||!online)return;event.preventDefault();event.stopImmediatePropagation();saveExpense()},true);
   async function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=await resolveBusiness();if(!businessId){message('Online expenses are ready, but this account has no selected active business yet.');return}online=true;loadRemote();setTimeout(function(){ensureFields();enhanceTable()},850)}
+  document.addEventListener('bwc:branch-ready',function(){if(online)loadRemote()});
   setTimeout(start,650);
 })();

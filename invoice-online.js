@@ -62,5 +62,7 @@
     db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=await resolveBusiness();if(!businessId){message('Online invoices are ready, but this account has no selected active business yet. Approve or select the business first.');return}inv=[];cache();render();renderLists();online=true;await loadAdmins();loadRemote();
   }
   document.addEventListener('click',function(event){if(online&&event.target.closest('[data-t="invoices"]'))setTimeout(loadAdmins,80)});
+  document.addEventListener('bwc:branch-ready',function(){if(online){loadAdmins();loadRemote()}});
+  document.addEventListener('bwc:workers-updated',function(){if(online)loadAdmins()});
   setTimeout(start,500);
 })();
