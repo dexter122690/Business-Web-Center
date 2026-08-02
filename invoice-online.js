@@ -64,5 +64,6 @@
   document.addEventListener('click',function(event){if(online&&event.target.closest('[data-t="invoices"]'))setTimeout(loadAdmins,80)});
   document.addEventListener('bwc:branch-ready',function(){if(online){loadAdmins();loadRemote()}});
   document.addEventListener('bwc:workers-updated',function(){if(online)loadAdmins()});
+  document.addEventListener('bwc:invoice-deleted',function(){if(online)loadRemote()});
   setTimeout(start,500);
 })();
