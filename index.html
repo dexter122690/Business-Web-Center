@@ -708,6 +708,54 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
   }, true);
 }());
 </script>
+<script>
+/* Keep the current screen after refresh.  The key includes the business and
+   branch, preventing one workspace from restoring another workspace's tab. */
+(function () {
+  function storageKey() {
+    var business = localStorage.getItem('bwc-active-business') || 'local';
+    var branch = localStorage.getItem('bwc-active-branch') || 'main';
+    return 'bwc-last-open-tab:' + business + ':' + branch;
+  }
+  function remember(tabId) {
+    if (tabId) localStorage.setItem(storageKey(), tabId);
+  }
+  function restore() {
+    var tabId = localStorage.getItem(storageKey());
+    if (!tabId) return;
+    if (tabId === 'customizePage') {
+      if (typeof window.openCustomizePage === 'function') window.openCustomizePage();
+      return;
+    }
+    var button = document.querySelector('[data-restore-tab="' + tabId + '"]') ||
+      document.querySelector('[data-t="' + tabId + '"]') ||
+      (tabId === 'schedule' ? document.getElementById('scheduleTab') : null);
+    if (button) button.click();
+  }
+
+  document.addEventListener('click', function (event) {
+    var tab = event.target.closest('[data-restore-tab],[data-t],#scheduleTab');
+    if (tab) {
+      remember(tab.dataset.restoreTab || tab.dataset.t || 'schedule');
+      return;
+    }
+    if (event.target.closest('#settingsMenu button[onclick*="openCustomizePage"]')) {
+      remember('customizePage');
+    } else if (event.target.closest('[onclick*="openDashboardPage"]')) {
+      remember('dashboard');
+    }
+  }, true);
+
+  /* Branch data becomes available after the page loads, then restore the tab
+     belonging specifically to that branch. */
+  document.addEventListener('bwc:branch-ready', function () {
+    window.setTimeout(restore, 350);
+  });
+  window.addEventListener('load', function () {
+    window.setTimeout(restore, 500);
+  });
+}());
+</script>
 </body></html>
 
 
