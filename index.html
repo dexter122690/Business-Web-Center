@@ -441,7 +441,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
 })();
 </script><script>
 /* Default workspace starts without a branch, public employee-clock link, or dashboard print button. */
-(function(){var link=document.querySelector('.employee-clock-link'),branch=document.querySelector('.branch'),printButton=document.querySelector('#dashboard .heading .dark');if(link)link.remove();if(branch)branch.remove();if(printButton)printButton.remove()})();
+(function(){var link=document.querySelector('.employee-clock-link'),printButton=document.querySelector('#dashboard .heading .dark');if(link)link.remove();if(printButton)printButton.remove()})();
 </script><script>
 /* Settings menu: branch creation is prepared as its own next workspace. */
 (function(){var menu=document.getElementById('settingsMenu');if(!menu||document.getElementById('createBranchMenuButton'))return;var button=document.createElement('button');button.type='button';button.id='createBranchMenuButton';button.textContent='Create branch';button.onclick=function(){alert('Branch creation will be set up here next.');};menu.appendChild(button)})();
