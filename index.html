@@ -600,46 +600,6 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
   document.addEventListener('click',function(event){var button=event.target.closest('[data-pr-delete-worker]');if(!button)return;event.preventDefault();event.stopImmediatePropagation();var data=read(),worker=(data.workers||[]).find(function(item){return item.id===button.dataset.prDeleteWorker});if(!worker)return;var linked=(data.jobs||[]).filter(function(item){return item.workerId===worker.id}).length+(data.advances||[]).filter(function(item){return item.workerId===worker.id}).length+(data.loans||[]).filter(function(item){return item.workerId===worker.id}).length+(data.attendance||[]).filter(function(item){return item.workerId===worker.id}).length+(data.payslips||[]).filter(function(item){return item.worker&&item.worker.id===worker.id}).length;var message='Delete '+(worker.name||'this employee')+' from the active Workers masterlist?';if(linked)message+='\n\n'+linked+' related historical record(s) will remain saved for audit and dispute purposes.';if(!confirm(message))return;data.workers=(data.workers||[]).filter(function(item){return item.id!==worker.id});if(data.workerId===worker.id)data.workerId='';save(data);var tab=document.querySelector('#payroll [data-pr-tab="workers"]');if(tab)tab.click();alert((worker.name||'Employee')+' was deleted from the active Workers masterlist. Historical records were kept.');},true);
   document.addEventListener('click',function(event){if(event.target.closest('#payroll [data-pr-tab="workers"], #payroll [data-pr-edit="worker"]'))setTimeout(addDeleteButtons,70)});window.addEventListener('load',function(){setTimeout(addDeleteButtons,180)});setInterval(addDeleteButtons,2000);
 })();
-</script><script>
-/* Local branch workspaces: the same system, with isolated empty records per branch. */
-(function(){
-  var branchId=new URLSearchParams(location.search).get('branch')||'',registryKey='15m-branch-registry',original={get:Storage.prototype.getItem,set:Storage.prototype.setItem,remove:Storage.prototype.removeItem};
-  function rawGet(key){return original.get.call(localStorage,key)}function rawSet(key,value){return original.set.call(localStorage,key,value)}
-  function registry(){try{return JSON.parse(rawGet(registryKey)||'[]')}catch(e){return []}}
-  function workspaceKey(key){return typeof key==='string'&&key.indexOf('15m-')===0&&key!==registryKey?'15m-branch-'+branchId+'::'+key:key}
-  if(branchId){window.__branchId=branchId;Storage.prototype.getItem=function(key){return original.get.call(this,workspaceKey(key))};Storage.prototype.setItem=function(key,value){return original.set.call(this,workspaceKey(key),value)};Storage.prototype.removeItem=function(key){return original.remove.call(this,workspaceKey(key))};try{inv=[];services=[];parts=[];edit=null}catch(e){}}
-  function branchMeta(){return registry().find(function(item){return item.id===branchId})||{id:branchId,name:'Branch'}}
-  function showBranchName(){if(!branchId)return;var meta=branchMeta(),header=document.querySelector('header'),settings=header&&header.querySelector('.settings-wrap');if(!header||!settings)return;var old=header.querySelector('.branch');if(old)old.remove();var label=document.createElement('div');label.className='branch';label.innerHTML='<b>BRANCH</b>&nbsp;&nbsp;<strong></strong>';label.querySelector('strong').textContent=meta.name;header.insertBefore(label,settings);var headerData={type:'Service business management',company:'Your Business Name',description:'Manage invoices, sales, expenses, customer records, quotations, and payroll in one place.',branch:meta.name};try{headerData=Object.assign(headerData,JSON.parse(localStorage.getItem('15m-custom-header')||'{}'))}catch(e){}headerData.branch=meta.name;localStorage.setItem('15m-custom-header',JSON.stringify(headerData));document.querySelectorAll('a[href^="attendance.html"],a[href^="receipt-scanner.html"]').forEach(function(link){var path=link.getAttribute('href').split('?')[0];link.setAttribute('href',path+'?branch='+encodeURIComponent(branchId))})}
-  function createBranch(){var name=prompt('New branch name (for example: Sta. Rosa Branch):');if(name===null)return;name=name.trim();if(!name){alert('Enter a branch name first.');return}var items=registry(),id='branch-'+Date.now().toString(36);items.push({id:id,name:name,createdAt:new Date().toISOString()});rawSet(registryKey,JSON.stringify(items));var link=location.pathname+'?branch='+encodeURIComponent(id);alert('Empty branch created: '+name+'\n\nThis branch has its own separate invoices, expenses, payroll, schedules, and settings.');location.href=link}
-  function setupMenu(){var menu=document.getElementById('settingsMenu'),button=document.getElementById('createBranchMenuButton');if(button)button.onclick=createBranch;else if(menu){button=document.createElement('button');button.type='button';button.id='createBranchMenuButton';button.textContent='Create branch';button.onclick=createBranch;menu.appendChild(button)}if(branchId&&menu&&!document.getElementById('mainWorkspaceMenuButton')){var main=document.createElement('button');main.type='button';main.id='mainWorkspaceMenuButton';main.textContent='Open MAIN branch';main.onclick=function(){location.href=location.pathname};menu.appendChild(main)}}
-  setupMenu();window.addEventListener('load',function(){if(branchId){showBranchName();setTimeout(function(){try{render()}catch(e){}},80)}setupMenu()});if(branchId)setInterval(showBranchName,2000);
-})();
-</script>
-<script>
-/* Branch picker: switch between the main workspace and isolated branch records. */
-(function(){
-  var registryKey='15m-branch-registry';
-  var style=document.createElement('style');style.textContent='#branchWorkspacePicker{display:flex;align-items:center;gap:8px}#branchWorkspacePicker select{width:auto;min-width:145px;padding:6px 24px 6px 8px;background:#171717;color:#fff;border:1px solid #725d53;border-radius:6px;font-size:11px;font-weight:bold;cursor:pointer}#branchWorkspacePicker option{background:#fff;color:#16100d}@media(max-width:850px){#branchWorkspacePicker{display:none}}';document.head.appendChild(style);
-  function currentBranch(){return new URLSearchParams(location.search).get('branch')||''}
-  function branches(){try{return JSON.parse(localStorage.getItem(registryKey)||'[]')}catch(e){return []}}
-  function openWorkspace(id){location.href=id?location.pathname+'?branch='+encodeURIComponent(id):location.pathname}
-  function renderBranchPicker(){
-    var header=document.querySelector('header'),settings=header&&header.querySelector('.settings-wrap');
-    if(!header||!settings||document.getElementById('branchWorkspacePicker'))return;
-    var old=header.querySelector('.branch');if(old)old.remove();
-    var wrap=document.createElement('div');wrap.className='branch';wrap.id='branchWorkspacePicker';
-    var label=document.createElement('b');label.textContent='BRANCH';
-    var select=document.createElement('select');select.setAttribute('aria-label','Choose branch');
-    var main=document.createElement('option');main.value='';main.textContent='MAIN';select.appendChild(main);
-    branches().forEach(function(branch){var option=document.createElement('option');option.value=branch.id;option.textContent=branch.name;select.appendChild(option)});
-    select.value=currentBranch();select.onchange=function(){openWorkspace(this.value)};
-    wrap.append(label,select);header.insertBefore(wrap,settings);
-  }
-  function keepPickerAvailable(){if(!document.getElementById('branchWorkspacePicker'))renderBranchPicker()}
-  window.addEventListener('load',function(){setTimeout(renderBranchPicker,180)});
-  setInterval(keepPickerAvailable,650);
-})();
-</script>
 <script>
 /* Keep Client Feedback and Owner Feedback on one shared saved inbox. */
 (function(){

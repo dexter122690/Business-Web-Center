@@ -1,6 +1,9 @@
 /* Shared branch directory and selector. Core records follow the selected branch. */
 (function(){
   var config=window.BUSINESS_WEB_CENTER_SUPABASE||{},db=null,activeKey='bwc-active-branch';
+  /* Older links used a browser-only ?branch= value. The selected online branch is now
+     the only source of truth, so remove that obsolete value without reloading. */
+  if(new URLSearchParams(location.search).has('branch'))history.replaceState(null,'',location.pathname+location.hash);
   function ready(){if(db)return Promise.resolve(true);if(!window.supabase||!config.url||!config.publishableKey)return Promise.resolve(false);db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);return Promise.resolve(true)}
   async function context(){if(!await ready())return null;var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user,businessId=localStorage.getItem('bwc-active-business');return user&&businessId?{user:user,businessId:businessId}:null}
   async function list(){var c=await context();if(!c)return [];var result=await db.from('branches').select('id,name,address,contact_number,email').eq('business_id',c.businessId).eq('is_active',true).order('created_at');return result.error?[]:(result.data||[])}
