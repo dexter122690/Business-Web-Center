@@ -11,7 +11,7 @@
   function write(rows){localStorage.setItem(key,JSON.stringify(rows))}
   function value(id){var input=document.getElementById(id);return input?input.value.trim():''}
   function uuid(value){return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value||''))}
-  function localAppointment(row){return {id:row.id,date:row.scheduled_date,time:row.scheduled_time?String(row.scheduled_time).slice(0,5):'',client:row.client_name,contact:row.contact_number,unit:row.vehicle,year:row.year_model||'',color:row.color||'',vehicle:row.vehicle+(row.year_model?' '+row.year_model:''),procedure:row.procedure||'',service:row.procedure||'',reference:row.reference_number||'',notes:row.notes||'',status:row.status||'Scheduled',online:true}}
+  function localAppointment(row){return {id:row.id,branchId:row.branch_id||'',date:row.scheduled_date,time:row.scheduled_time?String(row.scheduled_time).slice(0,5):'',client:row.client_name,contact:row.contact_number,unit:row.vehicle,year:row.year_model||'',color:row.color||'',vehicle:row.vehicle+(row.year_model?' '+row.year_model:''),procedure:row.procedure||'',service:row.procedure||'',reference:row.reference_number||'',notes:row.notes||'',status:row.status||'Scheduled',online:true}}
   function status(message,kind){var root=document.getElementById('schedule');if(!root)return;var note=document.getElementById('scheduleOnlineStatus');if(!note){note=document.createElement('div');note.id='scheduleOnlineStatus';note.className='notice';var heading=root.querySelector('.heading');if(heading)heading.insertAdjacentElement('afterend',note)}note.textContent=message;note.style.borderLeftColor=kind==='error'?'#b63d25':''}
   async function start(){
     if(!online)return null;
@@ -32,7 +32,9 @@
     try{
       await start();
       var query=db.from('scheduled_appointments').select('*').eq('business_id',businessId()),branchId=localStorage.getItem('bwc-active-branch');if(branchId)query=query.eq('branch_id',branchId);var result=await query.order('scheduled_date').order('scheduled_time');if(result.error)throw result.error;
-      var remote=(result.data||[]).map(localAppointment),ids={};remote.forEach(function(item){ids[item.id]=true});read().forEach(function(item){if(!item.online&&!ids[item.id])remote.push(item)});write(remote);
+      /* Online scheduling is the source of truth.  Do not merge the old
+         browser cache here: doing so can make a prior branch appear again. */
+      var remote=(result.data||[]).map(localAppointment);write(remote);
       status('Appointments are saved securely online for this business.','info');
       /* A background refresh must never click a navigation tab. */
       if(repaint&&document.getElementById('schedule')&&document.getElementById('schedule').classList.contains('active'))document.dispatchEvent(new Event('bwc:schedule-loaded'));

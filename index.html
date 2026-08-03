@@ -367,7 +367,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
 /* Schedule calendar for planned units, with one-day-before browser reminders. */
 (function(){
   var key='15m-unit-schedule',alertKey='15m-unit-schedule-alerts',editing='';
-  function read(){try{return JSON.parse(localStorage.getItem(key)||'[]')}catch(e){return []}}
+  function read(){try{var rows=JSON.parse(localStorage.getItem(key)||'[]'),branch=localStorage.getItem('bwc-active-branch')||'';return window.__bwcScheduleOnlineReady&&branch?rows.filter(function(row){return row.branchId===branch}):rows}catch(e){return []}}
   function write(data){localStorage.setItem(key,JSON.stringify(data))}
   function esc(v){return String(v||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   function today(){return new Date().toISOString().slice(0,10)}
@@ -381,7 +381,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
 </script><script>
 /* Put the procedure and unit first in every Schedule display. */
 (function(){
-  function records(){try{return JSON.parse(localStorage.getItem('15m-unit-schedule')||'[]')}catch(e){return []}}
+  function records(){try{var rows=JSON.parse(localStorage.getItem('15m-unit-schedule')||'[]'),branch=localStorage.getItem('bwc-active-branch')||'';return window.__bwcScheduleOnlineReady&&branch?rows.filter(function(row){return row.branchId===branch}):rows}catch(e){return []}}
   function primary(item){
     var procedure=item.procedure||item.service||'Procedure not specified';
     var unit=item.unit||item.vehicle||'Unit not specified';
@@ -414,7 +414,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
 /* Complete appointment details for scheduled units. */
 (function(){
   var activeEdit='';
-  function read(){try{return JSON.parse(localStorage.getItem('15m-unit-schedule')||'[]')}catch(e){return []}}
+  function read(){try{var rows=JSON.parse(localStorage.getItem('15m-unit-schedule')||'[]'),branch=localStorage.getItem('bwc-active-branch')||'';return window.__bwcScheduleOnlineReady&&branch?rows.filter(function(row){return row.branchId===branch}):rows}catch(e){return []}}
   function write(data){localStorage.setItem('15m-unit-schedule',JSON.stringify(data))}
   function setLabel(id,text){var input=document.getElementById(id),label=input&&input.closest('label');if(label&&label.firstChild)label.firstChild.nodeValue=text}
   function field(id){var input=document.getElementById(id);return input?input.value.trim():''}
