@@ -71,6 +71,12 @@
   document.addEventListener('input',function(event){if(event.target.closest('#invoices input,#invoices select'))preview()});
   document.addEventListener('change',function(event){if(event.target.closest('#invoices input,#invoices select'))preview()});
   document.addEventListener('click',function(event){if(event.target.closest('[data-t="invoices"],#invoices [onclick*="addService"],#invoices [onclick*="addPart"],#invoices [onclick*="Remove"]'))setTimeout(preview,60)});
+  /* Branding loads independently from the invoice page. Redraw the preview
+     as soon as the current business and branch identity are available. */
+  document.addEventListener('bwc:brand-ready',function(){
+    var page=document.getElementById('invoices');
+    if(page&&page.classList.contains('active'))preview();
+  });
   document.addEventListener('bwc:branch-ready',function(){setTimeout(preview,180)});
   window.addEventListener('load',function(){setTimeout(preview,850)});
   setTimeout(start,500);
