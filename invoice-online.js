@@ -41,6 +41,30 @@
     if(servicesRows.length){var s=await db.from('invoice_services').insert(servicesRows);if(s.error)throw new Error(s.error.message)}
     if(partsRows.length){var p=await db.from('invoice_parts').insert(partsRows);if(p.error)throw new Error(p.error.message)}
   }
+  /* Cash received from an invoice belongs in CIB.  The record uses the
+     invoice id as its source key, so editing a payment replaces the old
+     cash-in instead of adding it again.  Non-cash methods never touch CIB. */
+  async function syncInvoiceCashIn(remoteId,invoiceNumber,x){
+    var branchId=localStorage.getItem('bwc-active-branch'),sourceKey='invoice-cash:'+remoteId;
+    if(!branchId)return;
+    var removed=await db.from('cash_transactions').delete().eq('business_id',businessId).eq('branch_id',branchId).eq('source_key',sourceKey);
+    if(removed.error)throw new Error('CIB update failed: '+removed.error.message);
+    if(String(x.method||'').trim().toLowerCase()!=='cash'||Number(x.paid||0)<=0){document.dispatchEvent(new Event('bwc:cash-updated'));return}
+    var added=await db.from('cash_transactions').insert({
+      business_id:businessId,
+      branch_id:branchId,
+      cash_account:'CIB',
+      direction:'In',
+      amount:Number(x.paid||0),
+      transaction_date:x.date||new Date().toISOString().slice(0,10),
+      source_key:sourceKey,
+      reference_number:'INV-'+String(invoiceNumber).padStart(5,'0'),
+      notes:'Cash received from invoice · '+String(x.client||'Client'),
+      created_by:userId
+    });
+    if(added.error)throw new Error('CIB update failed: '+added.error.message);
+    document.dispatchEvent(new Event('bwc:cash-updated'));
+  }
   window.createInvoice=async function(){
     var req=['client','contact','address','make','yearModel','color','plate','invoiceDate','admin'];if(req.some(function(x){return !formValue(x)})){alert('Please complete every required field.');return}
     if(!services.length&&!parts.length){alert('Add at least one service or auto part.');return}
@@ -50,7 +74,7 @@
     message('Saving invoice securely…');try{
       var saved;
       if(x.remoteId){var updated=await db.from('invoices').update(invoicePayload(x)).eq('id',x.remoteId).select('id,invoice_number').single();if(updated.error)throw new Error(updated.error.message);saved=updated.data;var removeServices=await db.from('invoice_services').delete().eq('invoice_id',x.remoteId);if(removeServices.error)throw new Error(removeServices.error.message);var removeParts=await db.from('invoice_parts').delete().eq('invoice_id',x.remoteId);if(removeParts.error)throw new Error(removeParts.error.message)}else{var inserted=await db.from('invoices').insert(invoicePayload(x)).select('id,invoice_number').single();if(inserted.error)throw new Error(inserted.error.message);saved=inserted.data}
-      await writeLines(saved.id,x);await loadRemote();resetInvoice();show('invoices');message('Invoice '+('INV-'+String(saved.invoice_number).padStart(5,'0'))+' saved securely online.');
+      await writeLines(saved.id,x);await syncInvoiceCashIn(saved.id,saved.invoice_number,x);await loadRemote();resetInvoice();show('invoices');message('Invoice '+('INV-'+String(saved.invoice_number).padStart(5,'0'))+' saved securely online.');
     }catch(error){message('Invoice was not saved online: '+error.message);alert('The invoice could not be saved online. Please try again.')}};
   window.deleteInvoice=async function(id){
     var item=inv.find(function(x){return x.id===id});if(!item||!confirm('Delete this invoice?'))return;

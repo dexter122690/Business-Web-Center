@@ -35,6 +35,7 @@
   };
   document.addEventListener('click',function(event){var button=event.target.closest('[data-cash-in]');if(button&&online){event.preventDefault();addCashIn(button.dataset.cashIn);return}if(event.target.closest('[data-t="expenses"]'))setTimeout(function(){setPaymentOptions();render()},350)},true);
   document.addEventListener('bwc:expenses-loaded',function(){setTimeout(function(){setPaymentOptions();render()},80)});
+  document.addEventListener('bwc:cash-updated',function(){if(online)setTimeout(load,60)});
   document.addEventListener('bwc:branch-ready',function(){if(online){rows=[];setTimeout(load,80)}});
   async function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=await resolveBusiness();if(!businessId)return;online=true;await load();setTimeout(function(){setPaymentOptions();render()},700)}
   setTimeout(start,850);
