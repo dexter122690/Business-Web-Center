@@ -60,6 +60,7 @@
       var data=read(),saved=data.jobs||[],remote=(jobsResult.data||[]).map(function(row){return localJob(row,grouped[row.id])}),byNumber={};
       remote.forEach(function(job){byNumber[String(job.number||'').toLowerCase()]=job});saved.forEach(function(job){var number=String(job.number||'').toLowerCase();if(!job.online&&number&&!byNumber[number])remote.push(job)});
       data.jobs=remote;write(data);jobStatus('Vehicle jobs and payment balances are saved securely online.','info');
+      setTimeout(decorateJobCompletionActions,0);
     }catch(error){jobStatus('Online vehicle jobs could not load: '+error.message,'error')}
   }
   function localObligation(row,payments){return {id:row.id,workerId:row.worker_id,reference:row.reference||'',amount:Number(row.original_amount||0),weekly:Number(row.planned_weekly_deduction||0),status:row.status||'Open',payments:(payments||[]).map(function(payment){return {id:payment.id,date:payment.payment_date,amount:Number(payment.amount||0),notes:payment.notes||''}}),online:true}}
@@ -143,6 +144,34 @@
       var result=await db.from('payroll_vehicle_jobs').update({job_order_number:number.trim(),vehicle:vehicle.trim(),plate_number:plate.trim()||null,service_work:work.trim()||null,contract_amount:amount,retention_percent:retention}).eq('id',job.id).eq('business_id',businessId()).eq('branch_id',branchId()).select().single();if(result.error)throw result.error;
       var saved=localJob(result.data,job.payments);Object.assign(job,saved);write(data);var tab=document.querySelector('[data-pr-tab="jobs"]');if(tab)tab.click();alert('Vehicle job changes were saved online.');
     }catch(error){alert('The vehicle job could not be updated online. '+error.message);button.disabled=false;button.textContent=original}
+  }
+  async function completeJob(button){
+    var data=read(),job=(data.jobs||[]).find(function(item){return item.id===button.dataset.id});
+    if(!job||!job.online){alert('This vehicle job is not online yet. Save it online before marking the unit done.');return}
+    if(job.status==='Completed'){alert('This unit is already marked done and is kept in the completed-units inventory archive.');return}
+    if(!confirm('Mark '+job.vehicle+' as done? It will move to the completed-units archive in Inventory. Payment records remain available.'))return;
+    button.disabled=true;var original=button.textContent;button.textContent='Saving...';
+    try{
+      var result=await db.from('payroll_vehicle_jobs').update({status:'Completed'}).eq('id',job.id).eq('business_id',businessId()).eq('branch_id',branchId()).select().single();
+      if(result.error)throw result.error;
+      Object.assign(job,localJob(result.data,job.payments));write(data);
+      document.dispatchEvent(new Event('bwc:vehicle-jobs-loaded'));
+      var tab=document.querySelector('[data-pr-tab="jobs"]');if(tab)tab.click();
+      alert('Unit marked done. Open Inventory to see it in the completed-units archive with its material usage.');
+    }catch(error){alert('The unit could not be marked done online. '+error.message);button.disabled=false;button.textContent=original}
+  }
+  function decorateJobCompletionActions(){
+    var content=document.getElementById('prContent');if(!content||!/^Vehicle Jobs/.test((content.textContent||'').trim()))return;
+    var data=read(),rows=content.querySelectorAll('table tbody tr');
+    Array.prototype.forEach.call(rows,function(row){
+      var first=row.querySelector('td'),action=row.lastElementChild;if(!first||!action||action.tagName!=='TD')return;
+      var job=(data.jobs||[]).find(function(item){return String(first.textContent||'').indexOf(String(item.number||''))>=0});
+      if(!job||action.querySelector('[data-pr-complete-job], [data-job-done-badge]'))return;
+      var marker=document.createElement(job.status==='Completed'?'span':'button');
+      if(job.status==='Completed'){marker.className='badge';marker.dataset.jobDoneBadge='1';marker.textContent='Unit done'}
+      else{marker.type='button';marker.className='primary';marker.dataset.prCompleteJob=job.id;marker.textContent='Mark unit done'}
+      action.appendChild(document.createTextNode(' '));action.appendChild(marker);
+    });
   }
   function obligationList(data,kind){return kind==='advance'?data.advances:data.loans}
   function obligationType(kind){return kind==='advance'?'cash_advance':'loan'}
@@ -302,19 +331,19 @@
     Array.prototype.forEach.call(rows,function(row,index){var entry=records[index],cell=document.createElement('td');if(entry&&entry.attendanceApproved!==false){cell.innerHTML='<span class="badge">Approved</span>'}else if(entry){cell.innerHTML='<span class="badge">Waiting for review</span><br><button class="secondary" style="margin-top:5px" data-pr-approve-attendance="'+entry.id+'">Approve attendance</button>'}else cell.textContent='—';row.insertBefore(cell,row.lastElementChild)});
   }
   window.addEventListener('click',function(event){
-    var button=event.target.closest('[data-pr="add-worker"], [data-worker-edit-save="1"], [data-pr="save-attendance"], [data-pr="add-job"], [data-pr="add-advances"], [data-pr="add-loans"], [data-pr="approve-payslip"], [data-pr-issue-payslip], [data-pr-payment="job"], [data-pr-payment="advance"], [data-pr-payment="loan"], [data-pr-edit="job"], [data-pr-edit="advance"], [data-pr-edit="loan"], [data-pr-history="advance"], [data-pr-history="loan"], [data-pr-approve-ot], [data-pr-approve-attendance], [data-pr-add-adjustment], [data-pr-approve-adjustment]');if(!button||!online)return;
+    var button=event.target.closest('[data-pr="add-worker"], [data-worker-edit-save="1"], [data-pr="save-attendance"], [data-pr="add-job"], [data-pr="add-advances"], [data-pr="add-loans"], [data-pr="approve-payslip"], [data-pr-issue-payslip], [data-pr-payment="job"], [data-pr-payment="advance"], [data-pr-payment="loan"], [data-pr-edit="job"], [data-pr-edit="advance"], [data-pr-edit="loan"], [data-pr-history="advance"], [data-pr-history="loan"], [data-pr-complete-job], [data-pr-approve-ot], [data-pr-approve-attendance], [data-pr-add-adjustment], [data-pr-approve-adjustment]');if(!button||!online)return;
     event.preventDefault();event.stopImmediatePropagation();
     if(!businessId()||!branchId()){alert('Choose an active branch before saving payroll records.');return}
-    if(button.dataset.prAddAdjustment)requestAdjustment().catch(function(error){alert('The adjustment could not be saved online. '+error.message)});else if(button.dataset.prApproveAdjustment)approveAdjustment(button);else if(button.dataset.prApproveAttendance)approveAttendance(button);else if(button.dataset.prApproveOt)approveOvertime(button);else if(button.dataset.prIssuePayslip)issuePayroll(button);else if(button.dataset.pr==='approve-payslip')approvePayroll(button);else if(button.dataset.prHistory==='advance'||button.dataset.prHistory==='loan')editObligationHistory(button,button.dataset.prHistory);else if(button.dataset.prEdit==='advance'||button.dataset.prEdit==='loan')editObligation(button,button.dataset.prEdit);else if(button.dataset.prEdit==='job')editJob(button);else if(button.dataset.prPayment==='advance'||button.dataset.prPayment==='loan')recordObligationPayment(button,button.dataset.prPayment);else if(button.dataset.prPayment==='job')recordJobPayment(button);else if(button.dataset.pr==='add-advances')saveObligation(button,'advance');else if(button.dataset.pr==='add-loans')saveObligation(button,'loan');else if(button.dataset.pr==='add-job')saveJob(button);else if(button.dataset.pr==='save-attendance')saveAttendance(button);else saveWorker(event,button);
+    if(button.dataset.prAddAdjustment)requestAdjustment().catch(function(error){alert('The adjustment could not be saved online. '+error.message)});else if(button.dataset.prApproveAdjustment)approveAdjustment(button);else if(button.dataset.prApproveAttendance)approveAttendance(button);else if(button.dataset.prApproveOt)approveOvertime(button);else if(button.dataset.prCompleteJob)completeJob(button);else if(button.dataset.prIssuePayslip)issuePayroll(button);else if(button.dataset.pr==='approve-payslip')approvePayroll(button);else if(button.dataset.prHistory==='advance'||button.dataset.prHistory==='loan')editObligationHistory(button,button.dataset.prHistory);else if(button.dataset.prEdit==='advance'||button.dataset.prEdit==='loan')editObligation(button,button.dataset.prEdit);else if(button.dataset.prEdit==='job')editJob(button);else if(button.dataset.prPayment==='advance'||button.dataset.prPayment==='loan')recordObligationPayment(button,button.dataset.prPayment);else if(button.dataset.prPayment==='job')recordJobPayment(button);else if(button.dataset.pr==='add-advances')saveObligation(button,'advance');else if(button.dataset.pr==='add-loans')saveObligation(button,'loan');else if(button.dataset.pr==='add-job')saveJob(button);else if(button.dataset.pr==='save-attendance')saveAttendance(button);else saveWorker(event,button);
   },true);
   var observerStarted=false;
   function beginOnlineSync(){
     if(!connect()){setTimeout(beginOnlineSync,250);return;}
     replaceLegacyIssueButtons();syncWorkers();syncAttendance();syncJobs();syncObligations();syncAdjustments();syncPayrollArchive();
-    if(!observerStarted){observerStarted=true;new MutationObserver(function(){replaceLegacyIssueButtons();decorateAttendanceReview();decoratePayrollAdjustments()}).observe(document.body,{childList:true,subtree:true});}
+    if(!observerStarted){observerStarted=true;new MutationObserver(function(){replaceLegacyIssueButtons();decorateAttendanceReview();decoratePayrollAdjustments();decorateJobCompletionActions()}).observe(document.body,{childList:true,subtree:true});}
   }
   window.addEventListener('load',function(){setTimeout(beginOnlineSync,120)});
   document.addEventListener('bwc:business-ready',beginOnlineSync);
   document.addEventListener('bwc:branch-ready',function(){setTimeout(beginOnlineSync,40)});
-  document.addEventListener('click',function(event){if(event.target.closest('[data-pr-tab="workers"]'))setTimeout(function(){syncWorkers();showStatus('Workers are saved securely online for this business.','info')},100);if(event.target.closest('[data-pr-tab="attendance"]'))setTimeout(function(){syncAttendance();decorateAttendanceReview()},140);if(event.target.closest('[data-pr-tab="jobs"]'))setTimeout(syncJobs,100);if(event.target.closest('[data-pr-tab="advances"], [data-pr-tab="loans"]'))setTimeout(syncObligations,100);if(event.target.closest('[data-pr-tab="summary"], [data-pr-tab="calculated"]'))setTimeout(function(){syncPayrollArchive();syncAdjustments();decoratePayrollActions();decoratePayrollAdjustments()},100)});
+  document.addEventListener('click',function(event){if(event.target.closest('[data-pr-tab="workers"]'))setTimeout(function(){syncWorkers();showStatus('Workers are saved securely online for this business.','info')},100);if(event.target.closest('[data-pr-tab="attendance"]'))setTimeout(function(){syncAttendance();decorateAttendanceReview()},140);if(event.target.closest('[data-pr-tab="jobs"]'))setTimeout(function(){syncJobs();decorateJobCompletionActions()},100);if(event.target.closest('[data-pr-tab="advances"], [data-pr-tab="loans"]'))setTimeout(syncObligations,100);if(event.target.closest('[data-pr-tab="summary"], [data-pr-tab="calculated"]'))setTimeout(function(){syncPayrollArchive();syncAdjustments();decoratePayrollActions();decoratePayrollAdjustments()},100)});
 })();
