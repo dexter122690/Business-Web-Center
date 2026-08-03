@@ -45,7 +45,7 @@ if(im){for(let month=0;month<12;month++){im.innerHTML+='<option value="'+month+'
 window.addEventListener('load',function(){
   var tabs=[['dashboard','Dashboard'],['invoices','Invoice Making'],['reports','Sales Report'],['clients','Client Masterlist'],['expenses','Expenses'],['feedback','Client Feedback'],['quotes','Quotation Making'],['payroll','Payroll']];
   var nav=document.getElementById('nav');if(!nav)return;
-  function showTab(id){document.querySelectorAll('.view').forEach(function(view){view.classList.toggle('active',view.id===id)});nav.querySelectorAll('[data-restore-tab]').forEach(function(button){button.classList.toggle('active',button.dataset.restoreTab===id)});localStorage.setItem('15m-last-tab',id)}
+  function showTab(id){document.querySelectorAll('.view').forEach(function(view){view.classList.toggle('active',view.id===id)});nav.querySelectorAll('button').forEach(function(button){button.classList.toggle('active',button.dataset.restoreTab===id)});localStorage.setItem('15m-last-tab',id)}
   nav.innerHTML=tabs.map(function(tab){return '<button data-restore-tab="'+tab[0]+'">'+tab[1]+'</button>'}).join('');
   nav.querySelectorAll('[data-restore-tab]').forEach(function(button){button.onclick=function(){showTab(this.dataset.restoreTab)}});
   var lastTab=localStorage.getItem('15m-last-tab')||'dashboard';
