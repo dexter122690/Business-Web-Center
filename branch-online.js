@@ -1,10 +1,12 @@
 /* Shared branch directory and selector. The picker is mounted immediately so it
    never falls back to the old "Your Branch" text while online records load. */
 (function(){
-  var config=window.BUSINESS_WEB_CENTER_SUPABASE||{},db=null,activeKey='bwc-active-branch';
+  /* app-config.js is loaded asynchronously by the account gate. */
+  var db=null,activeKey='bwc-active-branch';
   if(new URLSearchParams(location.search).has('branch'))history.replaceState(null,'',location.pathname+location.hash);
 
   function ready(){
+    var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};
     if(db)return Promise.resolve(true);
     if(!window.supabase||!config.url||!config.publishableKey)return Promise.resolve(false);
     db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);

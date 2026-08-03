@@ -1,9 +1,10 @@
 /* Keeps the Customize Page, printable documents, and every team device on one brand profile. */
 (function(){
-  var config=window.BUSINESS_WEB_CENTER_SUPABASE||{},db=null;
+  /* Configuration is loaded after this file, so resolve it when needed. */
+  var db=null;
   var defaults={header:{type:'Service business management',company:'Your Business Name',description:'Manage invoices, sales, expenses, customer records, quotations, and payroll in one place.',branch:'Your Branch'},theme:{accent:'#ff5219',header:'#080808',background:'#f8f5f3',text:'#16100d',soft:'#fff0e9'},contact:{address:'',phone:'',email:''},logo:''};
   function parse(key,fallback){try{return JSON.parse(localStorage.getItem(key)||'null')||fallback}catch(e){return fallback}}
-  function ready(){if(db)return Promise.resolve(true);if(!window.supabase||!config.url||!config.publishableKey)return Promise.resolve(false);db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);return Promise.resolve(true)}
+  function ready(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(db)return Promise.resolve(true);if(!window.supabase||!config.url||!config.publishableKey)return Promise.resolve(false);db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);return Promise.resolve(true)}
   async function context(){if(!await ready())return null;var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user,businessId=localStorage.getItem('bwc-active-business');return user&&businessId?{user:user,businessId:businessId}:null}
   /* A branch is already selected in the header.  If a page loads before the
      header finishes, restore that selection (falling back to MAIN) so a save
