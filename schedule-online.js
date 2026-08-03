@@ -32,6 +32,8 @@
     try{
       await start();
       var query=db.from('scheduled_appointments').select('*').eq('business_id',businessId()),branchId=localStorage.getItem('bwc-active-branch');if(branchId)query=query.eq('branch_id',branchId);var result=await query.order('scheduled_date').order('scheduled_time');if(result.error)throw result.error;
+      /* Ignore a response for a branch that was changed while it was loading. */
+      if(branchId!==localStorage.getItem('bwc-active-branch'))return;
       /* Online scheduling is the source of truth.  Do not merge the old
          browser cache here: doing so can make a prior branch appear again. */
       var remote=(result.data||[]).map(localAppointment);write(remote);
