@@ -11,8 +11,32 @@
   function write(rows){localStorage.setItem(key,JSON.stringify(rows))}
   function value(id){var input=document.getElementById(id);return input?input.value.trim():''}
   function uuid(value){return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value||''))}
-  function localAppointment(row){return {id:row.id,branchId:row.branch_id||'',date:row.scheduled_date,time:row.scheduled_time?String(row.scheduled_time).slice(0,5):'',client:row.client_name,contact:row.contact_number,unit:row.vehicle,year:row.year_model||'',color:row.color||'',vehicle:row.vehicle+(row.year_model?' '+row.year_model:''),procedure:row.procedure||'',service:row.procedure||'',reference:row.reference_number||'',notes:row.notes||'',status:row.status||'Scheduled',online:true}}
+  function localAppointment(row){return {id:row.id,branchId:row.branch_id||'',date:row.scheduled_date,time:row.scheduled_time?String(row.scheduled_time).slice(0,5):'',client:row.client_name,contact:row.contact_number,unit:row.vehicle,year:row.year_model||'',color:row.color||'',vehicle:row.vehicle+(row.year_model?' '+row.year_model:''),procedure:row.procedure||'',service:row.procedure||'',reference:row.reference_number||'',notes:row.notes||'',clientResponse:row.client_response||'confirmed',status:row.status||'Scheduled',online:true}}
   function status(message,kind){var root=document.getElementById('schedule');if(!root)return;var note=document.getElementById('scheduleOnlineStatus');if(!note){note=document.createElement('div');note.id='scheduleOnlineStatus';note.className='notice';var heading=root.querySelector('.heading');if(heading)heading.insertAdjacentElement('afterend',note)}note.textContent=message;note.style.borderLeftColor=kind==='error'?'#b63d25':''}
+  function appointmentUrl(token){return new URL('appointment.html',location.href).href+'?token='+encodeURIComponent(token)}
+  function escapeHtml(text){return String(text||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  async function publicAppointmentToken(){
+    await start();var branchId=localStorage.getItem('bwc-active-branch');
+    if(!businessId()||!branchId)return null;
+    var found=await db.from('branch_appointment_links').select('public_token').eq('business_id',businessId()).eq('branch_id',branchId).maybeSingle();
+    if(found.error)throw found.error;
+    if(found.data)return found.data.public_token;
+    var created=await db.from('branch_appointment_links').insert({business_id:businessId(),branch_id:branchId}).select('public_token').single();
+    if(created.error)throw created.error;
+    return created.data&&created.data.public_token;
+  }
+  async function renderAppointmentLink(){
+    var schedule=document.getElementById('schedule');if(!schedule||!schedule.classList.contains('active')||!online)return;
+    var existing=document.getElementById('appointmentLinkCard');if(existing)existing.remove();
+    try{
+      var branchAtStart=localStorage.getItem('bwc-active-branch'),token=await publicAppointmentToken();
+      if(!token||branchAtStart!==localStorage.getItem('bwc-active-branch'))return;
+      var link=appointmentUrl(token),card=document.createElement('div');card.id='appointmentLinkCard';card.className='card';
+      card.innerHTML='<div class="k">CLIENT APPOINTMENT LINK</div><h2>Let clients request an appointment</h2><p class="muted">Share this link for the selected branch. Client requests appear directly in this branch’s Schedule tab.</p><input id="appointmentPublicLink" readonly value="'+escapeHtml(link)+'" style="width:100%;box-sizing:border-box"><div class="actions" style="margin-top:10px"><button class="secondary" data-appointment-copy>Copy appointment link</button><button class="primary" data-appointment-print>Print appointment notice</button></div>';
+      var calendar=schedule.querySelector('.schedule-layout');if(calendar)calendar.insertAdjacentElement('afterend',card);else schedule.appendChild(card);
+    }catch(error){status('Appointment link could not load: '+error.message,'error')}
+  }
+  function printAppointmentNotice(){var input=document.getElementById('appointmentPublicLink');if(!input)return;var w=window.open('','_blank');if(!w)return;w.document.write('<!doctype html><title>Book an appointment</title><style>@page{margin:.65in}body{font-family:Arial,sans-serif;text-align:center;color:#211815}h1{font-size:28px}p{font-size:16px;line-height:1.5}.link{border:1px solid #ddd;padding:12px;word-break:break-all}</style><h1>Book an appointment</h1><p>Use this link to request an appointment with this branch.</p><div class="link">'+escapeHtml(input.value)+'</div><script>window.onload=function(){window.print()}<\/script>');w.document.close()}
   async function start(){
     if(!online)return null;
     if(db)return db;
@@ -40,6 +64,7 @@
       status('Appointments are saved securely online for this business.','info');
       /* A background refresh must never click a navigation tab. */
       if(repaint&&document.getElementById('schedule')&&document.getElementById('schedule').classList.contains('active'))document.dispatchEvent(new Event('bwc:schedule-loaded'));
+      setTimeout(renderAppointmentLink,0);
     }catch(error){status('Online appointments could not load: '+error.message,'error')}finally{syncing=false}
   }
   async function save(button){
@@ -59,12 +84,14 @@
     }catch(error){alert('The appointment could not be saved online. '+error.message);button.disabled=false;button.textContent=label}
   }
   document.addEventListener('click',function(event){
+    if(event.target.closest('[data-appointment-copy]')){var link=document.getElementById('appointmentPublicLink');if(link&&navigator.clipboard)navigator.clipboard.writeText(link.value);return}
+    if(event.target.closest('[data-appointment-print]')){printAppointmentNotice();return}
     var edit=event.target.closest('[data-schedule-edit]');if(edit){editingId=edit.dataset.scheduleEdit;return}
     var cancel=event.target.closest('[data-schedule-cancel]');if(cancel){editingId='';return}
     var saveButton=event.target.closest('[data-schedule-save]');if(!saveButton||!online)return;
     event.preventDefault();event.stopImmediatePropagation();save(saveButton);
   },true);
-  document.addEventListener('click',function(event){if(event.target.closest('#scheduleTab'))setTimeout(function(){sync(true)},120)});
+  document.addEventListener('click',function(event){if(event.target.closest('#scheduleTab'))setTimeout(function(){sync(true);renderAppointmentLink()},120)});
   document.addEventListener('bwc:branch-ready',function(){if(online)setTimeout(function(){sync(true)},40)});
   window.addEventListener('load',function(){setTimeout(function(){if(document.getElementById('schedule')&&document.getElementById('schedule').classList.contains('active'))sync(true)},350)});
 })();
