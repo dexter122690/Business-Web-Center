@@ -1,5 +1,6 @@
 /* Shares Client Feedback and the Owner Feedback inbox for the active business. */
 (function(){
+  window.__useOnlineFeedback=true;
   var config=window.BUSINESS_WEB_CENTER_SUPABASE||{}, db=null, key='15m-replica-client-feedback';
   function read(){try{return JSON.parse(localStorage.getItem(key)||'[]')}catch(e){return []}}
   function write(items){localStorage.setItem(key,JSON.stringify(items))}
@@ -23,5 +24,8 @@
     if(event.target.closest('[data-cf-print]'))printPoster();
     if(event.target.closest('[data-cf-submit]')){var input=document.getElementById('cfText'),text=input&&input.value.trim();setTimeout(function(){persist(text)},80)}
   },true);
-  window.addEventListener('load',function(){setTimeout(function(){hydrate();if(document.getElementById('feedback')&&document.getElementById('feedback').classList.contains('active'))renderFeedback()},900)});
+  function refreshActiveFeedback(){hydrate();if(document.getElementById('feedback')&&document.getElementById('feedback').classList.contains('active'))renderFeedback()}
+  window.addEventListener('load',function(){setTimeout(refreshActiveFeedback,250)});
+  document.addEventListener('bwc:business-ready',function(){setTimeout(refreshActiveFeedback,80)});
+  document.addEventListener('bwc:branch-ready',function(){setTimeout(refreshActiveFeedback,80)});
 })();
