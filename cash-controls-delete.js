@@ -1,13 +1,13 @@
 /* Delete controls for manual CIB and Petty Cash cash-ins only. */
 (function(){
-  var db,businessId='';
+  var db,businessId='',userId='';
   function branch(){return localStorage.getItem('bwc-active-branch')||''}
   async function setup(){
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};
     if(!window.supabase||!config.url||!config.publishableKey){setTimeout(setup,300);return}
     db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);
     var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;
-    if(!user)return;
+    if(!user)return;userId=user.id;
     var memberships=await db.from('business_memberships').select('business_id,businesses!inner(status)').eq('user_id',user.id).eq('status','active');
     var saved=localStorage.getItem('bwc-active-business'),available=(memberships.data||[]).filter(function(row){return row.businesses&&row.businesses.status==='active'}),chosen=available.find(function(row){return row.business_id===saved})||available[0];
     businessId=chosen?chosen.business_id:'';
@@ -40,13 +40,13 @@
   async function remit(){
     var amount=Number(inputValue('cashRemitAmount'))||0,note=inputValue('cashRemitNote');if(!amount){alert('Enter a remittance amount first.');return}
     if(!confirm('Record this CIB amount as remitted to the owner?'))return;
-    var result=await db.from('cash_transactions').insert({business_id:businessId,branch_id:branch(),cash_account:'CIB',direction:'Out',amount:amount,transaction_date:new Date().toISOString().slice(0,10),source_key:sourceId('cib-remit'),reference_number:note||'CIB remittance',notes:note||'Remitted to owner'});
+    var result=await db.from('cash_transactions').insert({business_id:businessId,branch_id:branch(),cash_account:'CIB',direction:'Out',amount:amount,transaction_date:new Date().toISOString().slice(0,10),source_key:sourceId('cib-remit'),reference_number:note||'CIB remittance',notes:note||'Remitted to owner',created_by:userId});
     if(result.error){alert('Remittance could not be saved: '+result.error.message);return}alert('CIB remittance recorded.');document.dispatchEvent(new CustomEvent('bwc:cash-updated'));
   }
   async function transfer(){
     var amount=Number(inputValue('cashTransferAmount'))||0,note=inputValue('cashTransferNote');if(!amount){alert('Enter a transfer amount first.');return}
     if(!confirm('Transfer this amount from CIB to Petty Cash?'))return;
-    var key=sourceId('cib-to-petty'),date=new Date().toISOString().slice(0,10),records=[{business_id:businessId,branch_id:branch(),cash_account:'CIB',direction:'Out',amount:amount,transaction_date:date,source_key:key+'-out',reference_number:note||'CIB to Petty Cash',notes:note||'CIB to Petty Cash transfer'},{business_id:businessId,branch_id:branch(),cash_account:'Petty Cash',direction:'In',amount:amount,transaction_date:date,source_key:key+'-in',reference_number:note||'CIB to Petty Cash',notes:note||'CIB to Petty Cash transfer'}];
+    var key=sourceId('cib-to-petty'),date=new Date().toISOString().slice(0,10),records=[{business_id:businessId,branch_id:branch(),cash_account:'CIB',direction:'Out',amount:amount,transaction_date:date,source_key:key+'-out',reference_number:note||'CIB to Petty Cash',notes:note||'CIB to Petty Cash transfer',created_by:userId},{business_id:businessId,branch_id:branch(),cash_account:'Petty Cash',direction:'In',amount:amount,transaction_date:date,source_key:key+'-in',reference_number:note||'CIB to Petty Cash',notes:note||'CIB to Petty Cash transfer',created_by:userId}];
     var result=await db.from('cash_transactions').insert(records);if(result.error){alert('Fund transfer could not be saved: '+result.error.message);return}alert('CIB was transferred to Petty Cash.');document.dispatchEvent(new CustomEvent('bwc:cash-updated'));
   }
   document.addEventListener('click',async function(event){
