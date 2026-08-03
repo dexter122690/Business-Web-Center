@@ -17,12 +17,13 @@
     if(!db||!businessId||!branch())return;
     var result=await db.from('cash_transactions').select('id,direction,source_key,transaction_date,cash_account,amount').eq('business_id',businessId).eq('branch_id',branch()).order('transaction_date',{ascending:false}).order('created_at',{ascending:false});
     if(result.error)return;
-    var deletable=(result.data||[]).filter(function(row){return row.direction==='In'&&!row.source_key});
+    var records=result.data||[];
     document.querySelectorAll('#cashControlPanel table tbody tr').forEach(function(row,index){
       var cells=row.querySelectorAll('td');if(cells.length<5||cells.length>5)return;
-      var date=cells[0].textContent.trim(),fund=cells[1].textContent.trim(),movement=cells[2].textContent.trim(),amount=cells[3].textContent.replace(/[^0-9.]/g,'');
-      var record=deletable.find(function(item){return item.transaction_date===date&&item.cash_account===fund&&item.direction===movement&&Number(item.amount).toFixed(2)===Number(amount||0).toFixed(2)});
+      var record=records[index];
       var action=document.createElement('td');
+      var protectedRecord=record&&/^(invoice-cash:|expense:|receipt:)/.test(String(record.source_key||''));
+      if(protectedRecord){action.textContent='Protected';row.appendChild(action);return}
       if(record){var button=document.createElement('button');button.type='button';button.className='secondary';button.textContent='Delete';button.dataset.cashDelete=record.id;action.appendChild(button)}else action.textContent='—';
       row.appendChild(action);
     });
@@ -72,10 +73,14 @@
     var remitButton=event.target.closest('[data-cash-remit]');if(remitButton&&db){event.preventDefault();remit();return}
     var transferButton=event.target.closest('[data-cash-transfer]');if(transferButton&&db){event.preventDefault();transfer();return}
     var button=event.target.closest('[data-cash-delete]');if(!button||!db)return;
-    event.preventDefault();if(!confirm('Delete this manual cash-in? The selected cash balance will update.'))return;
-    var result=await db.from('cash_transactions').delete().eq('id',button.dataset.cashDelete).eq('business_id',businessId).eq('branch_id',branch()).eq('direction','In').is('source_key',null);
-    if(result.error){alert('Cash-in record could not be deleted: '+result.error.message);return}
-    alert('Cash-in record deleted and balance updated.');
+    event.preventDefault();if(!confirm('Delete this cash record? Any linked transfer or quick expense will also be reversed.'))return;
+    var found=await db.from('cash_transactions').select('source_key').eq('id',button.dataset.cashDelete).eq('business_id',businessId).eq('branch_id',branch()).single();
+    if(found.error){alert('Cash record could not be found: '+found.error.message);return}
+    var source=found.data.source_key||'',query=db.from('cash_transactions').delete().eq('business_id',businessId).eq('branch_id',branch());
+    if(source.indexOf('cib-to-petty-')===0){query=query.like('source_key',source.replace(/-(in|out)$/,'')+'%')}else query=query.eq('id',button.dataset.cashDelete);
+    var result=await query;if(result.error){alert('Cash record could not be deleted: '+result.error.message);return}
+    if(source.indexOf('cib-expense:')===0||source.indexOf('petty-expense:')===0){var expenseId=source.split(':')[1],expense=await db.from('expenses').delete().eq('id',expenseId).eq('business_id',businessId).eq('branch_id',branch());if(expense.error){alert('Cash record was deleted, but the linked expense could not be removed: '+expense.error.message);return}}
+    alert('Cash record deleted and balances updated.');
     document.dispatchEvent(new CustomEvent('bwc:cash-updated'));
   },true);
   new MutationObserver(function(){setTimeout(function(){decorate();addCashActions()},40)}).observe(document.documentElement,{childList:true,subtree:true});
