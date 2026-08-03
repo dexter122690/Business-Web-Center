@@ -47,15 +47,23 @@
   async function syncInvoiceCashIn(remoteId,invoiceNumber,x){
     var branchId=localStorage.getItem('bwc-active-branch'),sourceKey='invoice-cash:'+remoteId;
     if(!branchId)return;
+    /* Once installment history is enabled, CIB must follow only the cash
+       installments, not the invoice's combined received total. */
+    var paidAmount=Number(x.paid||0),cashPayments=null;
+    var history=await db.from('invoice_payments').select('amount,payment_method').eq('invoice_id',remoteId);
+    if(!history.error&&history.data&&history.data.length){
+      cashPayments=history.data.filter(function(payment){return String(payment.payment_method||'').trim().toLowerCase()==='cash'}).reduce(function(sum,payment){return sum+Number(payment.amount||0)},0);
+    }
     var removed=await db.from('cash_transactions').delete().eq('business_id',businessId).eq('branch_id',branchId).eq('source_key',sourceKey);
     if(removed.error)throw new Error('CIB update failed: '+removed.error.message);
-    if(String(x.method||'').trim().toLowerCase()!=='cash'||Number(x.paid||0)<=0){document.dispatchEvent(new Event('bwc:cash-updated'));return}
+    var cashAmount=cashPayments===null?(String(x.method||'').trim().toLowerCase()==='cash'?paidAmount:0):cashPayments;
+    if(cashAmount<=0){document.dispatchEvent(new Event('bwc:cash-updated'));return}
     var added=await db.from('cash_transactions').insert({
       business_id:businessId,
       branch_id:branchId,
       cash_account:'CIB',
       direction:'In',
-      amount:Number(x.paid||0),
+      amount:cashAmount,
       transaction_date:x.date||new Date().toISOString().slice(0,10),
       source_key:sourceKey,
       reference_number:'INV-'+String(invoiceNumber).padStart(5,'0'),
@@ -78,7 +86,12 @@
     }catch(error){message('Invoice was not saved online: '+error.message);alert('The invoice could not be saved online. Please try again.')}};
   window.deleteInvoice=async function(id){
     var item=inv.find(function(x){return x.id===id});if(!item||!confirm('Delete this invoice?'))return;
-    if(online&&item.remoteId){var result=await db.from('invoices').delete().eq('id',item.remoteId);if(result.error){message('Invoice was not deleted: '+result.error.message);return}}
+    if(online&&item.remoteId){
+      var branchId=localStorage.getItem('bwc-active-branch');
+      if(branchId){var cash=await db.from('cash_transactions').delete().eq('business_id',businessId).eq('branch_id',branchId).eq('source_key','invoice-cash:'+item.remoteId);if(cash.error){message('Invoice cash record was not removed: '+cash.error.message);return}}
+      var result=await db.from('invoices').delete().eq('id',item.remoteId);if(result.error){message('Invoice was not deleted: '+result.error.message);return}
+      document.dispatchEvent(new Event('bwc:cash-updated'));
+    }
     inv=inv.filter(function(x){return x.id!==id});cache();render();if(online)message('Invoice deleted from the secure online records.');
   };
   async function start(){
@@ -89,6 +102,7 @@
   document.addEventListener('bwc:branch-ready',function(){if(online){loadAdmins();loadRemote()}});
   document.addEventListener('bwc:workers-updated',function(){if(online)loadAdmins()});
   document.addEventListener('bwc:invoice-deleted',function(){if(online)loadRemote()});
+  document.addEventListener('bwc:invoice-payments-updated',function(){if(online)loadRemote()});
   function safe(value){return String(value||'').replace(/[&<>'"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]})}
   function money(value){return 'PHP '+Number(value||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}
   function preview(){var panel=document.querySelector('#invoices aside.card');if(!panel)return;var header={company:'Your Business Name'},contact={address:'',phone:'',email:''},theme={accent:'#ff5219',text:'#16100d',soft:'#fff0e9'};try{header=Object.assign(header,JSON.parse(localStorage.getItem('15m-custom-header')||'{}'));contact=Object.assign(contact,JSON.parse(localStorage.getItem('15m-business-contact')||'{}'));theme=Object.assign(theme,JSON.parse(localStorage.getItem('15m-brand-theme')||'{}'))}catch(error){}var logo=localStorage.getItem('15m-custom-logo')||'',client=formValue('client')||'Client name',vehicle=[formValue('make'),formValue('yearModel'),formValue('plate')].filter(Boolean).join(' · ')||'Vehicle details',serviceRows=(window.services||[]).slice(0,3).map(function(row){return '<div class="bwc-preview-row"><span>'+safe(row.n)+(row.d?' - '+safe(row.d):'')+'</span><b>'+money(row.a)+'</b></div>'}).join('')||'<div class="bwc-preview-row"><span>Service details</span><b>PHP 0.00</b></div>',partRows=(window.parts||[]).slice(0,2).map(function(row){return '<div class="bwc-preview-row"><span>'+safe(row.n)+' × '+Number(row.q||0)+'</span><b>'+money(row.a||Number(row.q||0)*Number(row.p||0))+'</b></div>'}).join(''),total=typeof window.total==='function'?window.total():0;panel.innerHTML='<style>.bwc-print-preview{font:10px Arial;color:'+theme.text+';background:#fff;border:1px solid #dcd2cd;border-radius:8px;padding:13px}.bwc-preview-head{display:flex;gap:8px;align-items:center;border-bottom:2px solid '+theme.accent+';padding-bottom:8px}.bwc-preview-head img{max-width:34px;max-height:34px;object-fit:contain}.bwc-preview-logo{display:grid;place-items:center;width:31px;height:31px;border:1px solid '+theme.accent+';color:'+theme.accent+';font-size:8px}.bwc-preview-doc{margin-left:auto;color:'+theme.accent+';font-weight:bold;letter-spacing:.8px}.bwc-preview-row{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid #eee}.bwc-preview-section{font-weight:bold;color:'+theme.accent+';margin-top:9px}.bwc-preview-total{text-align:right;color:'+theme.accent+';font-size:13px;font-weight:bold;margin-top:9px}</style><div class="k">Invoice preview</div><h2>Printed copy preview</h2><div class="bwc-print-preview"><div class="bwc-preview-head">'+(logo?'<img src="'+safe(logo)+'" alt="Logo">':'<div class="bwc-preview-logo">logo</div>')+'<div><b>'+safe(header.company)+'</b><br><small>'+safe(contact.address)+'<br>'+safe(contact.phone)+'<br>'+safe(contact.email)+'</small></div><div class="bwc-preview-doc">INVOICE<br><small>INV-NEW</small></div></div><p><b>'+safe(client)+'</b><br>'+safe(formValue('contact'))+'<br>'+safe(formValue('address'))+'<br>'+safe(vehicle)+'</p><div class="bwc-preview-section">SERVICES</div>'+serviceRows+(partRows?'<div class="bwc-preview-section">PARTS</div>'+partRows:'')+'<div class="bwc-preview-total">TOTAL '+money(total)+'</div></div><p class="muted" style="margin-bottom:0">This is a live preview. The final printable invoice also includes the assigned admin and signature lines.</p>'}
