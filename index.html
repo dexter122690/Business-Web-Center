@@ -379,9 +379,14 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
   window.addEventListener('load',function(){setTimeout(function(){addTab();reminders()},160)});setInterval(reminders,60000);
 })();
 </script><script>
-/* Make the scheduled procedure the primary item in Upcoming reminders. */
+/* Put the procedure and unit first in every Schedule display. */
 (function(){
   function records(){try{return JSON.parse(localStorage.getItem('15m-unit-schedule')||'[]')}catch(e){return []}}
+  function primary(item){
+    var procedure=item.procedure||item.service||'Procedure not specified';
+    var unit=item.unit||item.vehicle||'Unit not specified';
+    return procedure+' — '+unit;
+  }
   function refresh(){
     var byId={};records().forEach(function(item){byId[item.id]=item});
     document.querySelectorAll('#scheduleUpcoming [data-schedule-edit]').forEach(function(button){
@@ -389,9 +394,16 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
       if(!item||!text||text.dataset.procedureFirst==='1')return;
       text.dataset.procedureFirst='1';
       var title=document.createElement('b'),details=document.createElement('small');
-      title.textContent=item.procedure||item.service||'Procedure not specified';
-      details.textContent=[item.date,item.time||'',item.vehicle||item.unit||'Unit not specified',item.client||''].filter(Boolean).join(' · ');
+      title.textContent=primary(item);
+      details.textContent=[item.date,item.time||'',item.client||''].filter(Boolean).join(' · ');
       text.replaceChildren(title,document.createElement('br'),details);
+    });
+    document.querySelectorAll('#scheduleCalendar [data-schedule-edit]').forEach(function(button){
+      var item=byId[button.dataset.scheduleEdit];
+      if(!item||button.dataset.procedureFirst==='1')return;
+      button.dataset.procedureFirst='1';
+      button.textContent=(item.time?item.time+' · ':'')+primary(item);
+      button.title=primary(item)+(item.client?' — '+item.client:'');
     });
   }
   window.addEventListener('load',function(){setTimeout(refresh,280)});
