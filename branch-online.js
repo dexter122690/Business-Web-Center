@@ -47,9 +47,16 @@
   }
   async function list(){
     var c=await context();if(!c)return [];
+    var membership=await db.from('business_memberships').select('role').eq('business_id',c.businessId).eq('user_id',c.user.id).eq('status','active').maybeSingle();
     var result=await db.from('branches').select('id,name,address,contact_number,email').eq('business_id',c.businessId).eq('is_active',true).order('created_at');
     if(result.error)return cachedBranches();
-    var rows=result.data||[];cacheBranches(rows);return rows;
+    var rows=result.data||[];
+    /* Owners and admins may use every branch. Staff only see their assigned branch. */
+    if(membership.data&&['admin','staff'].includes(membership.data.role)){
+      var access=await db.from('business_member_branch_access').select('branch_id').eq('business_id',c.businessId).eq('user_id',c.user.id);
+      if(!access.error){var allowed={};(access.data||[]).forEach(function(row){allowed[row.branch_id]=true});rows=rows.filter(function(row){return allowed[row.id]});}
+    }
+    cacheBranches(rows);return rows;
   }
   async function ensureMain(){
     var c=await context(),rows=await list();
