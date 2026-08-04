@@ -123,6 +123,12 @@
   }
   document.addEventListener('click',function(event){if(online&&event.target.closest('[data-t="invoices"]'))setTimeout(loadAdmins,80)});
   document.addEventListener('bwc:branch-ready',function(){if(online){loadAdmins();loadRemote()}});
+  document.addEventListener('bwc:open-invoice',function(event){
+    var remoteId=event.detail&&event.detail.remoteId;
+    if(!remoteId)return;
+    function openSelected(){var selected=inv.find(function(row){return row.remoteId===remoteId});if(selected&&window.editInvoice){window.editInvoice(selected.id);window.scrollTo({top:0,behavior:'smooth'})}}
+    if(online)loadRemote().then(openSelected);else openSelected();
+  });
   document.addEventListener('bwc:workers-updated',function(){if(online)loadAdmins()});
   document.addEventListener('bwc:invoice-deleted',function(){if(online)loadRemote()});
   document.addEventListener('bwc:invoice-payments-updated',function(){if(online)loadRemote()});
