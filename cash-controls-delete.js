@@ -1,6 +1,6 @@
 /* Delete controls for manual CIB and Petty Cash cash-ins only. */
 (function(){
-  var db,businessId='',userId='';
+  var db,businessId='',userId='',activeRole='';
   function branch(){return localStorage.getItem('bwc-active-branch')||''}
   async function setup(){
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};
@@ -8,9 +8,9 @@
     db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);
     var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;
     if(!user)return;userId=user.id;
-    var memberships=await db.from('business_memberships').select('business_id,businesses!inner(status)').eq('user_id',user.id).eq('status','active');
+    var memberships=await db.from('business_memberships').select('business_id,role,businesses!inner(status)').eq('user_id',user.id).eq('status','active');
     var saved=localStorage.getItem('bwc-active-business'),available=(memberships.data||[]).filter(function(row){return row.businesses&&row.businesses.status==='active'}),chosen=available.find(function(row){return row.business_id===saved})||available[0];
-    businessId=chosen?chosen.business_id:'';
+    businessId=chosen?chosen.business_id:'';activeRole=chosen?String(chosen.role||''):'';
     decorate();
   }
   async function decorate(){
@@ -22,8 +22,13 @@
       var cells=row.querySelectorAll('td');if(cells.length<5||cells.length>5)return;
       var record=records[index];
       var action=document.createElement('td');
-      var protectedRecord=record&&/^(invoice-cash:|expense:|receipt:)/.test(String(record.source_key||''));
-      if(protectedRecord){action.textContent='Protected';row.appendChild(action);return}
+      var source=String(record&&record.source_key||''),protectedRecord=/^(invoice-cash:|expense:|receipt:)/.test(source);
+      if(protectedRecord){
+        if(source.indexOf('invoice-cash:')===0&&activeRole==='owner'){
+          var invoiceButton=document.createElement('button');invoiceButton.type='button';invoiceButton.className='secondary';invoiceButton.textContent='Delete cash payment';invoiceButton.dataset.cashInvoiceDelete=source.slice('invoice-cash:'.length);action.appendChild(invoiceButton);
+        }else action.textContent=source.indexOf('invoice-cash:')===0?'Owner only':'Manage in Expenses';
+        row.appendChild(action);return
+      }
       if(record){var button=document.createElement('button');button.type='button';button.className='secondary';button.textContent='Delete';button.dataset.cashDelete=record.id;action.appendChild(button)}else action.textContent='—';
       row.appendChild(action);
     });
@@ -72,6 +77,15 @@
     var pettyButton=event.target.closest('[data-petty-expense]');if(pettyButton&&db){event.preventDefault();pettyExpense();return}
     var remitButton=event.target.closest('[data-cash-remit]');if(remitButton&&db){event.preventDefault();remit();return}
     var transferButton=event.target.closest('[data-cash-transfer]');if(transferButton&&db){event.preventDefault();transfer();return}
+    var invoiceCashButton=event.target.closest('[data-cash-invoice-delete]');if(invoiceCashButton&&db){
+      event.preventDefault();
+      if(activeRole!=='owner'){alert('Only the business owner can delete an invoice cash payment.');return}
+      if(!confirm('Delete the cash payment(s) for this invoice? This reverses the related CIB cash entry and updates the invoice balance. This cannot be used after the cash has been remitted.'))return;
+      var reversed=await db.rpc('owner_delete_invoice_cash_payments',{p_invoice_id:invoiceCashButton.dataset.cashInvoiceDelete,p_branch_id:branch()});
+      if(reversed.error){alert('Cash payment could not be deleted: '+reversed.error.message);return}
+      alert('Invoice cash payment deleted. CIB and the invoice balance were updated.');
+      document.dispatchEvent(new CustomEvent('bwc:cash-updated'));document.dispatchEvent(new Event('bwc:invoice-payments-updated'));setTimeout(decorate,150);return;
+    }
     var button=event.target.closest('[data-cash-delete]');if(!button||!db)return;
     event.preventDefault();if(!confirm('Delete this cash record? Any linked transfer or quick expense will also be reversed.'))return;
     var found=await db.from('cash_transactions').select('source_key').eq('id',button.dataset.cashDelete).eq('business_id',businessId).eq('branch_id',branch()).single();
