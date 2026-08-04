@@ -85,14 +85,37 @@
       await writeLines(saved.id,x);await syncInvoiceCashIn(saved.id,saved.invoice_number,x);await loadRemote();resetInvoice();show('invoices');message('Invoice '+('INV-'+String(saved.invoice_number).padStart(5,'0'))+' saved securely online.');
     }catch(error){message('Invoice was not saved online: '+error.message);alert('The invoice could not be saved online. Please try again.')}};
   window.deleteInvoice=async function(id){
-    var item=inv.find(function(x){return x.id===id});if(!item||!confirm('Delete this invoice?'))return;
+    var item=inv.find(function(x){return x.id===id});
+    if(!item)return;
+    if(!confirm('Delete '+String(item.number||'this invoice')+'? This also removes its services, parts, payment history, cash collection, and any linked repair order in the current branch.'))return;
     if(online&&item.remoteId){
       var branchId=localStorage.getItem('bwc-active-branch');
-      if(branchId){var cash=await db.from('cash_transactions').delete().eq('business_id',businessId).eq('branch_id',branchId).eq('source_key','invoice-cash:'+item.remoteId);if(cash.error){message('Invoice cash record was not removed: '+cash.error.message);return}}
-      var result=await db.from('invoices').delete().eq('id',item.remoteId);if(result.error){message('Invoice was not deleted: '+result.error.message);return}
-      document.dispatchEvent(new Event('bwc:cash-updated'));
+      if(!businessId||!branchId){alert('The current branch is still loading. Please try again in a moment.');return}
+      message('Deleting invoice securely…');
+      try{
+        /* Repair orders deliberately protect their source invoice, so clear the
+           linked job card first. The remaining invoice children use cascade
+           deletion in Supabase. Every request is limited to this business and
+           this branch, so MAIN and STO. TOMAS can never delete each other's data. */
+        var repair=await db.from('service_repair_orders').delete().eq('business_id',businessId).eq('branch_id',branchId).eq('invoice_id',item.remoteId);
+        if(repair.error)throw new Error('Linked repair order could not be removed: '+repair.error.message);
+        var cash=await db.from('cash_transactions').delete().eq('business_id',businessId).eq('branch_id',branchId).eq('source_key','invoice-cash:'+item.remoteId);
+        if(cash.error)throw new Error('Invoice cash record could not be removed: '+cash.error.message);
+        var result=await db.from('invoices').delete().eq('id',item.remoteId).eq('business_id',businessId).eq('branch_id',branchId).select('id');
+        if(result.error)throw new Error(result.error.message);
+        if(!result.data||!result.data.length)throw new Error('This invoice was not found in the current branch. Refresh and try again.');
+        document.dispatchEvent(new Event('bwc:cash-updated'));
+        document.dispatchEvent(new Event('bwc:invoice-deleted'));
+        await loadRemote();
+        message(String(item.number||'Invoice')+' was deleted from this branch only.');
+        alert('Invoice deleted successfully from the current branch.');
+      }catch(error){
+        message('Invoice was not deleted: '+error.message);
+        alert('Invoice was not deleted. '+error.message);
+      }
+      return;
     }
-    inv=inv.filter(function(x){return x.id!==id});cache();render();if(online)message('Invoice deleted from the secure online records.');
+    inv=inv.filter(function(x){return x.id!==id});cache();render();
   };
   async function start(){
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}
