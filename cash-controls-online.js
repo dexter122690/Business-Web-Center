@@ -23,6 +23,16 @@
     panel.innerHTML='<div class="k">Cash controls</div><h2>CIB and Petty Cash</h2><p class="muted">Record money added to each cash fund. Expense payments made from CIB or Petty Cash are recorded as money out automatically. Authorized Manager expenses do not change either cash balance.</p><div class="grid" style="margin-top:12px"><div class="mini"><b>CIB balance</b><div class="metric">'+peso(cib.balance)+'</div><small>In '+peso(cib.in)+' · Out '+peso(cib.out)+'</small></div><div class="mini"><b>Petty Cash balance</b><div class="metric">'+peso(petty.balance)+'</div><small>In '+peso(petty.in)+' · Out '+peso(petty.out)+'</small></div><div class="mini"><b>Authorized Manager paid</b><div class="metric">'+peso(managerExpenseTotal())+'</div><small>Recorded as direct expense</small></div><div class="mini"><b>How it works</b><small>CIB / Petty Cash: cash balance moves. Authorized Manager: tracked as expense only.</small></div></div><div class="two" style="margin-top:14px"><div><h3>Add money to CIB</h3><div class="formgrid"><label>Amount (PHP)<input id="cashCibAmount" type="number" min="0" step=".01" value="0"></label><label style="grid-column:span 2">Reference / note<input id="cashCibNote" placeholder="e.g., Cash deposit or opening balance"></label></div><button class="primary" type="button" data-cash-in="CIB" style="margin-top:10px">Record CIB cash in</button></div><div><h3>Add money to Petty Cash</h3><div class="formgrid"><label>Amount (PHP)<input id="cashPettyAmount" type="number" min="0" step=".01" value="0"></label><label style="grid-column:span 2">Reference / note<input id="cashPettyNote" placeholder="e.g., Fund transfer or opening balance"></label></div><button class="primary" type="button" data-cash-in="Petty Cash" style="margin-top:10px">Record Petty Cash in</button></div></div><div style="margin-top:16px"><h3>Recent cash movement</h3>'+(recent.length?'<div style="overflow:auto"><table><thead><tr><th>Date</th><th>Cash fund</th><th>Movement</th><th>Amount</th><th>Reference / note</th></tr></thead><tbody>'+recent.map(function(row){return '<tr><td>'+esc(row.transaction_date)+'</td><td>'+esc(row.cash_account)+'</td><td>'+esc(row.direction)+'</td><td><b>'+peso(row.amount)+'</b></td><td>'+esc(row.reference_number||row.notes||'—')+'</td></tr>'}).join('')+'</tbody></table></div>':'<div class="empty">No CIB or Petty Cash movement recorded yet.</div>')+'</div>';
     anchor.insertAdjacentElement('afterend',panel);
   }
+  /* The Expenses form is rebuilt by the receipt screen after online records
+     finish loading.  Keep the cash controls mounted after that rebuild instead
+     of leaving CIB and Petty Cash dependent on a particular click sequence. */
+  function ensureMounted(){
+    if(!online||!activeBranch())return;
+    var root=document.getElementById('expenses');
+    if(!root||!root.querySelector('.expense-scanner-tabs'))return;
+    setPaymentOptions();
+    if(!document.getElementById('cashControlPanel'))render();
+  }
   async function load(){
     if(!online||!activeBranch())return;var result=await db.from('cash_transactions').select('*').eq('business_id',businessId).eq('branch_id',activeBranch()).order('transaction_date',{ascending:false}).order('created_at',{ascending:false});if(result.error){return}rows=result.data||[];render();
   }
@@ -33,10 +43,15 @@
   window.__recordExpenseCashOut=async function(payment,date,amount,sourceKey,reference,notes){
     var cashAccount=account(payment);if(!cashAccount||!online||!activeBranch())return true;var result=await db.from('cash_transactions').upsert({business_id:businessId,branch_id:activeBranch(),cash_account:cashAccount,direction:'Out',amount:Number(amount||0),transaction_date:date||new Date().toISOString().slice(0,10),source_key:sourceKey||null,reference_number:reference||null,notes:notes||null,created_by:userId},{onConflict:'branch_id,source_key',ignoreDuplicates:true});if(result.error){console.warn('Cash control update failed',result.error.message);return false}await load();return true;
   };
-  document.addEventListener('click',function(event){var button=event.target.closest('[data-cash-in]');if(button&&online){event.preventDefault();addCashIn(button.dataset.cashIn);return}if(event.target.closest('[data-t="expenses"]'))setTimeout(function(){setPaymentOptions();render()},350)},true);
-  document.addEventListener('bwc:expenses-loaded',function(){setTimeout(function(){setPaymentOptions();render()},80)});
+  document.addEventListener('click',function(event){var button=event.target.closest('[data-cash-in]');if(button&&online){event.preventDefault();addCashIn(button.dataset.cashIn);return}if(event.target.closest('[data-t="expenses"]'))setTimeout(ensureMounted,350)},true);
+  document.addEventListener('bwc:expenses-loaded',function(){setTimeout(ensureMounted,180)});
   document.addEventListener('bwc:cash-updated',function(){if(online)setTimeout(load,60)});
   document.addEventListener('bwc:branch-ready',function(){if(online){rows=[];setTimeout(load,80)}});
-  async function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=await resolveBusiness();if(!businessId)return;online=true;await load();setTimeout(function(){setPaymentOptions();render()},700)}
+  var mountTimer=0;
+  new MutationObserver(function(){
+    if(!online||mountTimer)return;
+    mountTimer=setTimeout(function(){mountTimer=0;ensureMounted()},90);
+  }).observe(document.documentElement,{childList:true,subtree:true});
+  async function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=await resolveBusiness();if(!businessId)return;online=true;await load();setTimeout(ensureMounted,700)}
   setTimeout(start,850);
 })();
