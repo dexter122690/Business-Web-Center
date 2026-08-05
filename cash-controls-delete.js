@@ -26,7 +26,8 @@
       if(protectedRecord){
         if(source.indexOf('invoice-cash:')===0&&activeRole==='owner'){
           var invoiceButton=document.createElement('button');invoiceButton.type='button';invoiceButton.className='secondary';invoiceButton.textContent='Delete cash payment';invoiceButton.dataset.cashInvoiceDelete=source.slice('invoice-cash:'.length);action.appendChild(invoiceButton);
-        }else action.textContent=source.indexOf('invoice-cash:')===0?'Owner only':'Manage in Expenses';
+        }else if(source.indexOf('invoice-cash:')===0) action.textContent='Owner only';
+        else {var expensesButton=document.createElement('button');expensesButton.type='button';expensesButton.className='secondary';expensesButton.textContent='Edit / delete in Expenses';expensesButton.dataset.openExpenses='1';action.appendChild(expensesButton)}
         row.appendChild(action);return
       }
       if(record){var button=document.createElement('button');button.type='button';button.className='secondary';button.textContent='Delete';button.dataset.cashDelete=record.id;action.appendChild(button)}else action.textContent='—';
@@ -76,6 +77,7 @@
   document.addEventListener('click',async function(event){
     var cibExpenseButton=event.target.closest('[data-cib-expense]');if(cibExpenseButton&&db){event.preventDefault();cibExpense();return}
     var pettyButton=event.target.closest('[data-petty-expense]');if(pettyButton&&db){event.preventDefault();pettyExpense();return}
+    var openExpenses=event.target.closest('[data-open-expenses]');if(openExpenses){event.preventDefault();var expenseTab=document.querySelector('[data-t="expenses"]');if(expenseTab)expenseTab.click();return}
     var remitButton=event.target.closest('[data-cash-remit]');if(remitButton&&db){event.preventDefault();remit();return}
     var transferButton=event.target.closest('[data-cash-transfer]');if(transferButton&&db){event.preventDefault();transfer();return}
     var invoiceCashButton=event.target.closest('[data-cash-invoice-delete]');if(invoiceCashButton&&db){
