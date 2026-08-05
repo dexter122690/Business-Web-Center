@@ -29,6 +29,8 @@
       history='<div class="notice" style="margin-top:14px"><b>Selected: INV-'+String(item.invoice_number).padStart(5,'0')+'</b> · '+safe(item.client_name)+' · Balance '+money(balance)+'</div>'+history;
     }
     host.innerHTML='<div class="k">Payment records</div><h2>Invoice installment history</h2><p class="muted">Use the same invoice every time a client pays. Each payment keeps its own date, method, reference, and remaining balance.</p><div id="invoicePaymentOnlineStatus" class="notice">Payments are saved separately and do not create a new invoice.</div><div style="overflow:auto"><table><thead><tr><th>Invoice</th><th>Client</th><th>Total</th><th>Received</th><th>Balance</th><th>Action</th></tr></thead><tbody>'+list+'</tbody></table></div>'+(item?'<div class="card" style="margin-top:14px;padding:16px"><h3>Record payment — INV-'+String(item.invoice_number).padStart(5,'0')+'</h3><div class="grid3"><label>Payment date<input id="paymentDate" type="date" value="'+new Date().toISOString().slice(0,10)+'"></label><label>Amount received (PHP)<input id="paymentAmount" type="number" min="0.01" step="0.01" max="'+balance+'" placeholder="Remaining '+balance.toFixed(2)+'"></label><label>Payment method<select id="paymentMethod"><option>Cash</option><option>GCash</option><option>Bank transfer</option><option>Credit card</option><option>Check</option><option>Other</option></select></label></div><div class="grid2"><label>Reference number (optional)<input id="paymentReference" placeholder="Receipt, transfer, or check no."></label><label>Notes (optional)<input id="paymentNotes" placeholder="Payment note"></label></div><button id="saveInvoicePayment">Save payment</button> <button class="secondary" id="closeInvoicePayment">Close</button>'+history+'</div>':'');
+    var paymentMethodField=document.getElementById('paymentMethod');
+    if(paymentMethodField){var prompt=document.createElement('option');prompt.value='';prompt.textContent='Select payment method';prompt.disabled=true;prompt.selected=true;paymentMethodField.prepend(prompt)}
   }
   async function load(){
     if(!businessId||!currentBranch())return;
@@ -42,14 +44,27 @@
     var added=await db.from('invoice_payments').insert(seed).select().single();if(added.error)throw new Error(added.error.message);return [added.data];
   }
   async function syncCash(row,payments){
+    var branchId=currentBranch(),legacySource='invoice-cash:'+row.id,paymentPrefix='invoice-payment-cash:'+row.id+':';
+    /* One CIB transaction per actual cash payment keeps installment dates and amounts visible. */
+    var removedLegacy=await db.from('cash_transactions').delete().eq('business_id',businessId).eq('branch_id',branchId).eq('source_key',legacySource);if(removedLegacy.error)throw new Error(removedLegacy.error.message);
+    var removedPayments=await db.from('cash_transactions').delete().eq('business_id',businessId).eq('branch_id',branchId).like('source_key',paymentPrefix+'%');if(removedPayments.error)throw new Error(removedPayments.error.message);
+    var cashPayments=payments.filter(function(payment){return String(payment.payment_method||'').toLowerCase()==='cash'});
+    for(var index=0;index<cashPayments.length;index++){
+      var payment=cashPayments[index];if(!payment.id)continue;
+      var addedPayment=await db.from('cash_transactions').insert({business_id:businessId,branch_id:branchId,cash_account:'CIB',direction:'In',amount:Number(payment.amount||0),transaction_date:payment.payment_date||row.invoice_date||new Date().toISOString().slice(0,10),source_key:paymentPrefix+payment.id,reference_number:'INV-'+String(row.invoice_number).padStart(5,'0'),notes:'Cash payment for invoice - '+row.client_name,created_by:userId});if(addedPayment.error)throw new Error(addedPayment.error.message);
+    }
+    document.dispatchEvent(new Event('bwc:cash-updated'));
+    if(false){
     var source='invoice-cash:'+row.id,cash=payments.filter(function(p){return String(p.payment_method||'').toLowerCase()==='cash'}).reduce(function(sum,p){return sum+Number(p.amount||0)},0);
     var removed=await db.from('cash_transactions').delete().eq('business_id',businessId).eq('branch_id',currentBranch()).eq('source_key',source);if(removed.error)throw new Error(removed.error.message);
     if(cash>0){var added=await db.from('cash_transactions').insert({business_id:businessId,branch_id:currentBranch(),cash_account:'CIB',direction:'In',amount:cash,transaction_date:row.invoice_date||new Date().toISOString().slice(0,10),source_key:source,reference_number:'INV-'+String(row.invoice_number).padStart(5,'0'),notes:'Cash received from invoice · '+row.client_name,created_by:userId});if(added.error)throw new Error(added.error.message)}
     document.dispatchEvent(new Event('bwc:cash-updated'));
+    }
   }
   async function save(){
     var row=selected(),amount=Number((document.getElementById('paymentAmount')||{}).value||0),date=(document.getElementById('paymentDate')||{}).value,method=(document.getElementById('paymentMethod')||{}).value,reference=(document.getElementById('paymentReference')||{}).value.trim(),notes=(document.getElementById('paymentNotes')||{}).value.trim();
     if(!row||!amount||amount<=0){alert('Enter a payment amount greater than zero.');return}
+    if(!method){alert('Choose how the client paid before saving this payment.');return}
     var payments=await seedLegacy(row),paid=payments.reduce(function(sum,p){return sum+Number(p.amount||0)},0),balance=Math.max(0,Number(row.total_amount||0)-paid);if(amount>balance+0.001){alert('This payment is more than the remaining balance of '+money(balance)+'.');return}
     var added=await db.from('invoice_payments').insert({invoice_id:row.id,business_id:businessId,branch_id:currentBranch(),payment_date:date,amount:amount,payment_method:method,reference_number:reference||null,notes:notes||null,received_by:null,created_by:userId}).select().single();if(added.error)throw new Error(added.error.message);
     payments=payments.concat([added.data]);paid=payments.reduce(function(sum,p){return sum+Number(p.amount||0)},0);var state=paid>=Number(row.total_amount||0)?'Paid':paid>0?'Partially paid':'Pending';
