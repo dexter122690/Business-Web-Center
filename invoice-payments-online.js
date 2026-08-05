@@ -56,7 +56,18 @@
     var updated=await db.from('invoices').update({amount_paid:paid,status:state,payment_method:method}).eq('id',row.id);if(updated.error)throw new Error(updated.error.message);
     await syncCash(row,payments);selectedId=row.id;document.dispatchEvent(new Event('bwc:invoice-payments-updated'));await load();alert('Payment saved. Remaining balance: '+money(Math.max(0,Number(row.total_amount||0)-paid))+'.');
   }
-  document.addEventListener('click',function(event){var pay=event.target.closest('[data-invoice-payment]'),history=event.target.closest('[data-invoice-history]');if(pay){selectedId=pay.dataset.invoicePayment;render();document.getElementById('paymentAmount').focus()}if(history){selectedId=history.dataset.invoiceHistory;render()}if(event.target.id==='closeInvoicePayment'){selectedId='';render()}if(event.target.id==='saveInvoicePayment'){save().catch(function(error){alert('Payment could not be saved: '+error.message)})}});
+  document.addEventListener('click',function(event){
+    var pay=event.target.closest('[data-invoice-payment]'),history=event.target.closest('[data-invoice-history]'),shortcut=event.target.closest('[data-record-invoice-payment]');
+    if(pay){selectedId=pay.dataset.invoicePayment;render();var amount=document.getElementById('paymentAmount');if(amount)amount.focus()}
+    if(history){selectedId=history.dataset.invoiceHistory;render()}
+    if(shortcut){
+      selectedId=shortcut.dataset.recordInvoicePayment;render();
+      var paymentPanel=panel();if(paymentPanel)paymentPanel.scrollIntoView({behavior:'smooth',block:'start'});
+      setTimeout(function(){var amount=document.getElementById('paymentAmount');if(amount)amount.focus()},350);
+    }
+    if(event.target.id==='closeInvoicePayment'){selectedId='';render()}
+    if(event.target.id==='saveInvoicePayment'){save().catch(function(error){alert('Payment could not be saved: '+error.message)})}
+  });
   document.addEventListener('bwc:invoices-loaded',function(){setTimeout(load,40)});
   document.addEventListener('bwc:branch-ready',function(){selectedId='';setTimeout(load,120)});
   function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);identity().then(function(ok){if(ok)load()});}

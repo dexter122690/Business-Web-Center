@@ -18,7 +18,7 @@
     var query=db.from('invoices').select('*,invoice_services(*),invoice_parts(*)').eq('business_id',businessId),branchId=localStorage.getItem('bwc-active-branch');if(branchId)query=query.eq('branch_id',branchId);
     var result=await query.order('invoice_date',{ascending:false}).order('invoice_number',{ascending:false});
     if(result.error){message('Online invoices could not load: '+result.error.message);return}
-    inv=(result.data||[]).map(normalize);cache();render();renderLists();document.dispatchEvent(new Event('bwc:invoices-loaded'));message('Online invoice records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');
+    inv=(result.data||[]).map(normalize);cache();render();renderLists();if(edit)paymentEditShortcut();document.dispatchEvent(new Event('bwc:invoices-loaded'));message('Online invoice records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');
   }
   function escapeHtml(value){return String(value||'').replace(/[&<>"']/g,function(character){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]})}
   function isAdmin(worker){return /\badmin(istrator)?\b/i.test(String(worker.position||''))}
@@ -36,6 +36,20 @@
     renderAdmins(result.data||[]);
   }
   function invoicePayload(x){return {business_id:businessId,branch_id:localStorage.getItem('bwc-active-branch'),client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,total_amount:x.total,amount_paid:x.paid,status:x.status,created_by:userId}}
+  /* A payment must be added to the original invoice as a dated installment.
+     Do not let an editor overwrite the accumulated received amount by hand. */
+  function paymentEditShortcut(){
+    var old=document.getElementById('invoicePaymentEditShortcut');if(old)old.remove();
+    var paidField=document.getElementById('paid'),summary=document.querySelector('#invoices .summary');
+    if(!paidField)return;
+    var item=edit&&inv.find(function(row){return row.id===edit});
+    if(!online||!item||!item.remoteId){paidField.readOnly=false;paidField.removeAttribute('aria-readonly');return}
+    paidField.readOnly=true;paidField.setAttribute('aria-readonly','true');
+    var balance=Math.max(0,Number(item.total||0)-Number(item.paid||0)),box=document.createElement('div');
+    box.id='invoicePaymentEditShortcut';box.className='notice';box.style.marginTop='12px';
+    box.innerHTML='<b>Payment update for '+escapeHtml(item.number)+'</b><br>This invoice has '+escapeHtml('PHP '+Number(item.paid||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2}))+' received and '+escapeHtml('PHP '+balance.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2}))+' remaining. Add the next payment as a dated record so the balance, CIB cash, dashboard, and payment history stay correct.<br><button type="button" class="primary" style="margin-top:9px" data-record-invoice-payment="'+escapeHtml(item.remoteId)+'">Record another payment</button>';
+    if(summary)summary.insertAdjacentElement('afterend',box);
+  }
   async function writeLines(remoteId,x){
     var servicesRows=x.services.map(function(s){return {invoice_id:remoteId,service_name:s.n,service_detail:s.d||null,amount:Number(s.a||0)}}),partsRows=x.parts.map(function(p){return {invoice_id:remoteId,part_name:p.n,quantity:Number(p.q||0),unit_price:Number(p.p||0)}});
     if(servicesRows.length){var s=await db.from('invoice_services').insert(servicesRows);if(s.error)throw new Error(s.error.message)}
@@ -117,6 +131,12 @@
     }
     inv=inv.filter(function(x){return x.id!==id});cache();render();
   };
+  /* The original page owns editInvoice/resetInvoice.  Wrap them rather than
+     changing the familiar editor so the payment workflow appears only when an
+     existing online invoice is being edited. */
+  var originalEditInvoice=window.editInvoice,originalResetInvoice=window.resetInvoice;
+  if(originalEditInvoice)window.editInvoice=function(id){originalEditInvoice(id);setTimeout(paymentEditShortcut,0)};
+  if(originalResetInvoice)window.resetInvoice=function(){originalResetInvoice();setTimeout(paymentEditShortcut,0)};
   async function start(){
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}
     db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=await resolveBusiness();if(!businessId){message('Online invoices are ready, but this account has no selected active business yet. Approve or select the business first.');return}inv=[];cache();render();renderLists();online=true;await loadAdmins();loadRemote();
