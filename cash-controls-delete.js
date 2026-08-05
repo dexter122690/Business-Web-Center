@@ -99,7 +99,10 @@
     var deleteExpenseButton=event.target.closest('[data-cash-expense-delete]');if(deleteExpenseButton){
       event.preventDefault();if(window.__expenseOnlineActions)window.__expenseOnlineActions.remove(deleteExpenseButton.dataset.cashExpenseDelete);else alert('Expenses are still loading. Please try again in a moment.');return
     }
-    var editReceipt=event.target.closest('[data-cash-receipt-edit]');if(editReceipt){event.preventDefault();var receiptTab=document.querySelector('[data-t="expenses"]');if(receiptTab)receiptTab.click();return}
+    var editReceipt=event.target.closest('[data-cash-receipt-edit]');if(editReceipt){
+      event.preventDefault();var receiptTab=document.querySelector('[data-t="expenses"]');if(receiptTab)receiptTab.click();
+      setTimeout(function(){if(window.__expenseOnlineActions&&window.__expenseOnlineActions.editReceipt)window.__expenseOnlineActions.editReceipt(editReceipt.dataset.cashReceiptEdit);else alert('Expenses are still loading. Please try again in a moment.');},500);return
+    }
     var deleteReceipt=event.target.closest('[data-cash-receipt-delete]');if(deleteReceipt&&db){
       event.preventDefault();var receipt=receiptInfo(deleteReceipt.dataset.cashReceiptDelete);if(!receipt)return;
       if(!confirm('Delete this entire receipt? All of its expense item lines and the matching cash deduction will be removed.'))return;
