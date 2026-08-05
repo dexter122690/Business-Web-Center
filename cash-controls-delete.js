@@ -22,12 +22,12 @@
       var cells=row.querySelectorAll('td');if(cells.length<5||cells.length>5)return;
       var record=records[index];
       var action=document.createElement('td');
-      var source=String(record&&record.source_key||''),protectedRecord=/^(invoice-cash:|expense:|receipt:)/.test(source);
+      var source=String(record&&record.source_key||''),protectedRecord=/^(invoice-cash:|expense:|receipt:|petty-expense:|cib-expense:)/.test(source);
       if(protectedRecord){
         if(source.indexOf('invoice-cash:')===0&&activeRole==='owner'){
           var invoiceButton=document.createElement('button');invoiceButton.type='button';invoiceButton.className='secondary';invoiceButton.textContent='Delete cash payment';invoiceButton.dataset.cashInvoiceDelete=source.slice('invoice-cash:'.length);action.appendChild(invoiceButton);
         }else if(source.indexOf('invoice-cash:')===0) action.textContent='Owner only';
-        else {var expensesButton=document.createElement('button');expensesButton.type='button';expensesButton.className='secondary';expensesButton.textContent='Edit / delete in Expenses';expensesButton.dataset.openExpenses='1';action.appendChild(expensesButton)}
+        else if(!addExpenseActions(action,source)) action.textContent='Protected';
         row.appendChild(action);return
       }
       if(record){var button=document.createElement('button');button.type='button';button.className='secondary';button.textContent='Delete';button.dataset.cashDelete=record.id;action.appendChild(button)}else action.textContent='—';
@@ -46,6 +46,21 @@
   }
   function inputValue(id){var element=document.getElementById(id);return element?element.value.trim():''}
   function sourceId(prefix){return prefix+'-'+Date.now()+'-'+Math.random().toString(36).slice(2)}
+  function linkedExpenseId(source){var match=String(source||'').match(/^(?:expense|petty-expense|cib-expense):(.+)$/);return match?match[1]:''}
+  function receiptInfo(source){var parts=String(source||'').slice('receipt:'.length).split('|');return parts.length>=3?{supplier:parts[0],receipt:parts[1],date:parts.slice(2).join('|')}:null}
+  function addExpenseActions(action,source){
+    var expenseId=linkedExpenseId(source);
+    if(expenseId){
+      var edit=document.createElement('button');edit.type='button';edit.className='secondary';edit.textContent='Edit';edit.dataset.cashExpenseEdit=expenseId;action.appendChild(edit);
+      var remove=document.createElement('button');remove.type='button';remove.className='secondary';remove.textContent='Delete';remove.style.marginLeft='6px';remove.dataset.cashExpenseDelete=expenseId;action.appendChild(remove);return true
+    }
+    var receipt=source.indexOf('receipt:')===0?receiptInfo(source):null;
+    if(receipt){
+      var editReceipt=document.createElement('button');editReceipt.type='button';editReceipt.className='secondary';editReceipt.textContent='Edit items';editReceipt.dataset.cashReceiptEdit=source;action.appendChild(editReceipt);
+      var deleteReceipt=document.createElement('button');deleteReceipt.type='button';deleteReceipt.className='secondary';deleteReceipt.textContent='Delete receipt';deleteReceipt.style.marginLeft='6px';deleteReceipt.dataset.cashReceiptDelete=source;action.appendChild(deleteReceipt);return true
+    }
+    return false
+  }
   async function remit(){
     var amount=Number(inputValue('cashRemitAmount'))||0,note=inputValue('cashRemitNote');if(!amount){alert('Enter a remittance amount first.');return}
     if(!confirm('Record this CIB amount as remitted to the owner?'))return;
@@ -77,6 +92,23 @@
   document.addEventListener('click',async function(event){
     var cibExpenseButton=event.target.closest('[data-cib-expense]');if(cibExpenseButton&&db){event.preventDefault();cibExpense();return}
     var pettyButton=event.target.closest('[data-petty-expense]');if(pettyButton&&db){event.preventDefault();pettyExpense();return}
+    var editExpense=event.target.closest('[data-cash-expense-edit]');if(editExpense){
+      event.preventDefault();var editTab=document.querySelector('[data-t="expenses"]');if(editTab)editTab.click();
+      setTimeout(function(){if(window.__expenseOnlineActions)window.__expenseOnlineActions.edit(editExpense.dataset.cashExpenseEdit);else alert('Expenses are still loading. Please try again in a moment.');},500);return
+    }
+    var deleteExpenseButton=event.target.closest('[data-cash-expense-delete]');if(deleteExpenseButton){
+      event.preventDefault();if(window.__expenseOnlineActions)window.__expenseOnlineActions.remove(deleteExpenseButton.dataset.cashExpenseDelete);else alert('Expenses are still loading. Please try again in a moment.');return
+    }
+    var editReceipt=event.target.closest('[data-cash-receipt-edit]');if(editReceipt){event.preventDefault();var receiptTab=document.querySelector('[data-t="expenses"]');if(receiptTab)receiptTab.click();return}
+    var deleteReceipt=event.target.closest('[data-cash-receipt-delete]');if(deleteReceipt&&db){
+      event.preventDefault();var receipt=receiptInfo(deleteReceipt.dataset.cashReceiptDelete);if(!receipt)return;
+      if(!confirm('Delete this entire receipt? All of its expense item lines and the matching cash deduction will be removed.'))return;
+      var removedExpenses=await db.from('expenses').delete().eq('business_id',businessId).eq('branch_id',branch()).eq('supplier_name',receipt.supplier).eq('receipt_number',receipt.receipt).eq('expense_date',receipt.date);
+      if(removedExpenses.error){alert('The receipt could not be deleted: '+removedExpenses.error.message);return}
+      var removedCash=await db.from('cash_transactions').delete().eq('business_id',businessId).eq('branch_id',branch()).eq('source_key',deleteReceipt.dataset.cashReceiptDelete);
+      if(removedCash.error){alert('The receipt items were removed, but its cash record could not be removed: '+removedCash.error.message);return}
+      alert('Receipt and matching cash movement deleted.');document.dispatchEvent(new CustomEvent('bwc:cash-updated'));return
+    }
     var openExpenses=event.target.closest('[data-open-expenses]');if(openExpenses){event.preventDefault();var expenseTab=document.querySelector('[data-t="expenses"]');if(expenseTab)expenseTab.click();return}
     var remitButton=event.target.closest('[data-cash-remit]');if(remitButton&&db){event.preventDefault();remit();return}
     var transferButton=event.target.closest('[data-cash-transfer]');if(transferButton&&db){event.preventDefault();transfer();return}
