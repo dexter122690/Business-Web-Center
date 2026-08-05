@@ -28,7 +28,10 @@
   function ensureMounted(){
     if(!online||!activeBranch())return;
     var root=document.getElementById('expenses');
-    if(!root||!root.querySelector('.expense-scanner-tabs'))return;
+    /* Some existing customer pages still use the original manual expense form,
+       which has no scanner-tabs wrapper.  Cash Controls belongs to every
+       Expenses view, so mount it whenever the Expenses root is available. */
+    if(!root)return;
     setPaymentOptions();
     if(!document.getElementById('cashControlPanel'))render();
   }
