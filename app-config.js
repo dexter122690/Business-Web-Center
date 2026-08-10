@@ -21,8 +21,8 @@ window.BUSINESS_WEB_CENTER_SUPABASE = {
     head.appendChild(element);
   }
   add('link', { rel: 'manifest', href: '/site.webmanifest' });
-  add('link', { rel: 'icon', href: '/icons/bwc-app-icon.svg', type: 'image/svg+xml' });
-  add('link', { rel: 'apple-touch-icon', href: '/icons/bwc-app-icon.svg' });
+  add('link', { rel: 'icon', href: '/icons/bwc-app-icon.png?v=2', type: 'image/png' });
+  add('link', { rel: 'apple-touch-icon', href: '/icons/bwc-app-icon.png?v=2' });
   add('meta', { name: 'theme-color', content: '#080808' });
   add('meta', { name: 'apple-mobile-web-app-capable', content: 'yes' });
   add('meta', { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' });
