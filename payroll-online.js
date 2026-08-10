@@ -337,10 +337,39 @@
     if(button.dataset.prAddAdjustment)requestAdjustment().catch(function(error){alert('The adjustment could not be saved online. '+error.message)});else if(button.dataset.prApproveAdjustment)approveAdjustment(button);else if(button.dataset.prApproveAttendance)approveAttendance(button);else if(button.dataset.prApproveOt)approveOvertime(button);else if(button.dataset.prCompleteJob)completeJob(button);else if(button.dataset.prIssuePayslip)issuePayroll(button);else if(button.dataset.pr==='approve-payslip')approvePayroll(button);else if(button.dataset.prHistory==='advance'||button.dataset.prHistory==='loan')editObligationHistory(button,button.dataset.prHistory);else if(button.dataset.prEdit==='advance'||button.dataset.prEdit==='loan')editObligation(button,button.dataset.prEdit);else if(button.dataset.prEdit==='job')editJob(button);else if(button.dataset.prPayment==='advance'||button.dataset.prPayment==='loan')recordObligationPayment(button,button.dataset.prPayment);else if(button.dataset.prPayment==='job')recordJobPayment(button);else if(button.dataset.pr==='add-advances')saveObligation(button,'advance');else if(button.dataset.pr==='add-loans')saveObligation(button,'loan');else if(button.dataset.pr==='add-job')saveJob(button);else if(button.dataset.pr==='save-attendance')saveAttendance(button);else saveWorker(event,button);
   },true);
   var observerStarted=false;
+  var employeeClockLinkBusy=false;
+  function employeeClockUrl(token){
+    return location.href.replace(/\/index\.html(?:[?#].*)?$/,'/attendance.html')+'?token='+encodeURIComponent(token);
+  }
+  function installEmployeeClockLink(token){
+    var input=document.getElementById('clockLink'),url=employeeClockUrl(token);
+    if(input)input.value=url;
+    Array.prototype.forEach.call(document.querySelectorAll('a[href="attendance.html"],a[href^="attendance.html?"]'),function(link){
+      if(/employee time clock/i.test(link.textContent||''))link.href=url;
+    });
+  }
+  async function ensureEmployeeClockLink(){
+    if(!online||!db||!businessId()||!branchId()||!document.getElementById('clockLink')||employeeClockLinkBusy)return;
+    employeeClockLinkBusy=true;
+    try{
+      var existing=await db.from('branch_time_clock_links').select('public_token,enabled').eq('business_id',businessId()).eq('branch_id',branchId()).maybeSingle();
+      if(existing.error)throw existing.error;
+      var row=existing.data;
+      if(!row){
+        var created=await db.from('branch_time_clock_links').insert({business_id:businessId(),branch_id:branchId()}).select('public_token,enabled').single();
+        if(created.error)throw created.error;
+        row=created.data;
+      }
+      if(row&&row.enabled!==false)installEmployeeClockLink(row.public_token);
+    }catch(error){
+      /* A non-owner may not have permission to create or share the public clock link. */
+    }finally{employeeClockLinkBusy=false;}
+  }
   function beginOnlineSync(){
     if(!connect()){setTimeout(beginOnlineSync,250);return;}
     replaceLegacyIssueButtons();syncWorkers();syncAttendance();syncJobs();syncObligations();syncAdjustments();syncPayrollArchive();
-    if(!observerStarted){observerStarted=true;new MutationObserver(function(){replaceLegacyIssueButtons();decorateAttendanceReview();decoratePayrollAdjustments();decorateJobCompletionActions()}).observe(document.body,{childList:true,subtree:true});}
+    setTimeout(ensureEmployeeClockLink,100);
+    if(!observerStarted){observerStarted=true;new MutationObserver(function(){replaceLegacyIssueButtons();decorateAttendanceReview();decoratePayrollAdjustments();decorateJobCompletionActions();ensureEmployeeClockLink()}).observe(document.body,{childList:true,subtree:true});}
   }
   window.addEventListener('load',function(){setTimeout(beginOnlineSync,120)});
   document.addEventListener('bwc:business-ready',beginOnlineSync);
