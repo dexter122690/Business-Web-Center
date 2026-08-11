@@ -74,13 +74,14 @@ Deno.serve(async (request) => {
   }
 
   let sendError: { message: string } | null = null
+  let deliveryMethod = 'account_invitation'
   if (existingUser) {
-    const mailClient = createClient(url, anonKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
-    const result = await mailClient.auth.signInWithOtp({
-      email: invite.email,
-      options: { shouldCreateUser: false, emailRedirectTo: signInRedirect },
+    // A recovery email is used for an existing account. Unlike passwordless OTP,
+    // this gives the staff member a dependable link to set/confirm a password
+    // before signing in to the newly assigned workspace.
+    deliveryMethod = 'account_access'
+    const result = await admin.auth.resetPasswordForEmail(invite.email, {
+      redirectTo: signInRedirect,
     })
     sendError = result.error
   } else {
@@ -106,16 +107,20 @@ Deno.serve(async (request) => {
   }
 
   await admin.from('business_team_invites').update({
-    email_delivery_status: 'sent',
+    // Supabase accepted the delivery request. SMTP delivery itself can still be
+    // delayed or rejected by the recipient provider, so do not claim inbox delivery.
+    email_delivery_status: 'requested',
     email_sent_at: new Date().toISOString(),
     email_delivery_error: null,
   }).eq('id', invite.id)
 
   return json({
-    sent: true,
+    queued: true,
+    recipient: invite.email,
+    deliveryMethod,
     existingAccount: existingUser,
     message: existingUser
-      ? `A secure sign-in email was sent to ${invite.email}.`
-      : `An account invitation email was sent to ${invite.email}.`,
+      ? `Supabase accepted an account-access email request for ${invite.email}. Check Inbox and Spam.`
+      : `Supabase accepted an account invitation request for ${invite.email}. Check Inbox and Spam.`,
   })
 })
