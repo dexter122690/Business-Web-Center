@@ -710,6 +710,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
 <script src="feature-flags.js"></script>
 <script src="payroll-online.js"></script>
 <script src="schedule-online.js"></script>
+<script src="work-board-online.js"></script>
 <script src="team-access.js"></script>
 <script src="quotation-online.js"></script>
 <script src="feedback-online.js"></script>
@@ -763,14 +764,16 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
     }
     var button = document.querySelector('[data-restore-tab="' + tabId + '"]') ||
       document.querySelector('[data-t="' + tabId + '"]') ||
-      (tabId === 'schedule' ? document.getElementById('scheduleTab') : null);
+      (tabId === 'schedule' ? document.getElementById('scheduleTab') :
+        tabId === 'workboard' ? document.getElementById('workBoardTab') : null);
     if (button) button.click();
   }
 
   document.addEventListener('click', function (event) {
-    var tab = event.target.closest('[data-restore-tab],[data-t],#scheduleTab');
+    var tab = event.target.closest('[data-restore-tab],[data-t],#scheduleTab,#workBoardTab');
     if (tab) {
-      remember(tab.dataset.restoreTab || tab.dataset.t || 'schedule');
+      remember(tab.dataset.restoreTab || tab.dataset.t ||
+        (tab.id === 'workBoardTab' ? 'workboard' : 'schedule'));
       return;
     }
     if (event.target.closest('#settingsMenu button[onclick*="openCustomizePage"]')) {
