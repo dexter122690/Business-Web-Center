@@ -1,5 +1,21 @@
 /* Online worker masterlist. Payroll Step 2: secure workers per business. */
 (function(){
+  /* Keep the browser's temporary payroll copy separate for every business and
+     branch. The online database has always been branch-filtered; this prevents
+     an older cached copy from briefly appearing after a branch switch. */
+  if(!window.bwcPayrollStorageScopeInstalled){
+    window.bwcPayrollStorageScopeInstalled=true;
+    var payrollStorageGet=Storage.prototype.getItem,payrollStorageSet=Storage.prototype.setItem,payrollStorageRemove=Storage.prototype.removeItem;
+    function payrollStorageKey(key){
+      if(key!=='15m-recovery-payroll')return key;
+      var business=payrollStorageGet.call(localStorage,'bwc-active-business')||'';
+      var branch=payrollStorageGet.call(localStorage,'bwc-active-branch')||'';
+      return key+'::'+(business||'unresolved')+'::'+(branch||'unresolved');
+    }
+    Storage.prototype.getItem=function(key){return payrollStorageGet.call(this,payrollStorageKey(key))};
+    Storage.prototype.setItem=function(key,value){return payrollStorageSet.call(this,payrollStorageKey(key),value)};
+    Storage.prototype.removeItem=function(key){return payrollStorageRemove.call(this,payrollStorageKey(key))};
+  }
   var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};
   var online=false,db=null;
   function connect(){
@@ -12,6 +28,8 @@
   var payrollKey='15m-recovery-payroll',syncing=false;
   function businessId(){return localStorage.getItem('bwc-active-business')||''}
   function branchId(){return localStorage.getItem('bwc-active-branch')||''}
+  function activeScope(){return businessId()+'::'+branchId()}
+  function scopeIsActive(scope){return !!businessId()&&!!branchId()&&scope===activeScope()}
   function read(){try{var data=JSON.parse(localStorage.getItem(payrollKey)||'{}');return data&&typeof data==='object'?data:{}}catch(e){return {}}}
   function write(data){localStorage.setItem(payrollKey,JSON.stringify(data))}
   function value(id){var input=document.getElementById(id);return input?input.value.trim():''}
@@ -19,17 +37,20 @@
   function showStatus(text,kind){var section=document.getElementById('payroll');if(!section)return;var form=document.getElementById('prWorkerCode');if(!form)return;var note=document.getElementById('prOnlineWorkerStatus');if(!note){note=document.createElement('div');note.id='prOnlineWorkerStatus';note.className='notice';note.style.marginTop='12px';form.closest('.formgrid').insertAdjacentElement('afterend',note)}note.textContent=text;note.style.borderLeftColor=kind==='error'?'#b63d25':''}
   async function getUser(){var result=await db.auth.getUser();return result.data&&result.data.user}
   async function syncWorkers(){
-    if(!online||!businessId()||syncing)return;
+    var business=businessId(),branch=branchId();
+    if(!online||!business||!branch||syncing)return;
+    var scope=business+'::'+branch;
     syncing=true;
     try{
-      var result=await db.from('payroll_workers').select('id,employee_code,full_name,position,pay_type,daily_rate,retention_percent,is_active').eq('business_id',businessId()).eq('branch_id',branchId()).order('full_name');
+      var result=await db.from('payroll_workers').select('id,employee_code,full_name,position,pay_type,daily_rate,retention_percent,is_active').eq('business_id',business).eq('branch_id',branch).order('full_name');
       if(result.error)throw result.error;
+      if(!scopeIsActive(scope))return;
       var data=read(),saved=(data.workers||[]),remote=(result.data||[]).map(localWorker),byCode={};
       remote.forEach(function(worker){byCode[String(worker.code||'').toLowerCase()]=worker});
       saved.forEach(function(worker){var code=String(worker.code||'').toLowerCase();if(!worker.online&&code&&!byCode[code])remote.push(worker)});
       data.workers=remote;write(data);
       showStatus('Workers are saved securely online for this business.','info');
-    }catch(error){showStatus('Online worker list could not load: '+error.message,'error')}finally{syncing=false}
+    }catch(error){showStatus('Online worker list could not load: '+error.message,'error')}finally{syncing=false;if(!scopeIsActive(scope))setTimeout(beginOnlineSync,80)}
   }
   function minutes(time){var bits=String(time||'').split(':');return Number(bits[0]||0)*60+Number(bits[1]||0)}
   function overlap(start,end,from,to){return Math.max(0,Math.min(end,to)-Math.max(start,from))}
@@ -37,10 +58,13 @@
   function localAttendance(row){return {id:row.id,workerId:row.worker_id,date:row.work_date,timeIn:row.time_in||'',timeOut:row.time_out||'',multiplier:1.25,regularHours:Number(row.regular_hours||0),overtimeHours:Number(row.overtime_hours||0),regularPay:Number(row.regular_pay||0),overtimePay:Number(row.overtime_pay||0),attendanceApproved:row.attendance_approved!==false,overtimeApproved:!!row.overtime_approved,photo:'',online:true}}
   function attendanceStatus(text,kind){var form=document.getElementById('prAttendanceEmployeeId');if(!form)return;var note=document.getElementById('prOnlineAttendanceStatus');if(!note){note=document.createElement('div');note.id='prOnlineAttendanceStatus';note.className='notice';note.style.marginTop='12px';form.closest('.formgrid').insertAdjacentElement('afterend',note)}note.textContent=text;note.style.borderLeftColor=kind==='error'?'#b63d25':''}
   async function syncAttendance(){
-    if(!online||!businessId())return;
+    var business=businessId(),branch=branchId();
+    if(!online||!business||!branch)return;
+    var scope=business+'::'+branch;
     try{
-      var result=await db.from('payroll_attendance').select('id,worker_id,work_date,time_in,time_out,regular_hours,overtime_hours,regular_pay,overtime_pay,attendance_approved,overtime_approved').eq('business_id',businessId()).eq('branch_id',branchId()).order('work_date',{ascending:false});
+      var result=await db.from('payroll_attendance').select('id,worker_id,work_date,time_in,time_out,regular_hours,overtime_hours,regular_pay,overtime_pay,attendance_approved,overtime_approved').eq('business_id',business).eq('branch_id',branch).order('work_date',{ascending:false});
       if(result.error)throw result.error;
+      if(!scopeIsActive(scope))return;
       var data=read(),saved=data.attendance||[],remote=(result.data||[]).map(localAttendance),byKey={};
       remote.forEach(function(item){byKey[item.workerId+'|'+item.date]=item});
       saved.forEach(function(item){var key=item.workerId+'|'+item.date;if(!item.online&&!byKey[key])remote.push(item)});
@@ -50,12 +74,15 @@
   function localJob(row,payments){return {id:row.id,workerId:row.worker_id,number:row.job_order_number,vehicle:row.vehicle,plate:row.plate_number||'',work:row.service_work||'',amount:Number(row.contract_amount||0),retention:Number(row.retention_percent||0),status:row.status||'In Progress',payments:(payments||[]).map(function(payment){return {id:payment.id,date:payment.payment_date,amount:Number(payment.amount||0),notes:payment.notes||''}}),online:true}}
   function jobStatus(text,kind){var form=document.getElementById('prJobWorker');if(!form)return;var note=document.getElementById('prOnlineJobStatus');if(!note){note=document.createElement('div');note.id='prOnlineJobStatus';note.className='notice';note.style.marginTop='12px';form.closest('.formgrid').insertAdjacentElement('afterend',note)}note.textContent=text;note.style.borderLeftColor=kind==='error'?'#b63d25':''}
   async function syncJobs(){
-    if(!online||!businessId())return;
+    var business=businessId(),branch=branchId();
+    if(!online||!business||!branch)return;
+    var scope=business+'::'+branch;
     try{
-      var jobsResult=await db.from('payroll_vehicle_jobs').select('id,worker_id,job_order_number,vehicle,plate_number,service_work,contract_amount,retention_percent,status').eq('business_id',businessId()).eq('branch_id',branchId()).order('created_at',{ascending:false});
+      var jobsResult=await db.from('payroll_vehicle_jobs').select('id,worker_id,job_order_number,vehicle,plate_number,service_work,contract_amount,retention_percent,status').eq('business_id',business).eq('branch_id',branch).order('created_at',{ascending:false});
       if(jobsResult.error)throw jobsResult.error;
-      var paymentsResult=await db.from('payroll_job_payments').select('id,job_id,payment_date,amount,notes').eq('business_id',businessId()).eq('branch_id',branchId()).order('payment_date');
+      var paymentsResult=await db.from('payroll_job_payments').select('id,job_id,payment_date,amount,notes').eq('business_id',business).eq('branch_id',branch).order('payment_date');
       if(paymentsResult.error)throw paymentsResult.error;
+      if(!scopeIsActive(scope))return;
       var grouped={};(paymentsResult.data||[]).forEach(function(payment){(grouped[payment.job_id]=grouped[payment.job_id]||[]).push(payment)});
       var data=read(),saved=data.jobs||[],remote=(jobsResult.data||[]).map(function(row){return localJob(row,grouped[row.id])}),byNumber={};
       remote.forEach(function(job){byNumber[String(job.number||'').toLowerCase()]=job});saved.forEach(function(job){var number=String(job.number||'').toLowerCase();if(!job.online&&number&&!byNumber[number])remote.push(job)});
@@ -67,12 +94,15 @@
   function obligationStatus(text,kind){var form=document.getElementById('prDebtWorker');if(!form)return;var note=document.getElementById('prOnlineObligationStatus');if(!note){note=document.createElement('div');note.id='prOnlineObligationStatus';note.className='notice';note.style.marginTop='12px';form.closest('.formgrid').insertAdjacentElement('afterend',note)}note.textContent=text;note.style.borderLeftColor=kind==='error'?'#b63d25':''}
   function obligationKey(item){return String(item.workerId||'')+'|'+String(item.reference||'').trim().toLowerCase()+'|'+Number(item.amount||0)}
   async function syncObligations(){
-    if(!online||!businessId())return;
+    var business=businessId(),branch=branchId();
+    if(!online||!business||!branch)return;
+    var scope=business+'::'+branch;
     try{
-      var obligationsResult=await db.from('payroll_obligations').select('id,worker_id,obligation_type,reference,original_amount,planned_weekly_deduction,status').eq('business_id',businessId()).eq('branch_id',branchId()).order('created_at',{ascending:false});
+      var obligationsResult=await db.from('payroll_obligations').select('id,worker_id,obligation_type,reference,original_amount,planned_weekly_deduction,status').eq('business_id',business).eq('branch_id',branch).order('created_at',{ascending:false});
       if(obligationsResult.error)throw obligationsResult.error;
-      var paymentsResult=await db.from('payroll_obligation_payments').select('id,obligation_id,payment_date,amount,notes').eq('business_id',businessId()).eq('branch_id',branchId()).order('payment_date');
+      var paymentsResult=await db.from('payroll_obligation_payments').select('id,obligation_id,payment_date,amount,notes').eq('business_id',business).eq('branch_id',branch).order('payment_date');
       if(paymentsResult.error)throw paymentsResult.error;
+      if(!scopeIsActive(scope))return;
       var grouped={};(paymentsResult.data||[]).forEach(function(payment){(grouped[payment.obligation_id]=grouped[payment.obligation_id]||[]).push(payment)});
       var data=read(),remoteAdvances=[],remoteLoans=[];(obligationsResult.data||[]).forEach(function(row){var item=localObligation(row,grouped[row.id]);if(row.obligation_type==='cash_advance')remoteAdvances.push(item);else remoteLoans.push(item)});
       ['advances','loans'].forEach(function(kind){var remote=kind==='advances'?remoteAdvances:remoteLoans,keys={};remote.forEach(function(item){keys[obligationKey(item)]=true});(data[kind]||[]).forEach(function(item){if(!item.online&&!keys[obligationKey(item)])remote.push(item)});data[kind]=remote});
@@ -221,10 +251,13 @@
   function payrollDates(data){return {start:value('prWeekStart')||data.weekStart||dateToday(),end:value('prWeekEnd')||data.weekEnd||dateToday()}}
   function localAdjustment(row){return {id:row.id,workerId:row.worker_id,date:row.adjustment_date,type:row.adjustment_type,amount:Number(row.amount||0),reason:row.reason||'',status:row.status||'pending',online:true}}
   async function syncAdjustments(){
-    if(!online||!businessId()||!branchId())return;
+    var business=businessId(),branch=branchId();
+    if(!online||!business||!branch)return;
+    var scope=business+'::'+branch;
     try{
-      var result=await db.from('payroll_adjustments').select('id,worker_id,adjustment_date,adjustment_type,amount,reason,status').eq('business_id',businessId()).eq('branch_id',branchId()).order('adjustment_date',{ascending:false});
+      var result=await db.from('payroll_adjustments').select('id,worker_id,adjustment_date,adjustment_type,amount,reason,status').eq('business_id',business).eq('branch_id',branch).order('adjustment_date',{ascending:false});
       if(result.error)throw result.error;
+      if(!scopeIsActive(scope))return;
       var data=read();data.adjustments=(result.data||[]).map(localAdjustment);write(data);decoratePayrollAdjustments();
     }catch(error){onlinePayrollStatus('Online payroll adjustments could not load: '+error.message,'error')}
   }
@@ -237,10 +270,13 @@
   function mergeArchivedPayslips(data,rows){var remote=(rows||[]).map(localArchivedPayslip),ids={};remote.forEach(function(item){ids[item.id]=true});(data.payslips||[]).forEach(function(item){if(!item.online&&!ids[item.id])remote.push(item)});data.payslips=remote}
   function putArchive(data,period,payslip){var saved=archive(data),pi=(saved.periods||[]).findIndex(function(item){return item.id===period.id}),si=(saved.payslips||[]).findIndex(function(item){return item.id===payslip.id});saved.periods=saved.periods||[];saved.payslips=saved.payslips||[];if(pi>=0)saved.periods[pi]=period;else saved.periods.push(period);if(si>=0)saved.payslips[si]=payslip;else saved.payslips.push(payslip);data.onlinePayrollArchive=saved;write(data)}
   async function syncPayrollArchive(){
-    if(!online||!businessId())return;
+    var business=businessId(),branch=branchId();
+    if(!online||!business||!branch)return;
+    var scope=business+'::'+branch;
     try{
-      var periods=await db.from('payroll_periods').select('id,period_start,period_end,schedule_type,status,approved_at,issued_at').eq('business_id',businessId()).eq('branch_id',branchId()).order('period_end',{ascending:false});if(periods.error)throw periods.error;
-      var slips=await db.from('payslips').select('id,payroll_period_id,worker_id,payslip_number,gross_earnings,deductions,net_pay,status,approved_at,issued_at,snapshot').eq('business_id',businessId()).eq('branch_id',branchId()).order('created_at',{ascending:false});if(slips.error)throw slips.error;
+      var periods=await db.from('payroll_periods').select('id,period_start,period_end,schedule_type,status,approved_at,issued_at').eq('business_id',business).eq('branch_id',branch).order('period_end',{ascending:false});if(periods.error)throw periods.error;
+      var slips=await db.from('payslips').select('id,payroll_period_id,worker_id,payslip_number,gross_earnings,deductions,net_pay,status,approved_at,issued_at,snapshot').eq('business_id',business).eq('branch_id',branch).order('created_at',{ascending:false});if(slips.error)throw slips.error;
+      if(!scopeIsActive(scope))return;
       var data=read();data.onlinePayrollArchive={periods:periods.data||[],payslips:slips.data||[]};mergeArchivedPayslips(data,slips.data||[]);write(data);setTimeout(decoratePayrollActions,20);
     }catch(error){onlinePayrollStatus('Online payroll archive could not load: '+error.message,'error')}
   }
@@ -372,7 +408,7 @@
     if(!observerStarted){observerStarted=true;new MutationObserver(function(){replaceLegacyIssueButtons();decorateAttendanceReview();decoratePayrollAdjustments();decorateJobCompletionActions();ensureEmployeeClockLink()}).observe(document.body,{childList:true,subtree:true});}
   }
   window.addEventListener('load',function(){setTimeout(beginOnlineSync,120)});
-  document.addEventListener('bwc:business-ready',beginOnlineSync);
-  document.addEventListener('bwc:branch-ready',function(){setTimeout(beginOnlineSync,40)});
+  document.addEventListener('bwc:business-ready',function(){setTimeout(beginOnlineSync,80)});
+  document.addEventListener('bwc:branch-ready',function(){setTimeout(beginOnlineSync,100)});
   document.addEventListener('click',function(event){if(event.target.closest('[data-pr-tab="workers"]'))setTimeout(function(){syncWorkers();showStatus('Workers are saved securely online for this business.','info')},100);if(event.target.closest('[data-pr-tab="attendance"]'))setTimeout(function(){syncAttendance();decorateAttendanceReview()},140);if(event.target.closest('[data-pr-tab="jobs"]'))setTimeout(function(){syncJobs();decorateJobCompletionActions()},100);if(event.target.closest('[data-pr-tab="advances"], [data-pr-tab="loans"]'))setTimeout(syncObligations,100);if(event.target.closest('[data-pr-tab="summary"], [data-pr-tab="calculated"]'))setTimeout(function(){syncPayrollArchive();syncAdjustments();decoratePayrollActions();decoratePayrollAdjustments()},100)});
 })();
