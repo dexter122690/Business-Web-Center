@@ -97,7 +97,7 @@
       var saved;
       if(x.remoteId){var updated=await db.from('invoices').update(invoicePayload(x)).eq('id',x.remoteId).select('id,invoice_number').single();if(updated.error)throw new Error(updated.error.message);saved=updated.data;var removeServices=await db.from('invoice_services').delete().eq('invoice_id',x.remoteId);if(removeServices.error)throw new Error(removeServices.error.message);var removeParts=await db.from('invoice_parts').delete().eq('invoice_id',x.remoteId);if(removeParts.error)throw new Error(removeParts.error.message)}else{var inserted=await db.from('invoices').insert(invoicePayload(x)).select('id,invoice_number').single();if(inserted.error)throw new Error(inserted.error.message);saved=inserted.data}
       await writeLines(saved.id,x);await syncInvoiceCashIn(saved.id,saved.invoice_number,x);await loadRemote();resetInvoice();show('invoices');message('Invoice '+('INV-'+String(saved.invoice_number).padStart(5,'0'))+' saved securely online.');
-    }catch(error){message('Invoice was not saved online: '+error.message);alert('The invoice could not be saved online. Please try again.')}};
+    }catch(error){var detail=String((error&&error.message)||'');var accessProblem=/row-level security|permission denied|not authorized/i.test(detail);message('Invoice was not saved online: '+detail);alert(accessProblem?'This account needs active Invoice editing access for the selected branch. Ask the owner to open Settings > Team Access and reactivate or update this staff member for this branch.':'The invoice could not be saved online. Please try again.')}};
   window.deleteInvoice=async function(id){
     var item=inv.find(function(x){return x.id===id});
     if(!item)return;
