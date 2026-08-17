@@ -226,16 +226,18 @@
     if (!select || select.dataset.multiBranchReady) return;
     var all = document.createElement('option');
     all.value = '__all__';
-    all.textContent = 'All current branches';
-    select.insertBefore(all, select.firstChild);
+    all.textContent = 'Both branches (MAIN + STO. TOMAS)';
+    // Keep the currently selected branch as the safe default. The owner must
+    // deliberately choose this option when granting access to every branch.
+    select.appendChild(all);
     select.dataset.multiBranchReady = 'yes';
     var label = select.closest('label');
     if (label && label.firstChild && label.firstChild.nodeType === Node.TEXT_NODE) {
-      label.firstChild.nodeValue = 'Branch access';
+      label.firstChild.nodeValue = 'Branch access (choose one or both)';
     }
     if (label) {
       var help = document.createElement('small');
-      help.textContent = 'Choose all current branches for one shared staff account.';
+      help.textContent = 'Choose “Both branches” to make this one staff account an admin of MAIN and STO. TOMAS.';
       help.style.display = 'block';
       help.style.marginTop = '4px';
       label.appendChild(help);
