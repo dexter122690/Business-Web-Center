@@ -18,6 +18,27 @@
     var result=await db.from('cash_transactions').select('id,direction,source_key,transaction_date,cash_account,amount').eq('business_id',businessId).eq('branch_id',branch()).order('transaction_date',{ascending:false}).order('created_at',{ascending:false});
     if(result.error)return;
     var records=result.data||[];
+    /* Put the correction control where the owner sees the actual CIB/Petty
+       Cash entry.  Staff never receive an erase control.  Entries generated
+       by invoices and Expenses remain protected and must be corrected from
+       their source screen, which keeps all balances in agreement. */
+    document.querySelectorAll('[data-cash-ledger-id]').forEach(function(row){
+      var action=row.querySelector('.cash-movement-action'),id=row.dataset.cashLedgerId,source=row.dataset.cashLedgerSource||'';
+      if(!action||action.dataset.cashActionReady)return;
+      action.dataset.cashActionReady='1';
+      if(activeRole!=='owner')return;
+      if(/^(invoice-cash:|invoice-payment-cash:)/.test(source)){
+        action.textContent='Edit invoice';
+        return;
+      }
+      if(/^receipt:/.test(source)){
+        var receiptButton=document.createElement('button');receiptButton.type='button';receiptButton.className='secondary';receiptButton.textContent='Erase';receiptButton.dataset.cashReceiptDelete=source;action.appendChild(receiptButton);return;
+      }
+      if(/^(expense:|petty-expense:|cib-expense:)/.test(source)){
+        var expenseId=linkedExpenseId(source);if(expenseId){var expenseButton=document.createElement('button');expenseButton.type='button';expenseButton.className='secondary';expenseButton.textContent='Erase';expenseButton.dataset.cashExpenseDelete=expenseId;action.appendChild(expenseButton)}return;
+      }
+      var erase=document.createElement('button');erase.type='button';erase.className='secondary';erase.textContent='Erase';erase.dataset.cashDelete=id;action.appendChild(erase);
+    });
     document.querySelectorAll('#cashControlPanel table tbody tr').forEach(function(row,index){
       var cells=row.querySelectorAll('td');if(cells.length<5||cells.length>5)return;
       var record=records[index];
