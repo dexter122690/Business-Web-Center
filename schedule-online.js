@@ -5,7 +5,7 @@
   var db=null,starting=null;
   /* This flag prevents the older local handler from racing the secured save. */
   window.__bwcScheduleOnlineReady=online;
-  var key='15m-unit-schedule',editingId='',syncing=false;
+  var key='15m-unit-schedule',editingId='',syncing=false,appointmentLinkRender=0;
   function businessId(){return localStorage.getItem('bwc-active-business')||''}
   function read(){try{var rows=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(rows)?rows:[]}catch(error){return []}}
   function write(rows){localStorage.setItem(key,JSON.stringify(rows))}
@@ -30,14 +30,33 @@
   }
   async function renderAppointmentLink(){
     var schedule=document.getElementById('schedule');if(!schedule||!schedule.classList.contains('active')||!online)return;
+    /* Several refresh events can arrive together.  Only the last request may
+       draw the card, otherwise each completed request adds a duplicate. */
+    var renderId=++appointmentLinkRender;
     var existing=document.getElementById('appointmentLinkCard');if(existing)existing.remove();
     try{
       var branchAtStart=localStorage.getItem('bwc-active-branch'),token=await publicAppointmentToken();
-      if(!token||branchAtStart!==localStorage.getItem('bwc-active-branch'))return;
+      if(renderId!==appointmentLinkRender||!token||branchAtStart!==localStorage.getItem('bwc-active-branch'))return;
+      /* A card created by a previous refresh might have appeared while this
+         request was loading.  Remove it before adding the one current card. */
+      existing=document.getElementById('appointmentLinkCard');if(existing)existing.remove();
       var link=appointmentUrl(token),card=document.createElement('div');card.id='appointmentLinkCard';card.className='card';
       card.innerHTML='<div class="k">CLIENT APPOINTMENT LINK</div><h2>Let clients request an appointment</h2><p class="muted">Share this link for the selected branch. Client requests appear directly in this branch’s Schedule tab.</p><input id="appointmentPublicLink" readonly value="'+escapeHtml(link)+'" style="width:100%;box-sizing:border-box"><div class="actions" style="margin-top:10px"><button class="secondary" data-appointment-copy>Copy appointment link</button><button class="primary" data-appointment-print>Print appointment notice</button></div>';
       var calendar=schedule.querySelector('.schedule-layout');if(calendar)calendar.insertAdjacentElement('afterend',card);else schedule.appendChild(card);
     }catch(error){status('Appointment link could not load: '+error.message,'error')}
+  }
+  async function copyAppointmentLink(button){
+    var link=document.getElementById('appointmentPublicLink');if(!link)return;
+    var copied=false;
+    try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(link.value);copied=true}}catch(error){}
+    if(!copied){
+      link.focus();link.select();link.setSelectionRange(0,link.value.length);
+      try{copied=document.execCommand('copy')}catch(error){}
+    }
+    if(copied){var label=button.textContent;button.textContent='Copied';setTimeout(function(){if(button.isConnected)button.textContent=label},1600);return}
+    /* Some iPhone browsers do not allow programmatic clipboard access.  The
+       selected link and this prompt still let the owner copy it manually. */
+    window.prompt('Copy this appointment link:',link.value);
   }
   function printAppointmentNotice(){var input=document.getElementById('appointmentPublicLink');if(!input)return;var w=window.open('','_blank');if(!w)return;w.document.write('<!doctype html><title>Book an appointment</title><style>@page{margin:.65in}body{font-family:Arial,sans-serif;text-align:center;color:#211815}h1{font-size:28px}p{font-size:16px;line-height:1.5}.link{border:1px solid #ddd;padding:12px;word-break:break-all}</style><h1>Book an appointment</h1><p>Use this link to request an appointment with this branch.</p><div class="link">'+escapeHtml(input.value)+'</div><script>window.onload=function(){window.print()}<\/script>');w.document.close()}
   async function start(){
@@ -87,7 +106,7 @@
     }catch(error){alert('The appointment could not be saved online. '+error.message);button.disabled=false;button.textContent=label}
   }
   document.addEventListener('click',function(event){
-    if(event.target.closest('[data-appointment-copy]')){var link=document.getElementById('appointmentPublicLink');if(link&&navigator.clipboard)navigator.clipboard.writeText(link.value);return}
+    var copy=event.target.closest('[data-appointment-copy]');if(copy){event.preventDefault();copyAppointmentLink(copy);return}
     if(event.target.closest('[data-appointment-print]')){printAppointmentNotice();return}
     var edit=event.target.closest('[data-schedule-edit]');if(edit){editingId=edit.dataset.scheduleEdit;return}
     var cancel=event.target.closest('[data-schedule-cancel]');if(cancel){editingId='';return}
