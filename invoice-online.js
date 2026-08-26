@@ -18,7 +18,7 @@
     var query=db.from('invoices').select('*,invoice_services(*),invoice_parts(*),invoice_payments(*)').eq('business_id',businessId),branchId=localStorage.getItem('bwc-active-branch');if(branchId)query=query.eq('branch_id',branchId);
     var result=await query.order('invoice_date',{ascending:false}).order('invoice_number',{ascending:false});
     if(result.error){message('Online invoices could not load: '+result.error.message);return}
-    inv=(result.data||[]).map(normalize);cache();render();renderLists();if(edit)paymentEditShortcut();document.dispatchEvent(new Event('bwc:invoices-loaded'));message('Online invoice records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');
+    inv=(result.data||[]).map(function(row){var item=normalize(row);item.discount=Number(row.discount_amount||0);return item});cache();render();renderLists();if(edit)paymentEditShortcut();document.dispatchEvent(new Event('bwc:invoices-loaded'));message('Online invoice records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');
   }
   function escapeHtml(value){return String(value||'').replace(/[&<>"']/g,function(character){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]})}
   function isAdmin(worker){return /\badmin(istrator)?\b/i.test(String(worker.position||''))}
@@ -35,7 +35,7 @@
     if(result.error){renderAdmins([]);message('Admin list could not load: '+result.error.message);return}
     renderAdmins(result.data||[]);
   }
-  function invoicePayload(x){return {business_id:businessId,branch_id:localStorage.getItem('bwc-active-branch'),client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,total_amount:x.total,amount_paid:x.paid,status:x.status,created_by:userId}}
+  function invoicePayload(x){return {business_id:businessId,branch_id:localStorage.getItem('bwc-active-branch'),client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,discount_amount:x.discount||0,total_amount:x.total,amount_paid:x.paid,status:x.status,created_by:userId}}
   /* A payment must be added to the original invoice as a dated installment.
      Do not let an editor overwrite the accumulated received amount by hand. */
   function paymentEditShortcut(){
@@ -90,7 +90,8 @@
   window.createInvoice=async function(){
     var req=['client','contact','address','make','yearModel','color','plate','invoiceDate','admin'];if(req.some(function(x){return !formValue(x)})){alert('Please complete every required field.');return}
     if(!services.length&&!parts.length){alert('Add at least one service or auto part.');return}
-    var x={id:edit||Date.now(),remoteId:edit&&(inv.find(function(i){return i.id===edit})||{}).remoteId,number:'',client:formValue('client'),contact:formValue('contact'),address:formValue('address'),email:formValue('email'),make:formValue('make'),yearModel:formValue('yearModel'),color:formValue('color'),plate:formValue('plate'),date:invoiceDate.value,release:releaseDate.value,admin:admin.value,method:method.value,source:source.value,services:services.slice(),parts:parts.slice(),total:total(),paid:+paid.value||0};
+    var rawSubtotal=services.reduce(function(sum,row){return sum+Number(row.a||0)},0)+parts.reduce(function(sum,row){return sum+Number(row.a||0)},0),discount=Math.max(0,Number((document.getElementById('discountAmount')||{}).value)||0);if(discount>rawSubtotal){alert('Discount cannot be higher than the services and parts total.');return}
+    var x={id:edit||Date.now(),remoteId:edit&&(inv.find(function(i){return i.id===edit})||{}).remoteId,number:'',client:formValue('client'),contact:formValue('contact'),address:formValue('address'),email:formValue('email'),make:formValue('make'),yearModel:formValue('yearModel'),color:formValue('color'),plate:formValue('plate'),date:invoiceDate.value,release:releaseDate.value,admin:admin.value,method:method.value,source:source.value,services:services.slice(),parts:parts.slice(),discount:discount,total:total(),paid:+paid.value||0};
     if(x.total<=0){alert('Enter at least one service or auto part amount greater than ₱0 before creating the invoice.');return}
     if(x.paid>x.total){alert('Amount paid cannot be higher than the invoice total.');return}
     x.balance=Math.max(0,x.total-x.paid);x.status=x.paid>=x.total?'Paid':x.paid?'Partially paid':'Pending';
