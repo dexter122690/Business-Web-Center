@@ -26,6 +26,8 @@
     }).join('');
     card.innerHTML='<style>#clientAppointmentRequests .client-request-row{display:grid;grid-template-columns:minmax(170px,.9fr) minmax(230px,1.4fr) auto;gap:12px;align-items:center;padding:11px 0;border-top:1px solid var(--l)}#clientAppointmentRequests .client-request-row:first-of-type{border-top:0}@media(max-width:700px){#clientAppointmentRequests .client-request-row{grid-template-columns:1fr}#clientAppointmentRequests .client-request-row button{width:100%}}</style><div class="k">CLIENT APPOINTMENT REQUESTS</div><h2>Requests submitted by clients</h2><p class="muted">These are submitted through your public appointment link. They are separate from staff-created schedules below.</p>'+(rows||'<div class="empty">No client appointment requests for this branch yet.</div>');
     var layout=schedule.querySelector('.schedule-layout');if(layout)layout.insertAdjacentElement('beforebegin',card);else schedule.appendChild(card);
+    /* Tell the booking-link card to mount after this stable client section. */
+    document.dispatchEvent(new Event('bwc:client-requests-rendered'));
   }
   function setValue(id,value){var input=document.getElementById(id);if(input)input.value=value||''}
   document.addEventListener('click',function(event){

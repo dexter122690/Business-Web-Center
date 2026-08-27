@@ -42,7 +42,11 @@
       existing=document.getElementById('appointmentLinkCard');if(existing)existing.remove();
       var link=appointmentUrl(token),card=document.createElement('div');card.id='appointmentLinkCard';card.className='card';
       card.innerHTML='<div class="k">CLIENT APPOINTMENT LINK</div><h2>Let clients request an appointment</h2><p class="muted">Share this link for the selected branch. Client requests appear directly in this branch’s Schedule tab.</p><input id="appointmentPublicLink" readonly value="'+escapeHtml(link)+'" style="width:100%;box-sizing:border-box"><div class="actions" style="margin-top:10px"><button class="secondary" data-appointment-copy>Copy appointment link</button><button class="primary" data-appointment-print>Print appointment notice</button></div>';
-      var calendar=schedule.querySelector('.schedule-layout');if(calendar)calendar.insertAdjacentElement('afterend',card);else schedule.appendChild(card);
+      /* Keep the link immediately below the client-request section.  That
+         section is rebuilt after Schedule refreshes, while a card placed
+         elsewhere can disappear during the same refresh. */
+      var requests=document.getElementById('clientAppointmentRequests'),calendar=schedule.querySelector('.schedule-layout');
+      if(requests)requests.insertAdjacentElement('afterend',card);else if(calendar)calendar.insertAdjacentElement('afterend',card);else schedule.appendChild(card);
     }catch(error){status('Appointment link could not load: '+error.message,'error')}
   }
   async function copyAppointmentLink(button){
@@ -114,6 +118,7 @@
     event.preventDefault();event.stopImmediatePropagation();save(saveButton);
   },true);
   document.addEventListener('click',function(event){if(event.target.closest('#scheduleTab'))setTimeout(function(){sync(true);renderAppointmentLink()},120)});
+  document.addEventListener('bwc:client-requests-rendered',function(){setTimeout(renderAppointmentLink,0)});
   document.addEventListener('bwc:branch-ready',function(){if(online)setTimeout(function(){sync(true)},40)});
   window.addEventListener('load',function(){setTimeout(function(){if(document.getElementById('schedule')&&document.getElementById('schedule').classList.contains('active'))sync(true)},350)});
 })();
