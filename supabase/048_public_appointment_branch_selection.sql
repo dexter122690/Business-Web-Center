@@ -88,4 +88,7 @@ $$;
 revoke all on function public.submit_public_appointment(uuid,uuid,date,time,text,text,text,text,text,text,text,text) from public;
 grant execute on function public.submit_public_appointment(uuid,uuid,date,time,text,text,text,text,text,text,text,text) to anon, authenticated;
 
+-- Make the new public functions available to the REST API immediately.
+notify pgrst, 'reload schema';
+
 commit;
