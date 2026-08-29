@@ -93,11 +93,12 @@
       await waitForImages(win);
       await loadPopupScript(win,'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',function(){return !!win.html2canvas});
       await loadPopupScript(win,'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js',function(){return !!(win.jspdf&&win.jspdf.jsPDF)});
-      var body=win.document.body;body.style.width='720px';body.style.margin='0 auto';body.style.padding='34px';
+      var body=win.document.body;body.style.width='720px';body.style.margin='0 auto';body.style.padding='30px';
+      var sizing=win.document.createElement('style');sizing.textContent='body{font-size:14px!important}.company{font-size:21px!important}.doc{font-size:20px!important}h2{font-size:19px!important}h3{font-size:16px!important}td,th{padding:9px!important}.total{font-size:21px!important}.payments{font-size:11px!important}.signature-line b{font-size:12px!important}';win.document.head.appendChild(sizing);
       var canvas=await win.html2canvas(body,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false});
-      var Pdf=win.jspdf.jsPDF,pdf=new Pdf({orientation:'portrait',unit:'pt',format:'a4',compress:true}),width=pdf.internal.pageSize.getWidth(),height=pdf.internal.pageSize.getHeight(),imageHeight=canvas.height*width/canvas.width,image=canvas.toDataURL('image/jpeg',0.94),remaining=imageHeight,position=0;
-      pdf.addImage(image,'JPEG',0,position,width,imageHeight);remaining-=height;
-      while(remaining>0){position=remaining-imageHeight;pdf.addPage();pdf.addImage(image,'JPEG',0,position,width,imageHeight);remaining-=height}
+      var Pdf=win.jspdf.jsPDF,pdf=new Pdf({orientation:'portrait',unit:'pt',format:'letter',compress:true}),width=pdf.internal.pageSize.getWidth(),height=pdf.internal.pageSize.getHeight(),margin=18,usableWidth=width-margin*2,usableHeight=height-margin*2,imageHeight=canvas.height*usableWidth/canvas.width,image=canvas.toDataURL('image/jpeg',0.94),remaining=imageHeight,position=margin;
+      pdf.addImage(image,'JPEG',margin,position,usableWidth,imageHeight);remaining-=usableHeight;
+      while(remaining>0){position=remaining-imageHeight+margin;pdf.addPage();pdf.addImage(image,'JPEG',margin,position,usableWidth,imageHeight);remaining-=usableHeight}
       pdf.save('Invoice-'+String(fileNumber).replace(/[^a-z0-9_-]+/gi,'-')+'.pdf');win.close();
     }catch(error){
       console.error('Invoice PDF download failed:',error);alert('The PDF could not be created automatically. The exact invoice copy is open—choose Print, then Save as PDF.');setTimeout(function(){try{win.print()}catch(_){}},120);
