@@ -1,10 +1,18 @@
 /* Secure business appointment calendar. */
 (function(){
-  var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};
-  var online=!!(config.url&&config.publishableKey&&config.url.indexOf('YOUR_')<0&&config.publishableKey.indexOf('YOUR_')<0);
+  var config={},online=false;
+  /* app-config.js loads asynchronously on the main dashboard. Always read it
+     when Schedule is used, rather than keeping the empty configuration that
+     existed during the first page milliseconds. */
+  function refreshConfiguration(){
+    config=window.BUSINESS_WEB_CENTER_SUPABASE||{};
+    online=!!(config.url&&config.publishableKey&&config.url.indexOf('YOUR_')<0&&config.publishableKey.indexOf('YOUR_')<0);
+    window.__bwcScheduleOnlineReady=online;
+    return online;
+  }
+  refreshConfiguration();
   var db=null,starting=null;
   /* This flag prevents the older local handler from racing the secured save. */
-  window.__bwcScheduleOnlineReady=online;
   var key='15m-unit-schedule',editingId='',syncing=false;
   function businessId(){return localStorage.getItem('bwc-active-business')||''}
   function read(){try{var rows=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(rows)?rows:[]}catch(error){return []}}
@@ -63,7 +71,7 @@
     catch(error){alert('The appointment link could not be copied. '+(error.message||'Please try again.'))}
   };
   async function start(){
-    if(!online)return null;
+    if(!refreshConfiguration())return null;
     if(db)return db;
     if(starting)return starting;
     starting=(async function(){
@@ -77,7 +85,7 @@
   async function user(){var result=await db.auth.getUser();return result.data&&result.data.user}
   function timed(promise,ms){return Promise.race([promise,new Promise(function(resolve,reject){setTimeout(function(){reject(new Error('The secure connection timed out. Check your internet connection, then try saving again.'));},ms)})])}
   async function sync(repaint){
-    if(!online||!businessId()||syncing)return;syncing=true;
+    if(!refreshConfiguration()||!businessId()||syncing)return;syncing=true;
     try{
       await start();
       var query=db.from('scheduled_appointments').select('*').eq('business_id',businessId()),branchId=localStorage.getItem('bwc-active-branch');if(branchId)query=query.eq('branch_id',branchId);var result=await query.order('scheduled_date').order('scheduled_time');if(result.error)throw result.error;
