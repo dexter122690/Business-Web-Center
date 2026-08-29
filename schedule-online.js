@@ -36,7 +36,7 @@
     var code=String(result.data&&result.data.short_code||'').trim();
     /* Fall back to the existing link until the one-time short-link update is
        applied. This keeps booking available during deployment. */
-    return code?new URL('book/'+encodeURIComponent(code),location.origin).href:appointmentUrl(token);
+    return code?new URL('book.html?c='+encodeURIComponent(code),location.origin).href:appointmentUrl(token);
   }
   async function renderAppointmentLink(){
     var schedule=document.getElementById('schedule');if(!schedule||!schedule.classList.contains('active')||!online)return;
