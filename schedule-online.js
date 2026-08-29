@@ -5,7 +5,7 @@
   var db=null,starting=null;
   /* This flag prevents the older local handler from racing the secured save. */
   window.__bwcScheduleOnlineReady=online;
-  var key='15m-unit-schedule',editingId='',syncing=false,appointmentLinkRender=0;
+  var key='15m-unit-schedule',editingId='',syncing=false;
   function businessId(){return localStorage.getItem('bwc-active-business')||''}
   function read(){try{var rows=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(rows)?rows:[]}catch(error){return []}}
   function write(rows){localStorage.setItem(key,JSON.stringify(rows))}
@@ -17,7 +17,6 @@
   function localAppointment(row){return {id:row.id,branchId:row.branch_id||'',date:row.scheduled_date,time:row.scheduled_time?String(row.scheduled_time).slice(0,5):'',client:row.client_name,contact:row.contact_number,unit:row.vehicle,year:row.year_model||'',color:row.color||'',vehicle:row.vehicle+(row.year_model?' '+row.year_model:''),procedure:row.procedure||'',service:row.procedure||'',reference:row.reference_number||'',notes:row.notes||'',clientResponse:row.client_response||'confirmed',status:row.status||'Scheduled',createdBy:row.created_by||'',createdAt:row.created_at||'',appointmentSource:row.created_by?'staff':'client',online:true}}
   function status(message,kind){var root=document.getElementById('schedule');if(!root)return;var note=document.getElementById('scheduleOnlineStatus');if(!note){note=document.createElement('div');note.id='scheduleOnlineStatus';note.className='notice';var heading=root.querySelector('.heading');if(heading)heading.insertAdjacentElement('afterend',note)}note.textContent=message;note.style.borderLeftColor=kind==='error'?'#b63d25':''}
   function appointmentUrl(token){return new URL('appointment.html',location.href).href+'?token='+encodeURIComponent(token)}
-  function escapeHtml(text){return String(text||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   async function publicAppointmentToken(){
     var client=await start();var branchId=localStorage.getItem('bwc-active-branch');
     if(!businessId()||!branchId)return null;
@@ -40,30 +39,10 @@
        applied. This keeps booking available during deployment. */
     return code?new URL('book.html?c='+encodeURIComponent(code),location.origin).href:appointmentUrl(token);
   }
-  async function renderAppointmentLink(){
-    var schedule=document.getElementById('schedule');if(!schedule||!schedule.classList.contains('active')||!online)return;
-    /* The permanent button now lives in Client Appointment Requests.  Remove
-       the old separate card once that section is available. */
-    if(document.getElementById('clientAppointmentRequests')){var oldCard=document.getElementById('appointmentLinkCard');if(oldCard)oldCard.remove();return}
-    /* Several refresh events can arrive together.  Only the last request may
-       draw the card, otherwise each completed request adds a duplicate. */
-    var renderId=++appointmentLinkRender;
-    var existing=document.getElementById('appointmentLinkCard');if(existing)existing.remove();
-    try{
-      var branchAtStart=localStorage.getItem('bwc-active-branch'),link=await publicAppointmentShareUrl();
-      if(renderId!==appointmentLinkRender||!link||branchAtStart!==localStorage.getItem('bwc-active-branch'))return;
-      /* A card created by a previous refresh might have appeared while this
-         request was loading.  Remove it before adding the one current card. */
-      existing=document.getElementById('appointmentLinkCard');if(existing)existing.remove();
-      var card=document.createElement('div');card.id='appointmentLinkCard';card.className='card';
-      card.innerHTML='<div class="k">CLIENT APPOINTMENT LINK</div><h2>Let clients request an appointment</h2><p class="muted">Share this link for the selected branch. Client requests appear directly in this branch’s Schedule tab.</p><input id="appointmentPublicLink" readonly value="'+escapeHtml(link)+'" style="width:100%;box-sizing:border-box"><div class="actions" style="margin-top:10px"><button class="secondary" data-appointment-copy>Copy appointment link</button><button class="primary" data-appointment-print>Print appointment notice</button></div>';
-      /* Keep the link immediately below the client-request section.  That
-         section is rebuilt after Schedule refreshes, while a card placed
-         elsewhere can disappear during the same refresh. */
-      var requests=document.getElementById('clientAppointmentRequests'),calendar=schedule.querySelector('.schedule-layout');
-      if(requests)requests.insertAdjacentElement('afterend',card);else if(calendar)calendar.insertAdjacentElement('afterend',card);else schedule.appendChild(card);
-    }catch(error){status('Appointment link could not load: '+error.message,'error')}
-  }
+  /* The one permanent Copy client booking link button lives in the Client
+     Appointment Requests card. Remove any old duplicate link card left by a
+     cached page version. */
+  function renderAppointmentLink(){var oldCard=document.getElementById('appointmentLinkCard');if(oldCard)oldCard.remove()}
   async function copyAppointmentText(text,button){
     if(!text)return;
     var copied=false;
@@ -77,14 +56,12 @@
        prompt still lets the owner copy it manually. */
     window.prompt('Copy this appointment link:',text);
   }
-  async function copyAppointmentLink(button){var link=document.getElementById('appointmentPublicLink');if(link)await copyAppointmentText(link.value,button)}
   /* The permanent button in Client Appointment Requests calls this directly,
      so copying does not depend on a separate card rendering successfully. */
   window.bwcCopyClientAppointmentLink=async function(button){
     try{var link=await publicAppointmentShareUrl();if(!link)throw new Error('Choose a branch first.');await copyAppointmentText(link,button)}
     catch(error){alert('The appointment link could not be copied. '+(error.message||'Please try again.'))}
   };
-  function printAppointmentNotice(){var input=document.getElementById('appointmentPublicLink');if(!input)return;var w=window.open('','_blank');if(!w)return;w.document.write('<!doctype html><title>Book an appointment</title><style>@page{margin:.65in}body{font-family:Arial,sans-serif;text-align:center;color:#211815}h1{font-size:28px}p{font-size:16px;line-height:1.5}.link{border:1px solid #ddd;padding:12px;word-break:break-all}</style><h1>Book an appointment</h1><p>Use this link to request an appointment with this branch.</p><div class="link">'+escapeHtml(input.value)+'</div><script>window.onload=function(){window.print()}<\/script>');w.document.close()}
   async function start(){
     if(!online)return null;
     if(db)return db;
@@ -132,8 +109,6 @@
     }catch(error){alert('The appointment could not be saved online. '+error.message);button.disabled=false;button.textContent=label}
   }
   document.addEventListener('click',function(event){
-    var copy=event.target.closest('[data-appointment-copy]');if(copy){event.preventDefault();copyAppointmentLink(copy);return}
-    if(event.target.closest('[data-appointment-print]')){printAppointmentNotice();return}
     var edit=event.target.closest('[data-schedule-edit]');if(edit){editingId=edit.dataset.scheduleEdit;return}
     var cancel=event.target.closest('[data-schedule-cancel]');if(cancel){editingId='';return}
     var saveButton=event.target.closest('[data-schedule-save]');if(!saveButton||!online)return;
