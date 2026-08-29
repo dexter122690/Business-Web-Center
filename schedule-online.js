@@ -28,6 +28,16 @@
     if(created.error)throw created.error;
     return created.data&&created.data.public_token;
   }
+  async function publicAppointmentShareUrl(){
+    var token=await publicAppointmentToken();if(!token)return '';
+    var branchId=localStorage.getItem('bwc-active-branch');
+    var result=await db.from('branch_appointment_links').select('short_code').eq('business_id',businessId()).eq('branch_id',branchId).maybeSingle();
+    if(result.error)throw result.error;
+    var code=String(result.data&&result.data.short_code||'').trim();
+    /* Fall back to the existing link until the one-time short-link update is
+       applied. This keeps booking available during deployment. */
+    return code?new URL('book/'+encodeURIComponent(code),location.origin).href:appointmentUrl(token);
+  }
   async function renderAppointmentLink(){
     var schedule=document.getElementById('schedule');if(!schedule||!schedule.classList.contains('active')||!online)return;
     /* The permanent button now lives in Client Appointment Requests.  Remove
@@ -38,12 +48,12 @@
     var renderId=++appointmentLinkRender;
     var existing=document.getElementById('appointmentLinkCard');if(existing)existing.remove();
     try{
-      var branchAtStart=localStorage.getItem('bwc-active-branch'),token=await publicAppointmentToken();
-      if(renderId!==appointmentLinkRender||!token||branchAtStart!==localStorage.getItem('bwc-active-branch'))return;
+      var branchAtStart=localStorage.getItem('bwc-active-branch'),link=await publicAppointmentShareUrl();
+      if(renderId!==appointmentLinkRender||!link||branchAtStart!==localStorage.getItem('bwc-active-branch'))return;
       /* A card created by a previous refresh might have appeared while this
          request was loading.  Remove it before adding the one current card. */
       existing=document.getElementById('appointmentLinkCard');if(existing)existing.remove();
-      var link=appointmentUrl(token),card=document.createElement('div');card.id='appointmentLinkCard';card.className='card';
+      var card=document.createElement('div');card.id='appointmentLinkCard';card.className='card';
       card.innerHTML='<div class="k">CLIENT APPOINTMENT LINK</div><h2>Let clients request an appointment</h2><p class="muted">Share this link for the selected branch. Client requests appear directly in this branch’s Schedule tab.</p><input id="appointmentPublicLink" readonly value="'+escapeHtml(link)+'" style="width:100%;box-sizing:border-box"><div class="actions" style="margin-top:10px"><button class="secondary" data-appointment-copy>Copy appointment link</button><button class="primary" data-appointment-print>Print appointment notice</button></div>';
       /* Keep the link immediately below the client-request section.  That
          section is rebuilt after Schedule refreshes, while a card placed
@@ -69,7 +79,7 @@
   /* The permanent button in Client Appointment Requests calls this directly,
      so copying does not depend on a separate card rendering successfully. */
   window.bwcCopyClientAppointmentLink=async function(button){
-    try{var token=await publicAppointmentToken();if(!token)throw new Error('Choose a branch first.');await copyAppointmentText(appointmentUrl(token),button)}
+    try{var link=await publicAppointmentShareUrl();if(!link)throw new Error('Choose a branch first.');await copyAppointmentText(link,button)}
     catch(error){alert('The appointment link could not be copied. '+(error.message||'Please try again.'))}
   };
   function printAppointmentNotice(){var input=document.getElementById('appointmentPublicLink');if(!input)return;var w=window.open('','_blank');if(!w)return;w.document.write('<!doctype html><title>Book an appointment</title><style>@page{margin:.65in}body{font-family:Arial,sans-serif;text-align:center;color:#211815}h1{font-size:28px}p{font-size:16px;line-height:1.5}.link{border:1px solid #ddd;padding:12px;word-break:break-all}</style><h1>Book an appointment</h1><p>Use this link to request an appointment with this branch.</p><div class="link">'+escapeHtml(input.value)+'</div><script>window.onload=function(){window.print()}<\/script>');w.document.close()}
