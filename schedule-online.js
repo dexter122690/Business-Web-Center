@@ -95,8 +95,9 @@
          browser cache here: doing so can make a prior branch appear again. */
       var remote=(result.data||[]).map(localAppointment);write(remote);
       status('Appointments are saved securely online for this business.','info');
-      /* A background refresh must never click a navigation tab. */
-      if(repaint&&document.getElementById('schedule')&&document.getElementById('schedule').classList.contains('active'))document.dispatchEvent(new Event('bwc:schedule-loaded'));
+      /* A background refresh must never click a navigation tab. Both the
+         staff calendar and the separate Client Requests tab listen for this. */
+      if(repaint)document.dispatchEvent(new Event('bwc:schedule-loaded'));
       setTimeout(renderAppointmentLink,0);
     }catch(error){status('Online appointments could not load: '+error.message,'error')}finally{syncing=false}
   }
@@ -122,7 +123,8 @@
     var saveButton=event.target.closest('[data-schedule-save]');if(!saveButton||!online)return;
     event.preventDefault();event.stopImmediatePropagation();save(saveButton);
   },true);
-  document.addEventListener('click',function(event){if(event.target.closest('#scheduleTab'))setTimeout(function(){sync(true);renderAppointmentLink()},120)});
+  window.bwcRefreshSchedule=function(){return sync(true)};
+  document.addEventListener('click',function(event){if(event.target.closest('#scheduleTab,#clientRequestsTab'))setTimeout(function(){sync(true);renderAppointmentLink()},120)});
   document.addEventListener('bwc:client-requests-rendered',function(){setTimeout(renderAppointmentLink,0)});
   document.addEventListener('bwc:branch-ready',function(){if(online)setTimeout(function(){sync(true)},40)});
   window.addEventListener('load',function(){setTimeout(function(){if(document.getElementById('schedule')&&document.getElementById('schedule').classList.contains('active'))sync(true)},350)});
