@@ -1,5 +1,5 @@
-/* Makes the invoice register clear: PDF is for saving or sending, Print is
-   for paper. The browser's native sheet provides the actual Save as PDF flow. */
+/* Makes the invoice register clear: PDF creates a file for saving or sending,
+   while Print remains for paper copies. */
 (function(){
   function prepare(){
     document.querySelectorAll('#invoiceTable button[onclick*="printInvoice"]').forEach(function(button){
