@@ -7,8 +7,7 @@
   function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   function branch(){return localStorage.getItem('bwc-active-branch')||''}
   function isPms(){
-    var selected=value('service').toLowerCase(),list=el('serviceList');
-    return selected==='pms'||!!(list&&/\bpms\b/i.test(list.textContent||''));
+    return /\bpms\b/i.test(value('service'));
   }
   function pmsForm(){
     if(el('pmsServiceDetails'))return;
@@ -30,7 +29,7 @@
   async function syncPms(invoiceId,invoice){
     if(!db||!businessId||!branch()||!invoiceId)return;
     var current=await db.from('pms_service_records').select('*').eq('invoice_id',invoiceId).maybeSingle();
-    if(!isPms()&&!((invoice.services||[]).some(function(row){return /^pms$/i.test(String(row.n||'').trim())}))){
+    if(!isPms()&&!((invoice.services||[]).some(function(row){return /\bpms\b/i.test(String(row.n||row.service_name||'').trim())}))){
       if(current.data)await db.from('pms_service_records').delete().eq('invoice_id',invoiceId);return;
     }
     if(current.error)throw new Error(current.error.message);
