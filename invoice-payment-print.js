@@ -14,7 +14,7 @@
       return result.data.map(function(p){return {date:p.payment_date||'',method:p.payment_method||'',reference:p.reference_number||'',notes:p.notes||'',amount:Number(p.amount||0)}});
     }catch(e){return known}
   }
-  async function printInvoice(id){
+  async function printInvoice(id,outputMode){
     var invoice=getInvoices().find(function(x){return String(x.id)===String(id)});
     if(!invoice){alert('Invoice record not found.');return}
     var win=window.open('','_blank');
@@ -31,7 +31,7 @@
     var identity=logo?'<img src="'+esc(logo)+'" alt="Company logo">':'<span class="logo">logo</span>';
     win.document.open();
     win.document.write('<!doctype html><html><head><title>Invoice '+esc(invoice.number)+'</title><style>@page{margin:.45in}body{font:12px Arial;color:'+theme.text+';background:'+theme.background+'}.head{display:flex;gap:13px;align-items:center;border-bottom:3px solid '+theme.accent+';padding-bottom:12px}.head img{max-width:72px;max-height:58px;object-fit:contain}.logo{display:grid;place-items:center;width:54px;height:54px;border:1px solid '+theme.accent+';color:'+theme.accent+';font-weight:bold}.company{font-size:18px;font-weight:bold}.doc{margin-left:auto;color:'+theme.accent+';font-size:18px;font-weight:bold;text-align:right}.doc small{font-size:10px;color:'+theme.text+'}h2{margin:20px 0 8px}h3{margin:16px 0 4px;border-bottom:2px solid '+theme.accent+';padding-bottom:4px}table{width:100%;border-collapse:collapse}td,th{padding:7px;border-bottom:1px solid #ddd;text-align:left}td:last-child,th:last-child{text-align:right}.total{color:'+theme.accent+';font-size:18px;font-weight:bold;text-align:right;margin-top:16px}.summary{text-align:right}.payments{font-size:10px}.small{color:#666}.signatures{display:grid;grid-template-columns:1fr 1fr;gap:60px;margin-top:52px;text-align:center}.signature-line{border-top:1px solid '+theme.text+';padding-top:6px;min-height:34px}.signature-line b{display:block;font-size:11px}.signature-line small{color:#666}</style></head><body><div class="head"><div>'+identity+'</div><div><div class="company">'+esc(brand.company)+'</div><div>'+esc(contact.address)+'<br>'+esc(contact.phone)+'<br>'+esc(contact.email)+'</div></div><div class="doc">INVOICE<br><small>Invoice No. '+esc(invoice.number)+'</small></div></div><h2>Invoice '+esc(invoice.number)+'</h2><p><b>'+esc(invoice.client)+'</b><br>'+esc(invoice.contact)+'<br>'+esc(invoice.address)+'<br>'+esc(invoice.make)+' '+esc(invoice.yearModel)+' - '+esc(invoice.plate)+'</p><h3>Services</h3><table>'+services+'</table><h3>Parts</h3><table>'+parts+'</table><div class="total">TOTAL '+amount(total)+'</div><p class="summary">Total paid: '+amount(paid)+' | Balance remaining: '+amount(balance)+' | Status: '+esc(invoice.status||'Pending')+'</p>'+paymentTable+'<div class="signatures"><div class="signature-line"><b>'+esc(invoice.admin||'Assigned admin')+'</b><small>Prepared by / Authorized signature</small></div><div class="signature-line"><b>'+esc(invoice.client||'Client')+'</b><small>Received by / Client signature</small></div></div></body></html>');
-    win.document.close();setTimeout(function(){win.print()},250);
+    win.document.close();if(outputMode==='capture')return win;setTimeout(function(){win.print()},250);
   }
   function pdfText(value){
     var text=String(value==null?'':value).replace(/[\r\n]+/g,' ').replace(/[–—]/g,'-').replace(/[•·]/g,'-');
@@ -48,7 +48,7 @@
     var blob=new Blob([contents],{type:'application/pdf'}),url=URL.createObjectURL(blob),link=document.createElement('a');
     link.href=url;link.download=name;document.body.appendChild(link);link.click();link.remove();setTimeout(function(){URL.revokeObjectURL(url)},1200);
   }
-  async function downloadInvoicePdf(id){
+  async function downloadSimpleInvoicePdf(id){
     var invoice=getInvoices().find(function(x){return String(x.id)===String(id)});
     if(!invoice){alert('Invoice record not found.');return}
     var brand=settings('15m-custom-header',{company:'Your Business Name'}),contact=settings('15m-business-contact',{address:'',phone:'',email:''});
@@ -72,6 +72,36 @@
     objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
     var pdf='%PDF-1.4\n%\xE2\xE3\xCF\xD3\n',offsets=[0];objects.forEach(function(object,index){offsets.push(new TextEncoder().encode(pdf).length);pdf+=(index+1)+' 0 obj\n'+object+'\nendobj\n'});var xref=new TextEncoder().encode(pdf).length;pdf+='xref\n0 '+(objects.length+1)+'\n0000000000 65535 f \n'+offsets.slice(1).map(function(offset){return String(offset).padStart(10,'0')+' 00000 n \n'}).join('')+'trailer\n<< /Size '+(objects.length+1)+' /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
     downloadFile('Invoice-'+String(invoice.number||'record').replace(/[^a-z0-9_-]+/gi,'-')+'.pdf',pdf);
+  }
+  function loadPopupScript(win,url,ready){
+    return new Promise(function(resolve,reject){
+      if(ready())return resolve();
+      var script=win.document.createElement('script');script.src=url;script.async=true;
+      script.onload=function(){ready()?resolve():reject(new Error('PDF tool did not load'))};script.onerror=function(){reject(new Error('PDF tool could not load'))};win.document.head.appendChild(script);
+    });
+  }
+  function waitForImages(win){
+    return Promise.all(Array.prototype.slice.call(win.document.images).map(function(image){
+      if(image.complete)return Promise.resolve();return new Promise(function(resolve){image.onload=image.onerror=resolve});
+    }));
+  }
+  async function downloadInvoicePdf(id){
+    /* Capture the exact same branded document used by Print, then place that
+       image onto A4 PDF pages. This keeps both copies visually identical. */
+    var record=getInvoices().find(function(item){return String(item.id)===String(id)}),fileNumber=(record&&record.number)||id||'record',win=await printInvoice(id,'capture');if(!win)return;
+    try{
+      await waitForImages(win);
+      await loadPopupScript(win,'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',function(){return !!win.html2canvas});
+      await loadPopupScript(win,'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js',function(){return !!(win.jspdf&&win.jspdf.jsPDF)});
+      var body=win.document.body;body.style.width='720px';body.style.margin='0 auto';body.style.padding='34px';
+      var canvas=await win.html2canvas(body,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false});
+      var Pdf=win.jspdf.jsPDF,pdf=new Pdf({orientation:'portrait',unit:'pt',format:'a4',compress:true}),width=pdf.internal.pageSize.getWidth(),height=pdf.internal.pageSize.getHeight(),imageHeight=canvas.height*width/canvas.width,image=canvas.toDataURL('image/jpeg',0.94),remaining=imageHeight,position=0;
+      pdf.addImage(image,'JPEG',0,position,width,imageHeight);remaining-=height;
+      while(remaining>0){position=remaining-imageHeight;pdf.addPage();pdf.addImage(image,'JPEG',0,position,width,imageHeight);remaining-=height}
+      pdf.save('Invoice-'+String(fileNumber).replace(/[^a-z0-9_-]+/gi,'-')+'.pdf');win.close();
+    }catch(error){
+      console.error('Invoice PDF download failed:',error);alert('The PDF could not be created automatically. The exact invoice copy is open—choose Print, then Save as PDF.');setTimeout(function(){try{win.print()}catch(_){}},120);
+    }
   }
   window.printInvoice=printInvoice;
   window.downloadInvoicePdf=downloadInvoicePdf;
