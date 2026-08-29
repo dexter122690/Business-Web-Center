@@ -371,7 +371,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
 /* Schedule calendar for planned units, with one-day-before browser reminders. */
 (function(){
   var key='15m-unit-schedule',alertKey='15m-unit-schedule-alerts',editing='';
-  function read(){try{var rows=JSON.parse(localStorage.getItem(key)||'[]'),branch=localStorage.getItem('bwc-active-branch')||'';return window.__bwcScheduleOnlineReady&&branch?rows.filter(function(row){return row.branchId===branch}):rows}catch(e){return []}}
+  function read(){try{var rows=JSON.parse(localStorage.getItem(key)||'[]'),branch=localStorage.getItem('bwc-active-branch')||'',visible=window.__bwcScheduleOnlineReady&&branch?rows.filter(function(row){return row.branchId===branch}):rows;return visible.filter(function(row){return !(row&&row.online===true&&(row.appointmentSource==='client'||(!row.createdBy&&row.clientResponse)))})}catch(e){return []}}
   function write(data){localStorage.setItem(key,JSON.stringify(data))}
   function esc(v){return String(v||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   function today(){return new Date().toISOString().slice(0,10)}
@@ -717,7 +717,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
 <script src="feature-flags.js"></script>
 <script src="payroll-online.js"></script>
 <script src="schedule-online.js?v=20260829b"></script>
-<script src="schedule-client-requests.js?v=20260829"></script>
+<script src="schedule-client-requests.js?v=20260829b"></script>
 <script src="work-board-online.js"></script>
 <script src="team-access.js"></script>
 <script src="team-access-multi-branch.js?v=20260817"></script>
