@@ -1,6 +1,7 @@
 /* Keep public client appointment requests separate from staff schedules. */
 (function(){
   var key='15m-unit-schedule';
+  var preparedKey='bwc-prepared-client-schedule';
   function read(){try{var rows=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(rows)?rows:[]}catch(error){return []}}
   function escapeHtml(value){return String(value||'').replace(/[&<>"']/g,function(char){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]})}
   function clientRequest(item){return item&&item.online===true&&(item.appointmentSource==='client'||(!item.createdBy&&item.clientResponse))}
@@ -30,6 +31,12 @@
     document.dispatchEvent(new Event('bwc:client-requests-rendered'));
   }
   function setValue(id,value){var input=document.getElementById(id);if(input)input.value=value||''}
+  function preparedRequest(){try{return JSON.parse(sessionStorage.getItem(preparedKey)||'null')}catch(error){return null}}
+  function placePreparedRequest(scroll){
+    var item=preparedRequest();if(!item)return;
+    setValue('scheduleDate',item.date);setValue('scheduleTime',item.time);setValue('scheduleClient',item.client);setValue('scheduleContact',item.contact);setValue('scheduleVehicle',item.unit||item.vehicle);setValue('scheduleYear',item.year);setValue('scheduleColor',item.color);setValue('scheduleService',item.procedure||item.service);setValue('scheduleNotes',item.notes);
+    if(scroll){var form=document.querySelector('#schedule .schedule-layout .card');if(form)form.scrollIntoView({behavior:'smooth',block:'start'})}
+  }
   document.addEventListener('click',function(event){
     var copy=event.target.closest('[data-client-appointment-copy]');if(copy){
       event.preventDefault();
@@ -39,12 +46,15 @@
     }
     var button=event.target.closest('[data-client-request-prepare]');if(!button)return;
     var item=read().find(function(row){return row.id===button.dataset.clientRequestPrepare});if(!item)return;
-    setValue('scheduleDate',item.date);setValue('scheduleTime',item.time);setValue('scheduleClient',item.client);setValue('scheduleContact',item.contact);setValue('scheduleVehicle',item.unit||item.vehicle);setValue('scheduleYear',item.year);setValue('scheduleColor',item.color);setValue('scheduleService',item.procedure||item.service);setValue('scheduleNotes',item.notes);
-    var form=document.querySelector('#schedule .schedule-layout .card');if(form)form.scrollIntoView({behavior:'smooth',block:'start'});
+    sessionStorage.setItem(preparedKey,JSON.stringify(item));
     alert('The client request was copied into a new staff schedule. Review it, then click Save schedule.');
+    /* The schedule refreshes after a client request is read. Apply the values
+       after that refresh and scroll the owner straight to the form. */
+    placePreparedRequest(true);setTimeout(function(){placePreparedRequest(false)},180);setTimeout(function(){placePreparedRequest(false)},500);
   });
-  document.addEventListener('bwc:schedule-loaded',function(){setTimeout(render,0)});
+  document.addEventListener('bwc:schedule-loaded',function(){setTimeout(function(){render();placePreparedRequest(false)},0)});
   document.addEventListener('bwc:branch-ready',function(){setTimeout(render,200)});
+  document.addEventListener('click',function(event){if(event.target.closest('[data-schedule-save],[data-schedule-cancel]'))sessionStorage.removeItem(preparedKey)});
   document.addEventListener('click',function(event){if(event.target.closest('#scheduleTab,[data-schedule-cancel],[data-schedule-save]'))setTimeout(render,180)});
   window.addEventListener('load',function(){setTimeout(render,700)});
 })();
