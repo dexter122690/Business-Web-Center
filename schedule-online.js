@@ -19,19 +19,21 @@
   function appointmentUrl(token){return new URL('appointment.html',location.href).href+'?token='+encodeURIComponent(token)}
   function escapeHtml(text){return String(text||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   async function publicAppointmentToken(){
-    await start();var branchId=localStorage.getItem('bwc-active-branch');
+    var client=await start();var branchId=localStorage.getItem('bwc-active-branch');
     if(!businessId()||!branchId)return null;
-    var found=await db.from('branch_appointment_links').select('public_token').eq('business_id',businessId()).eq('branch_id',branchId).maybeSingle();
+    if(!client)throw new Error('Secure scheduling is still loading. Please try again in a moment.');
+    var found=await client.from('branch_appointment_links').select('public_token').eq('business_id',businessId()).eq('branch_id',branchId).maybeSingle();
     if(found.error)throw found.error;
     if(found.data)return found.data.public_token;
-    var created=await db.from('branch_appointment_links').insert({business_id:businessId(),branch_id:branchId}).select('public_token').single();
+    var created=await client.from('branch_appointment_links').insert({business_id:businessId(),branch_id:branchId}).select('public_token').single();
     if(created.error)throw created.error;
     return created.data&&created.data.public_token;
   }
   async function publicAppointmentShareUrl(){
-    var token=await publicAppointmentToken();if(!token)return '';
+    var client=await start(),token=await publicAppointmentToken();if(!token)return '';
+    if(!client)throw new Error('Secure scheduling is still loading. Please try again in a moment.');
     var branchId=localStorage.getItem('bwc-active-branch');
-    var result=await db.from('branch_appointment_links').select('short_code').eq('business_id',businessId()).eq('branch_id',branchId).maybeSingle();
+    var result=await client.from('branch_appointment_links').select('short_code').eq('business_id',businessId()).eq('branch_id',branchId).maybeSingle();
     if(result.error)throw result.error;
     var code=String(result.data&&result.data.short_code||'').trim();
     /* Fall back to the existing link until the one-time short-link update is
