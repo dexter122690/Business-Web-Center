@@ -24,13 +24,19 @@
       var unit=[item.unit||item.vehicle,item.year,item.color].filter(Boolean).join(' · ');
       return '<div class="client-request-row"><div><b>'+escapeHtml(item.client)+'</b><br><small>'+escapeHtml(item.date)+' '+escapeHtml(item.time||'Any time')+' · '+escapeHtml(responseLabel(item.clientResponse))+'</small></div><div><b>'+escapeHtml(unit)+'</b><br><small>'+escapeHtml(procedure)+' · '+escapeHtml(item.contact||'No contact number')+'</small>'+(item.notes?'<br><small>Note: '+escapeHtml(item.notes)+'</small>':'')+'</div><button class="secondary" data-client-request-prepare="'+escapeHtml(item.id)+'">Prepare staff schedule</button></div>';
     }).join('');
-    card.innerHTML='<style>#clientAppointmentRequests .client-request-row{display:grid;grid-template-columns:minmax(170px,.9fr) minmax(230px,1.4fr) auto;gap:12px;align-items:center;padding:11px 0;border-top:1px solid var(--l)}#clientAppointmentRequests .client-request-row:first-of-type{border-top:0}@media(max-width:700px){#clientAppointmentRequests .client-request-row{grid-template-columns:1fr}#clientAppointmentRequests .client-request-row button{width:100%}}</style><div class="k">CLIENT APPOINTMENT REQUESTS</div><h2>Requests submitted by clients</h2><p class="muted">These are submitted through your public appointment link. They are separate from staff-created schedules below.</p>'+(rows||'<div class="empty">No client appointment requests for this branch yet.</div>');
+    card.innerHTML='<style>#clientAppointmentRequests .client-request-head{display:flex;justify-content:space-between;gap:12px;align-items:start}#clientAppointmentRequests .client-request-row{display:grid;grid-template-columns:minmax(170px,.9fr) minmax(230px,1.4fr) auto;gap:12px;align-items:center;padding:11px 0;border-top:1px solid var(--l)}#clientAppointmentRequests .client-request-row:first-of-type{border-top:0}@media(max-width:700px){#clientAppointmentRequests .client-request-head{display:block}#clientAppointmentRequests .client-request-head button{margin-top:8px}#clientAppointmentRequests .client-request-row{grid-template-columns:1fr}#clientAppointmentRequests .client-request-row button{width:100%}}</style><div class="client-request-head"><div><div class="k">CLIENT APPOINTMENT REQUESTS</div><h2>Requests submitted by clients</h2></div><button class="secondary" type="button" data-client-appointment-copy>Copy client booking link</button></div><p class="muted">These are submitted through your public appointment link. They are separate from staff-created schedules below.</p>'+(rows||'<div class="empty">No client appointment requests for this branch yet.</div>');
     var layout=schedule.querySelector('.schedule-layout');if(layout)layout.insertAdjacentElement('beforebegin',card);else schedule.appendChild(card);
     /* Tell the booking-link card to mount after this stable client section. */
     document.dispatchEvent(new Event('bwc:client-requests-rendered'));
   }
   function setValue(id,value){var input=document.getElementById(id);if(input)input.value=value||''}
   document.addEventListener('click',function(event){
+    var copy=event.target.closest('[data-client-appointment-copy]');if(copy){
+      event.preventDefault();
+      if(typeof window.bwcCopyClientAppointmentLink==='function')window.bwcCopyClientAppointmentLink(copy);
+      else alert('The booking link is still loading. Please try again in a moment.');
+      return;
+    }
     var button=event.target.closest('[data-client-request-prepare]');if(!button)return;
     var item=read().find(function(row){return row.id===button.dataset.clientRequestPrepare});if(!item)return;
     setValue('scheduleDate',item.date);setValue('scheduleTime',item.time);setValue('scheduleClient',item.client);setValue('scheduleContact',item.contact);setValue('scheduleVehicle',item.unit||item.vehicle);setValue('scheduleYear',item.year);setValue('scheduleColor',item.color);setValue('scheduleService',item.procedure||item.service);setValue('scheduleNotes',item.notes);
