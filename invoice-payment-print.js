@@ -34,5 +34,10 @@
     win.document.close();setTimeout(function(){win.print()},250);
   }
   window.printInvoice=printInvoice;
+  /* Browsers do not allow a website to silently create a file. This opens the
+     official invoice in the native print sheet, where Save as PDF or Share is
+     available while normal paper printing still works. */
+  window.downloadInvoicePdf=function(id){return printInvoice(id)};
   setTimeout(function(){window.printInvoice=printInvoice},900);
+  setTimeout(function(){window.downloadInvoicePdf=function(id){return printInvoice(id)}},900);
 })();
