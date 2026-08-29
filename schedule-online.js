@@ -30,6 +30,9 @@
   }
   async function renderAppointmentLink(){
     var schedule=document.getElementById('schedule');if(!schedule||!schedule.classList.contains('active')||!online)return;
+    /* The permanent button now lives in Client Appointment Requests.  Remove
+       the old separate card once that section is available. */
+    if(document.getElementById('clientAppointmentRequests')){var oldCard=document.getElementById('appointmentLinkCard');if(oldCard)oldCard.remove();return}
     /* Several refresh events can arrive together.  Only the last request may
        draw the card, otherwise each completed request adds a duplicate. */
     var renderId=++appointmentLinkRender;
@@ -49,19 +52,26 @@
       if(requests)requests.insertAdjacentElement('afterend',card);else if(calendar)calendar.insertAdjacentElement('afterend',card);else schedule.appendChild(card);
     }catch(error){status('Appointment link could not load: '+error.message,'error')}
   }
-  async function copyAppointmentLink(button){
-    var link=document.getElementById('appointmentPublicLink');if(!link)return;
+  async function copyAppointmentText(text,button){
+    if(!text)return;
     var copied=false;
-    try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(link.value);copied=true}}catch(error){}
+    try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(text);copied=true}}catch(error){}
     if(!copied){
-      link.focus();link.select();link.setSelectionRange(0,link.value.length);
-      try{copied=document.execCommand('copy')}catch(error){}
+      var helper=document.createElement('textarea');helper.value=text;helper.setAttribute('readonly','');helper.style.cssText='position:fixed;opacity:0;pointer-events:none';document.body.appendChild(helper);helper.select();
+      try{copied=document.execCommand('copy')}catch(error){}finally{helper.remove()}
     }
     if(copied){var label=button.textContent;button.textContent='Copied';setTimeout(function(){if(button.isConnected)button.textContent=label},1600);return}
     /* Some iPhone browsers do not allow programmatic clipboard access.  The
-       selected link and this prompt still let the owner copy it manually. */
-    window.prompt('Copy this appointment link:',link.value);
+       prompt still lets the owner copy it manually. */
+    window.prompt('Copy this appointment link:',text);
   }
+  async function copyAppointmentLink(button){var link=document.getElementById('appointmentPublicLink');if(link)await copyAppointmentText(link.value,button)}
+  /* The permanent button in Client Appointment Requests calls this directly,
+     so copying does not depend on a separate card rendering successfully. */
+  window.bwcCopyClientAppointmentLink=async function(button){
+    try{var token=await publicAppointmentToken();if(!token)throw new Error('Choose a branch first.');await copyAppointmentText(appointmentUrl(token),button)}
+    catch(error){alert('The appointment link could not be copied. '+(error.message||'Please try again.'))}
+  };
   function printAppointmentNotice(){var input=document.getElementById('appointmentPublicLink');if(!input)return;var w=window.open('','_blank');if(!w)return;w.document.write('<!doctype html><title>Book an appointment</title><style>@page{margin:.65in}body{font-family:Arial,sans-serif;text-align:center;color:#211815}h1{font-size:28px}p{font-size:16px;line-height:1.5}.link{border:1px solid #ddd;padding:12px;word-break:break-all}</style><h1>Book an appointment</h1><p>Use this link to request an appointment with this branch.</p><div class="link">'+escapeHtml(input.value)+'</div><script>window.onload=function(){window.print()}<\/script>');w.document.close()}
   async function start(){
     if(!online)return null;
