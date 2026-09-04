@@ -33,7 +33,15 @@
     var branchId=localStorage.getItem('bwc-active-branch');if(!businessId||!branchId){renderAdmins([]);return}
     var result=await db.from('payroll_workers').select('full_name,position,is_active').eq('business_id',businessId).eq('branch_id',branchId).eq('is_active',true).order('full_name');
     if(result.error){renderAdmins([]);message('Admin list could not load: '+result.error.message);return}
-    var admins=(result.data||[]).filter(isAdmin);renderAdmins(result.data||[]);
+    /* Team Access administrators are valid invoice assignees even when they
+       are not paid through the Payroll employee roster. */
+    var teamAdmins=[];
+    try{
+      var access=await db.from('business_member_branch_access').select('user_id').eq('business_id',businessId).eq('branch_id',branchId),allowed=(access.data||[]).map(function(row){return row.user_id});
+      if(allowed.length){var members=await db.from('business_memberships').select('user_id,role,status').eq('business_id',businessId).eq('status','active').eq('role','admin').in('user_id',allowed),ids=(members.data||[]).map(function(row){return row.user_id});if(ids.length){var profiles=await db.from('profiles').select('id,full_name').in('id',ids);teamAdmins=(profiles.data||[]).filter(function(profile){return profile.full_name&&profile.full_name.trim()}).map(function(profile){return {full_name:profile.full_name.trim(),position:'Admin',is_active:true}})}}
+    }catch(teamError){console.warn('Team admin names were not available:',teamError)}
+    var combined=(result.data||[]).concat(teamAdmins),seen={};combined=combined.filter(function(worker){var key=String(worker.full_name||'').trim().toLowerCase();if(!key||seen[key])return false;seen[key]=true;return true});
+    var admins=combined.filter(isAdmin);renderAdmins(combined);
     if(!admins.length){var branchName=(document.querySelector('#onlineBranchPicker option:checked')||{}).textContent||'this branch';message('No active employee with the designation Admin is saved online for '+branchName+'. Open Payroll > Workers, set the employee designation to Admin, and save the employee.');}
   }
   function invoicePayload(x){return {business_id:businessId,branch_id:localStorage.getItem('bwc-active-branch'),client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,discount_amount:x.discount||0,total_amount:x.total,amount_paid:x.paid,status:x.status,created_by:userId}}
