@@ -34,11 +34,13 @@
     var result=await db.from('payroll_workers').select('full_name,position,is_active').eq('business_id',businessId).eq('branch_id',branchId).eq('is_active',true).order('full_name');
     if(result.error){renderAdmins([]);message('Admin list could not load: '+result.error.message);return}
     /* Team Access administrators are valid invoice assignees even when they
-       are not paid through the Payroll employee roster. */
+       are not paid through the Payroll employee roster. Read the approved
+       assignment itself so a newly accepted account is not missed while its
+       separate profile/membership record finishes synchronizing. */
     var teamAdmins=[];
     try{
-      var access=await db.from('business_member_branch_access').select('user_id').eq('business_id',businessId).eq('branch_id',branchId),allowed=(access.data||[]).map(function(row){return row.user_id});
-      if(allowed.length){var members=await db.from('business_memberships').select('user_id,role,status').eq('business_id',businessId).eq('status','active').eq('role','admin').in('user_id',allowed),ids=(members.data||[]).map(function(row){return row.user_id});if(ids.length){var profiles=await db.from('profiles').select('id,full_name').in('id',ids);teamAdmins=(profiles.data||[]).filter(function(profile){return profile.full_name&&profile.full_name.trim()}).map(function(profile){return {full_name:profile.full_name.trim(),position:'Admin',is_active:true}})}}
+      var invitations=await db.from('business_team_invites').select('full_name').eq('business_id',businessId).eq('branch_id',branchId).eq('role','admin').in('status',['approved','accepted']);
+      if(!invitations.error)teamAdmins=(invitations.data||[]).filter(function(invite){return invite.full_name&&invite.full_name.trim()}).map(function(invite){return {full_name:invite.full_name.trim(),position:'Admin',is_active:true}});
     }catch(teamError){console.warn('Team admin names were not available:',teamError)}
     var combined=(result.data||[]).concat(teamAdmins),seen={};combined=combined.filter(function(worker){var key=String(worker.full_name||'').trim().toLowerCase();if(!key||seen[key])return false;seen[key]=true;return true});
     var admins=combined.filter(isAdmin);renderAdmins(combined);
