@@ -2,3 +2,6 @@
 *.url
 *.zip
 *.json
+
+# Temporary package-download cache. It is not application source code.
+.npm-cache/
