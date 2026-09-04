@@ -47,6 +47,24 @@
     if(!admins.length){var branchName=(document.querySelector('#onlineBranchPicker option:checked')||{}).textContent||'this branch';message('No active employee with the designation Admin is saved online for '+branchName+'. Open Payroll > Workers, set the employee designation to Admin, and save the employee.');}
   }
   function invoicePayload(x){return {business_id:businessId,branch_id:localStorage.getItem('bwc-active-branch'),client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,discount_amount:x.discount||0,total_amount:x.total,amount_paid:x.paid,status:x.status,created_by:userId}}
+  async function confirmInvoiceBranchAccess(){
+    try{await db.rpc('refresh_my_team_access')}catch(refreshError){}
+    var branchId=localStorage.getItem('bwc-active-branch');if(!branchId)return {error:'Your assigned branch is still loading. Please wait a moment and try again.'};
+    /* Owners have access to every active branch. Staff and admins must use an
+       explicitly assigned branch, so correct an old browser branch before a
+       save can reach the invoice security rule. */
+    var membership=await db.from('business_memberships').select('role,status').eq('business_id',businessId).eq('user_id',userId).eq('status','active').maybeSingle();
+    if(membership.error||!membership.data)return {error:'This signed-in account does not have an active Team Access membership for this business.'};
+    if(['admin','staff'].includes(membership.data.role)){
+      var access=await db.from('business_member_branch_access').select('branch_id').eq('business_id',businessId).eq('user_id',userId);
+      if(access.error||!(access.data||[]).length)return {error:'This signed-in account has no active branch assignment yet. The owner should open Team Access and save the assigned branch, then ask the staff member to sign in again.'};
+      var allowed=(access.data||[]).map(function(row){return row.branch_id});
+      if(!allowed.includes(branchId)){localStorage.setItem('bwc-active-branch',allowed[0]);return {corrected:true};}
+    }
+    var permitted=await db.rpc('can_manage_invoice_branch',{target_business_id:businessId,target_branch_id:branchId});
+    if(!permitted.error&&permitted.data!==true)return {error:'This account is not allowed to create invoices for the currently selected branch. The branch was not changed.'};
+    return {ok:true};
+  }
   /* A payment must be added to the original invoice as a dated installment.
      Do not let an editor overwrite the accumulated received amount by hand. */
   function paymentEditShortcut(){
@@ -110,7 +128,8 @@
     x.balance=Math.max(0,x.total-x.paid);x.status=x.paid>=x.total?'Paid':x.paid?'Partially paid':'Pending';
     if(!online){var position=inv.findIndex(function(i){return i.id===x.id});x.number=edit?(inv[position]||{}).number:'INV-'+String(inv.length+1).padStart(5,'0');position<0?inv.unshift(x):inv[position]=x;cache();resetInvoice();render();show('invoices');return}
     if(!businessId||!localStorage.getItem('bwc-active-branch')){alert('The selected branch is still loading. Please wait a few seconds, then create the invoice again.');return}
-message('Saving invoice securely…');try{try{await db.rpc('refresh_my_team_access')}catch(_refreshError){}
+    var branchAccess=await confirmInvoiceBranchAccess();if(branchAccess.corrected){alert('Your saved branch was corrected to your assigned branch. The page will now refresh; create the invoice again after it reloads.');location.reload();return}if(branchAccess.error){alert(branchAccess.error);return}
+message('Saving invoice securely…');try{
       var saveStep='the invoice record';
       var saved;
       if(x.remoteId){var updated=await db.from('invoices').update(invoicePayload(x)).eq('id',x.remoteId).select('id,invoice_number').single();if(updated.error)throw new Error(updated.error.message);saved=updated.data;saveStep='the previous service and parts lines';var removeServices=await db.from('invoice_services').delete().eq('invoice_id',x.remoteId);if(removeServices.error)throw new Error(removeServices.error.message);var removeParts=await db.from('invoice_parts').delete().eq('invoice_id',x.remoteId);if(removeParts.error)throw new Error(removeParts.error.message)}else{var inserted=await db.from('invoices').insert(invoicePayload(x)).select('id,invoice_number').single();if(inserted.error)throw new Error(inserted.error.message);saved=inserted.data}
