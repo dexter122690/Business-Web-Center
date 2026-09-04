@@ -175,8 +175,8 @@ message('Saving invoice securely…');try{
   if(originalEditInvoice)window.editInvoice=function(id){originalEditInvoice(id);setTimeout(paymentEditShortcut,0)};
   if(originalResetInvoice)window.resetInvoice=function(){originalResetInvoice();setTimeout(paymentEditShortcut,0)};
   async function start(){
-    var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}
-    db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=await resolveBusiness();if(!businessId){message('Online invoices are ready, but this account has no selected active business yet. Approve or select the business first.');return}inv=[];cache();render();renderLists();online=true;await loadAdmins();loadRemote();
+    var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey||!window.BWCContext){setTimeout(start,150);return}
+    try{var context=await window.BWCContext.whenReady();if(context.platformAdmin)return;db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=context.business.id}catch(error){message('Online invoices could not start because workspace access is unavailable.');return}inv=[];cache();render();renderLists();online=true;await loadAdmins();loadRemote();
   }
   document.addEventListener('click',function(event){if(online&&event.target.closest('[data-t="invoices"]'))setTimeout(loadAdmins,80)});
   document.addEventListener('bwc:branch-ready',function(){if(online){loadAdmins();loadRemote()}});
