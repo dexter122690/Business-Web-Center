@@ -68,11 +68,13 @@
     if(!history.error&&history.data&&history.data.length){
       cashPayments=history.data.filter(function(payment){return String(payment.payment_method||'').trim().toLowerCase()==='cash'}).reduce(function(sum,payment){return sum+Number(payment.amount||0)},0);
     }
-    var removed=await db.from('cash_transactions').delete().eq('business_id',businessId).eq('branch_id',branchId).eq('source_key',sourceKey);
-    if(removed.error)throw new Error('CIB update failed: '+removed.error.message);
     var cashAmount=cashPayments===null?(String(x.method||'').trim().toLowerCase()==='cash'?paidAmount:0):cashPayments;
+    /* Do not erase and recreate the linked cash record.  Erasing is rightly
+       owner-only, while staff with Expenses access may update a record that
+       belongs to the invoice they are saving.  Upsert also prevents duplicate
+       source keys when an existing invoice is edited. */
     if(cashAmount<=0){document.dispatchEvent(new Event('bwc:cash-updated'));return}
-    var added=await db.from('cash_transactions').insert({
+    var savedCash=await db.from('cash_transactions').upsert({
       business_id:businessId,
       branch_id:branchId,
       cash_account:'CIB',
@@ -83,8 +85,8 @@
       reference_number:'INV-'+String(invoiceNumber).padStart(5,'0'),
       notes:'Cash received from invoice · '+String(x.client||'Client'),
       created_by:userId
-    });
-    if(added.error)throw new Error('CIB update failed: '+added.error.message);
+    },{onConflict:'branch_id,source_key'});
+    if(savedCash.error)throw new Error('CIB update failed: '+savedCash.error.message);
     document.dispatchEvent(new Event('bwc:cash-updated'));
   }
   window.createInvoice=async function(){
@@ -98,10 +100,11 @@
     if(!online){var position=inv.findIndex(function(i){return i.id===x.id});x.number=edit?(inv[position]||{}).number:'INV-'+String(inv.length+1).padStart(5,'0');position<0?inv.unshift(x):inv[position]=x;cache();resetInvoice();render();show('invoices');return}
     if(!businessId||!localStorage.getItem('bwc-active-branch')){alert('The selected branch is still loading. Please wait a few seconds, then create the invoice again.');return}
 message('Saving invoice securely…');try{try{await db.rpc('refresh_my_team_access')}catch(_refreshError){}
+      var saveStep='the invoice record';
       var saved;
-      if(x.remoteId){var updated=await db.from('invoices').update(invoicePayload(x)).eq('id',x.remoteId).select('id,invoice_number').single();if(updated.error)throw new Error(updated.error.message);saved=updated.data;var removeServices=await db.from('invoice_services').delete().eq('invoice_id',x.remoteId);if(removeServices.error)throw new Error(removeServices.error.message);var removeParts=await db.from('invoice_parts').delete().eq('invoice_id',x.remoteId);if(removeParts.error)throw new Error(removeParts.error.message)}else{var inserted=await db.from('invoices').insert(invoicePayload(x)).select('id,invoice_number').single();if(inserted.error)throw new Error(inserted.error.message);saved=inserted.data}
-      await writeLines(saved.id,x);var pmsWarning='';if(window.bwcSyncPmsRecord){try{await window.bwcSyncPmsRecord(saved.id,x)}catch(pmsError){console.warn('PMS history was not saved:',pmsError);pmsWarning=' The invoice is saved; PMS history will be available after the database update.'}}await syncInvoiceCashIn(saved.id,saved.invoice_number,x);await loadRemote();resetInvoice();show('invoices');message('Invoice '+('INV-'+String(saved.invoice_number).padStart(5,'0'))+' saved securely online.'+pmsWarning);
-    }catch(error){var detail=String((error&&error.message)||'Unknown database error');var accessProblem=/row-level security|permission denied|not authorized|violates.*policy|new row violates|\brls\b/i.test(detail);message('Invoice was not saved online: '+detail);alert(accessProblem?'This account does not yet have active Invoice editing access for the selected branch. The owner must open Settings > Team Access, select Edit for this staff member, save the correct branch, then ask the staff member to sign out and sign in again.':'The invoice could not be saved online. Reason: '+detail)}};
+      if(x.remoteId){var updated=await db.from('invoices').update(invoicePayload(x)).eq('id',x.remoteId).select('id,invoice_number').single();if(updated.error)throw new Error(updated.error.message);saved=updated.data;saveStep='the previous service and parts lines';var removeServices=await db.from('invoice_services').delete().eq('invoice_id',x.remoteId);if(removeServices.error)throw new Error(removeServices.error.message);var removeParts=await db.from('invoice_parts').delete().eq('invoice_id',x.remoteId);if(removeParts.error)throw new Error(removeParts.error.message)}else{var inserted=await db.from('invoices').insert(invoicePayload(x)).select('id,invoice_number').single();if(inserted.error)throw new Error(inserted.error.message);saved=inserted.data}
+      saveStep='the service and parts lines';await writeLines(saved.id,x);var pmsWarning='';if(window.bwcSyncPmsRecord){try{await window.bwcSyncPmsRecord(saved.id,x)}catch(pmsError){console.warn('PMS history was not saved:',pmsError);pmsWarning=' The invoice is saved; PMS history will be available after the database update.'}}var cashWarning='';try{saveStep='the CIB cash record';await syncInvoiceCashIn(saved.id,saved.invoice_number,x)}catch(cashError){console.warn('Invoice CIB update was not saved:',cashError);cashWarning=' The invoice is saved; its CIB cash record could not be updated automatically.'}await loadRemote();resetInvoice();show('invoices');message('Invoice '+('INV-'+String(saved.invoice_number).padStart(5,'0'))+' saved securely online.'+pmsWarning+cashWarning);
+    }catch(error){var detail=String((error&&error.message)||'Unknown database error');message('Invoice was not saved during '+saveStep+': '+detail);alert('The invoice could not be saved during '+saveStep+'. Reason: '+detail)}};
   window.deleteInvoice=async function(id){
     var item=inv.find(function(x){return x.id===id});
     if(!item)return;
