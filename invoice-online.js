@@ -26,14 +26,15 @@
     var field=document.getElementById('admin');if(!field)return;
     var selected=field.value,admins=(rows||[]).filter(function(worker){return worker.is_active!==false&&isAdmin(worker)});
     field.dataset.onlineAdmins='1';
-    field.innerHTML='<option value="">Select admin</option>'+admins.map(function(worker){return '<option value="'+escapeHtml(worker.full_name)+'">'+escapeHtml(worker.full_name)+'</option>'}).join('');
+    field.innerHTML=admins.length?'<option value="">Select admin</option>'+admins.map(function(worker){return '<option value="'+escapeHtml(worker.full_name)+'">'+escapeHtml(worker.full_name)+'</option>'}).join(''):'<option value="">No Admin employee in this branch</option>';
     if(admins.some(function(worker){return worker.full_name===selected}))field.value=selected;
   }
   async function loadAdmins(){
     var branchId=localStorage.getItem('bwc-active-branch');if(!businessId||!branchId){renderAdmins([]);return}
     var result=await db.from('payroll_workers').select('full_name,position,is_active').eq('business_id',businessId).eq('branch_id',branchId).eq('is_active',true).order('full_name');
     if(result.error){renderAdmins([]);message('Admin list could not load: '+result.error.message);return}
-    renderAdmins(result.data||[]);
+    var admins=(result.data||[]).filter(isAdmin);renderAdmins(result.data||[]);
+    if(!admins.length){var branchName=(document.querySelector('#onlineBranchPicker option:checked')||{}).textContent||'this branch';message('No active employee with the designation Admin is saved online for '+branchName+'. Open Payroll > Workers, set the employee designation to Admin, and save the employee.');}
   }
   function invoicePayload(x){return {business_id:businessId,branch_id:localStorage.getItem('bwc-active-branch'),client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,discount_amount:x.discount||0,total_amount:x.total,amount_paid:x.paid,status:x.status,created_by:userId}}
   /* A payment must be added to the original invoice as a dated installment.
@@ -157,6 +158,7 @@ message('Saving invoice securely…');try{try{await db.rpc('refresh_my_team_acce
     if(online)loadRemote().then(openSelected);else openSelected();
   });
   document.addEventListener('bwc:workers-updated',function(){if(online)loadAdmins()});
+  document.addEventListener('bwc:workers-loaded',function(){if(online)loadAdmins()});
   document.addEventListener('bwc:invoice-deleted',function(){if(online)loadRemote()});
   document.addEventListener('bwc:invoice-payments-updated',function(){if(online)loadRemote()});
   function safe(value){return String(value||'').replace(/[&<>'"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]})}
