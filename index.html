@@ -691,10 +691,17 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
       if(!user){sendToSignIn();return}
       var profile=await db.from('profiles').select('platform_role').eq('id',user.id).maybeSingle();
       if(profile.data&&profile.data.platform_role==='platform_admin')return;
-      var memberships=await db.from('business_memberships').select('business_id').eq('user_id',user.id).eq('status','active');
+      var memberships=await db.from('business_memberships').select('business_id,role').eq('user_id',user.id).eq('status','active');
       if(memberships.error||!memberships.data||!memberships.data.length){await db.auth.signOut();sendToSignIn();return}
       var businesses=await db.from('businesses').select('id,name,status').in('id',memberships.data.map(function(row){return row.business_id}));
-      var active=(businesses.data||[]).find(function(row){return row.status==='active'});
+      var activeRows=(businesses.data||[]).filter(function(row){return row.status==='active'}),savedBusiness=localStorage.getItem('bwc-active-business'),membershipByBusiness={};
+      memberships.data.forEach(function(row){membershipByBusiness[row.business_id]=row});
+      /* A team member can have a small personal workspace from sign-up as
+         well as the business they were invited to.  When there is exactly
+         one active staff/admin workspace, open that assigned team workspace
+         rather than an unrelated personal MAIN workspace. */
+      var teamRows=activeRows.filter(function(row){var membership=membershipByBusiness[row.id];return membership&&['admin','staff'].includes(membership.role)});
+      var active=teamRows.length===1?teamRows[0]:(activeRows.find(function(row){return row.id===savedBusiness})||activeRows[0]);
       if(!active){await db.auth.signOut();sendToSignIn();return}
       localStorage.setItem('bwc-active-business',active.id);
       localStorage.setItem('bwc-active-business-name',active.name);
