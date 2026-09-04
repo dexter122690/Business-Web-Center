@@ -50,6 +50,7 @@
       saved.forEach(function(worker){var code=String(worker.code||'').toLowerCase();if(!worker.online&&code&&!byCode[code])remote.push(worker)});
       data.workers=remote;write(data);
       showStatus('Workers are saved securely online for this business.','info');
+      document.dispatchEvent(new Event('bwc:workers-loaded'));
     }catch(error){showStatus('Online worker list could not load: '+error.message,'error')}finally{syncing=false;if(!scopeIsActive(scope))setTimeout(beginOnlineSync,80)}
   }
   function minutes(time){var bits=String(time||'').split(':');return Number(bits[0]||0)*60+Number(bits[1]||0)}
