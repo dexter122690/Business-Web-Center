@@ -54,7 +54,7 @@
   }
   function orderRows() {
     if (!rows.length) return '<div class="empty">No service repair orders have been created in this branch yet.</div>';
-    return '<table><thead><tr><th>Repair order</th><th>Invoice</th><th>Client / vehicle</th><th>Contractor</th><th>Promise date</th><th>Status</th><th>Action</th></tr></thead><tbody>' + rows.map(function (order) { var invoice = byInvoice(order.invoice_id), title = invoice ? invoice.client + ' · ' + [invoice.make, invoice.plate].filter(Boolean).join(' ') : 'Linked invoice'; return '<tr><td><b>SRO-' + String(order.repair_order_number || order.id).slice(-6).toUpperCase() + '</b></td><td>' + esc(invoice ? invoice.number : 'Invoice record') + '</td><td>' + esc(title) + '</td><td>' + esc(order.contractor) + '</td><td>' + esc(order.promise_date || '—') + '</td><td><span class="badge">' + esc(order.status) + '</span></td><td class="actions"><button class="secondary" data-repair-edit="' + esc(order.id) + '">Edit</button><button class="secondary" data-repair-print="' + esc(order.id) + '">Print</button></td></tr>'; }).join('') + '</tbody></table>';
+    return '<table><thead><tr><th>Repair order</th><th>Invoice</th><th>Client / vehicle</th><th>Contractor</th><th>Promise date</th><th>Status</th><th>Action</th></tr></thead><tbody>' + rows.map(function (order) { var invoice = byInvoice(order.invoice_id), title = invoice ? invoice.client + ' · ' + [invoice.make, invoice.plate].filter(Boolean).join(' ') : 'Linked invoice'; return '<tr><td><b>SRO-' + String(order.repair_order_number || order.id).slice(-6).toUpperCase() + '</b></td><td>' + esc(invoice ? invoice.number : 'Invoice record') + '</td><td>' + esc(title) + '</td><td>' + esc(order.contractor) + '</td><td>' + esc(order.promise_date || '—') + '</td><td><span class="badge">' + esc(order.status) + '</span></td><td class="actions"><button class="secondary" data-repair-edit="' + esc(order.id) + '">Edit</button><button class="secondary" data-repair-print="' + esc(order.id) + '">Print</button><button class="secondary" style="color:#a22" data-repair-delete="' + esc(order.id) + '">Delete</button></td></tr>'; }).join('') + '</tbody></table>';
   }
   function render() {
     var root = document.getElementById('invoices'); if (!root) return;
@@ -105,12 +105,30 @@
     win.document.write('<!doctype html><html><head><title>Service Repair Order</title><style>@page{margin:.45in}body{font:12px Arial;color:' + theme.text + '} .head{display:flex;gap:12px;align-items:center;border-bottom:3px solid ' + theme.accent + ';padding-bottom:10px}.head img{max-width:70px;max-height:55px;object-fit:contain}.title{margin-left:auto;text-align:right;color:' + theme.accent + ';font-weight:bold;font-size:17px}table{width:100%;border-collapse:collapse;margin-top:12px}td,th{border:1px solid #444;padding:7px;text-align:left;vertical-align:top}th{width:26%;background:#faf7f5}.section{margin-top:18px;border:1px solid #444}.section h3{margin:0;padding:7px;background:#f4eee9;border-bottom:1px solid #444}.section pre{white-space:pre-wrap;font:12px Arial;padding:8px;margin:0;min-height:110px}.signatures{display:grid;grid-template-columns:1fr 1fr;gap:55px;margin-top:55px;text-align:center}.signatures div{border-top:1px solid #222;padding-top:6px}</style></head><body><div class="head"><div>' + identity + '</div><div><b style="font-size:18px">' + esc(brand.company) + '</b><br>' + esc(contact.address) + '<br>' + esc(contact.phone) + (contact.email ? '<br>' + esc(contact.email) : '') + '</div><div class="title">SERVICE REPAIR ORDER<br><small style="color:#222">SRO-' + esc(String(order.repair_order_number || order.id).slice(-6).toUpperCase()) + '</small></div></div><table><tr><th>Repair order date</th><td>' + esc(String(order.created_at || new Date().toISOString()).slice(0, 10)) + '</td><th>Contractor</th><td>' + esc(order.contractor) + '</td></tr><tr><th>Repair order no.</th><td>SRO-' + esc(String(order.repair_order_number || order.id).slice(-6).toUpperCase()) + '</td><th>Labor cost</th><td>' + money(order.labor_cost) + '</td></tr><tr><th>Customer name</th><td>' + esc(invoice && invoice.client) + '</td><th>Promise date</th><td>' + esc(order.promise_date || '') + '</td></tr><tr><th>Mobile no.</th><td>' + esc(invoice && invoice.contact) + '</td><th>Plate no.</th><td>' + esc(invoice && invoice.plate) + '</td></tr><tr><th>Vehicle</th><td colspan="3">' + esc(invoice && [invoice.yearModel, invoice.make, invoice.color].filter(Boolean).join(' ')) + '</td></tr></table><div class="section"><h3>Job instructions</h3><pre>' + esc(order.job_instructions) + '</pre></div><div class="section"><h3>Invoice services</h3><ul>' + (services || '<li>No service lines found.</li>') + '</ul></div><div class="section"><h3>Remarks</h3><pre>' + esc(order.remarks || '') + '</pre></div><div class="signatures"><div>Approved by</div><div>' + esc(invoice && invoice.client || 'Client') + '<br><small>Client approval</small></div></div></body></html>');
     win.document.close(); setTimeout(function () { win.print(); }, 150);
   }
+  async function remove(order) {
+    if (!order) return;
+    var label = 'SRO-' + String(order.repair_order_number || order.id).slice(-6).toUpperCase();
+    if (!confirm('Delete printable job card ' + label + '?\n\nThis removes only the repair order. The linked invoice will remain saved.')) return;
+    if (!online || !businessId() || !branchId() || String(order.id).indexOf('local-') === 0) {
+      rows = rows.filter(function (item) { return String(item.id) !== String(order.id); });
+      if (String(editingId) === String(order.id)) editingId = '';
+      writeLocal(rows); render(); status(label + ' was deleted.'); return;
+    }
+    status('Deleting ' + label + '...');
+    var result = await db.from('service_repair_orders').delete().eq('id', order.id).eq('business_id', businessId()).eq('branch_id', branchId()).select('id');
+    if (result.error) { status('Repair order could not be deleted: ' + result.error.message, true); alert('The printable job card could not be deleted. ' + result.error.message); return; }
+    if (!result.data || !result.data.length) { status('Repair order was not found in this branch.', true); alert('This printable job card was not found in the selected branch. Refresh and try again.'); return; }
+    if (String(editingId) === String(order.id)) editingId = '';
+    await load();
+    alert(label + ' was deleted. The linked invoice was kept.');
+  }
   document.addEventListener('change', function (event) { if (event.target.id === 'repairInvoice') { fillFromInvoice(chosenInvoice()); } });
   document.addEventListener('click', function (event) {
-    var button = event.target.closest('[data-repair-save],[data-repair-edit],[data-repair-print],[data-repair-cancel]'); if (!button) return;
+    var button = event.target.closest('[data-repair-save],[data-repair-edit],[data-repair-print],[data-repair-delete],[data-repair-cancel]'); if (!button) return;
     if (button.dataset.repairSave !== undefined) { event.preventDefault(); save(); }
     if (button.dataset.repairEdit) { editingId = button.dataset.repairEdit; render(); }
     if (button.dataset.repairPrint) { var order = rows.find(function (item) { return String(item.id) === String(button.dataset.repairPrint); }); if (order) print(order); }
+    if (button.dataset.repairDelete) { var deleteOrder = rows.find(function (item) { return String(item.id) === String(button.dataset.repairDelete); }); remove(deleteOrder); }
     if (button.dataset.repairCancel !== undefined) { editingId = ''; render(); }
   }, true);
   document.addEventListener('bwc:invoices-loaded', function () { setTimeout(function () { load(); }, 80); });
