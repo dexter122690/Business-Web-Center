@@ -23,9 +23,42 @@
     picker.disabled = context.branches.length < 2;
     picker.onchange = function () { localStorage.setItem(activeKey, picker.value); location.reload(); };
   }
+  /* The shared workspace context is the normal source of truth.  In a few
+     browser sessions its optional profile refresh can be delayed even though
+     the signed-in account has already loaded invoices.  Do not strand that
+     valid account on “Loading…”: re-read only the branches permitted by the
+     database security rules. */
+  async function recoverDelayedContext() {
+    var picker = document.getElementById('onlineBranchPicker');
+    if (!picker || picker.options[0].text !== 'Loading…') return;
+    var db = window.businessSupabase;
+    if (!db) return setTimeout(recoverDelayedContext, 1000);
+    try {
+      var session = await db.auth.getSession();
+      var user = session.data && session.data.session && session.data.session.user;
+      var businessId = localStorage.getItem('bwc-active-business');
+      if (!user || !businessId) return;
+      var membership = await db.from('business_memberships').select('role').eq('business_id', businessId).eq('user_id', user.id).eq('status', 'active').maybeSingle();
+      if (membership.error || !membership.data) return;
+      var result = await db.from('branches').select('id,name,address,contact_number,email').eq('business_id', businessId).eq('is_active', true).order('created_at');
+      if (result.error || !result.data || !result.data.length) return;
+      var branches = result.data;
+      if (membership.data.role !== 'owner') {
+        var access = await db.from('business_member_branch_access').select('branch_id').eq('business_id', businessId).eq('user_id', user.id);
+        if (access.error) return;
+        var allowed = {}; (access.data || []).forEach(function (row) { allowed[row.branch_id] = true; });
+        branches = branches.filter(function (branch) { return allowed[branch.id]; });
+      }
+      if (!branches.length) return;
+      var saved = localStorage.getItem(activeKey);
+      var branch = branches.filter(function (item) { return item.id === saved; })[0] || branches[0];
+      render({ branches: branches, branch: branch });
+    } catch (error) { console.warn('Branch picker recovery was unavailable:', error); }
+  }
   function showError(event) { var picker = mount(); if (!picker) return; picker.innerHTML = '<option>Access unavailable</option>'; picker.disabled = true; console.warn('BWC workspace context:', event.detail && event.detail.message); }
   style(); mount();
   document.addEventListener('bwc:context-ready', function (event) { render(event.detail); });
   document.addEventListener('bwc:context-error', showError);
   window.addEventListener('load', function () { if (window.BWCContext && window.BWCContext.get()) render(window.BWCContext.get()); });
+  setTimeout(recoverDelayedContext, 3500);
 }());
