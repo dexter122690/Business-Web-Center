@@ -6,6 +6,9 @@
   var state = { status: 'checking', version: 0, error: null, data: null };
   var listeners = [];
   function emit(name, detail) { document.dispatchEvent(new CustomEvent(name, { detail: detail || {} })); }
+  function bounded(promise, milliseconds) {
+    return Promise.race([promise, new Promise(function (resolve, reject) { setTimeout(function () { reject(new Error('Timed out')); }, milliseconds); })]);
+  }
   function publish(next, error) {
     state.status = next ? 'ready' : 'error'; state.data = next || null; state.error = error || null; state.version += 1;
     window.BWCContext = api;
@@ -48,7 +51,9 @@
     var sessionResult = await db.auth.getSession(), user = sessionResult.data && sessionResult.data.session && sessionResult.data.session.user;
     if (!user) return publish(null, 'Please sign in to continue.');
     /* Repairs a delayed invitation/profile link when the database function is available. */
-    try { await db.rpc('refresh_my_team_access'); } catch (ignore) {}
+    /* A delayed background invitation refresh must never hold the whole branch
+       picker on “Loading…”. The database membership remains the authority. */
+    try { await bounded(db.rpc('refresh_my_team_access'), 3000); } catch (ignore) {}
     var profile = await db.from('profiles').select('platform_role').eq('id', user.id).maybeSingle();
     if (profile.error) return publish(null, 'Your account profile could not be checked.');
     if (profile.data && profile.data.platform_role === 'platform_admin') return publish({ user: user, platformAdmin: true, business: null, branch: null, role: 'platform_admin', permissions: {} });
@@ -79,4 +84,6 @@
   var api = { get: function () { return state.data; }, whenReady: wait, refresh: resolve, status: function () { return state.status; } };
   window.BWCContext = api;
   window.addEventListener('load', function () { setTimeout(resolve, 0); });
+  window.addEventListener('pageshow', function () { if (state.status !== 'ready') resolve(); });
+  setTimeout(function () { if (state.status === 'checking') resolve(); }, 4000);
 }());
