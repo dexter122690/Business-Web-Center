@@ -34,9 +34,16 @@
   }
   async function load(){
     if(!businessId||!currentBranch())return;
-    var result=await db.from('invoices').select('id,invoice_number,client_name,total_amount,amount_paid,status,invoice_date,payment_method,invoice_payments(*)').eq('business_id',businessId).eq('branch_id',currentBranch()).order('invoice_date',{ascending:false}).order('invoice_number',{ascending:false});
-    if(result.error){var host=ensurePanel();if(host)host.innerHTML='<div class="notice">Payment history is not ready yet. Run the latest database update, then refresh this page.</div>';return}
-    records=result.data||[];if(selectedId&&!records.some(function(row){return row.id===selectedId}))selectedId='';render();
+    /* Load payment rows separately. Some browsers keep an old PostgREST
+       relationship cache after a new table is installed, while direct table
+       reads are reliable immediately. */
+    var result=await db.from('invoices').select('id,invoice_number,client_name,total_amount,amount_paid,status,invoice_date,payment_method').eq('business_id',businessId).eq('branch_id',currentBranch()).order('invoice_date',{ascending:false}).order('invoice_number',{ascending:false});
+    if(result.error){var host=ensurePanel();if(host)host.innerHTML='<div class="notice">Invoice records could not be loaded. Please refresh once and try again.</div>';return}
+    records=result.data||[];
+    var ids=records.map(function(row){return row.id}),paymentRows=[];
+    if(ids.length){var payments=await db.from('invoice_payments').select('*').eq('business_id',businessId).eq('branch_id',currentBranch()).in('invoice_id',ids).order('payment_date',{ascending:false}).order('created_at',{ascending:false});if(payments.error){var panel=ensurePanel();if(panel)panel.innerHTML='<div class="notice">Payment history could not be loaded for this account. Please sign out and sign in again.</div>';return}paymentRows=payments.data||[]}
+    var byInvoice={};paymentRows.forEach(function(payment){(byInvoice[payment.invoice_id]||(byInvoice[payment.invoice_id]=[])).push(payment)});records.forEach(function(row){row.invoice_payments=byInvoice[row.id]||[]});
+    if(selectedId&&!records.some(function(row){return row.id===selectedId}))selectedId='';render();
   }
   async function seedLegacy(row){
     var payments=row.invoice_payments||[];if(payments.length||Number(row.amount_paid||0)<=0)return payments;
