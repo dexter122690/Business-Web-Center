@@ -5,14 +5,14 @@
   function safe(value){return String(value==null?'':value).replace(/[&<>'"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]})}
   function status(text){var box=document.getElementById('invoicePaymentOnlineStatus');if(!box){box=document.createElement('div');box.id='invoicePaymentOnlineStatus';box.className='notice';var host=document.getElementById('invoicePaymentsPanel');if(host)host.prepend(box)}if(box)box.textContent=text}
   async function identity(){
-    /* Use the same authenticated workspace context as Invoice Making. This
-       prevents a fresh browser from querying payments before its branch is known. */
-    if(!window.BWCContext)return false;
-    var context=await window.BWCContext.whenReady();
-    if(!context||context.platformAdmin||!context.business||!context.branch)return false;
-    userId=context.user.id;businessId=context.business.id;return true;
+    var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;if(!user)return false;userId=user.id;
+    var saved=localStorage.getItem('bwc-active-business');
+    var rows=await db.from('business_memberships').select('business_id,businesses!inner(id,status)').eq('user_id',user.id).eq('status','active');
+    var active=(rows.data||[]).filter(function(row){return row.businesses&&row.businesses.status==='active'}).find(function(row){return row.business_id===saved})||(rows.data||[]).filter(function(row){return row.businesses&&row.businesses.status==='active'})[0];
+    if(active){businessId=active.business_id;return true}
+    var own=await db.from('businesses').select('id').eq('created_by',user.id).limit(1);if(own.data&&own.data[0]){businessId=own.data[0].id;return true}return false;
   }
-  function currentBranch(){var context=window.BWCContext&&window.BWCContext.get();return context&&context.branch?context.branch.id:''}
+  function currentBranch(){return localStorage.getItem('bwc-active-branch')||''}
   function selected(){return records.find(function(row){return row.id===selectedId})||records[0]||null}
   function panel(){return document.getElementById('invoicePaymentsPanel')}
   function ensurePanel(){
@@ -34,16 +34,9 @@
   }
   async function load(){
     if(!businessId||!currentBranch())return;
-    /* Load payment rows separately. Some browsers keep an old PostgREST
-       relationship cache after a new table is installed, while direct table
-       reads are reliable immediately. */
-    var result=await db.from('invoices').select('id,invoice_number,client_name,total_amount,amount_paid,status,invoice_date,payment_method').eq('business_id',businessId).eq('branch_id',currentBranch()).order('invoice_date',{ascending:false}).order('invoice_number',{ascending:false});
-    if(result.error){var host=ensurePanel();if(host)host.innerHTML='<div class="notice">Invoice records could not be loaded. Please refresh once and try again.</div>';return}
-    records=result.data||[];
-    var ids=records.map(function(row){return row.id}),paymentRows=[];
-    if(ids.length){var payments=await db.from('invoice_payments').select('*').eq('business_id',businessId).eq('branch_id',currentBranch()).in('invoice_id',ids).order('payment_date',{ascending:false}).order('created_at',{ascending:false});if(payments.error){var panel=ensurePanel();if(panel)panel.innerHTML='<div class="notice">Payment history could not be loaded for this account. Please sign out and sign in again.</div>';return}paymentRows=payments.data||[]}
-    var byInvoice={};paymentRows.forEach(function(payment){(byInvoice[payment.invoice_id]||(byInvoice[payment.invoice_id]=[])).push(payment)});records.forEach(function(row){row.invoice_payments=byInvoice[row.id]||[]});
-    if(selectedId&&!records.some(function(row){return row.id===selectedId}))selectedId='';render();
+    var result=await db.from('invoices').select('id,invoice_number,client_name,total_amount,amount_paid,status,invoice_date,payment_method,invoice_payments(*)').eq('business_id',businessId).eq('branch_id',currentBranch()).order('invoice_date',{ascending:false}).order('invoice_number',{ascending:false});
+    if(result.error){var host=ensurePanel();if(host)host.innerHTML='<div class="notice">Payment history is not ready yet. Run the latest database update, then refresh this page.</div>';return}
+    records=result.data||[];if(selectedId&&!records.some(function(row){return row.id===selectedId}))selectedId='';render();
   }
   async function seedLegacy(row){
     var payments=row.invoice_payments||[];if(payments.length||Number(row.amount_paid||0)<=0)return payments;
@@ -93,6 +86,6 @@
   });
   document.addEventListener('bwc:invoices-loaded',function(){setTimeout(load,40)});
   document.addEventListener('bwc:branch-ready',function(){selectedId='';setTimeout(load,120)});
-  function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey||!window.BWCContext){setTimeout(start,150);return}db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);identity().then(function(ok){if(ok)load()}).catch(function(){var host=ensurePanel();if(host)host.innerHTML='<div class="notice">Payment history is waiting for secure workspace access. Please refresh once.</div>'});}
+  function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);identity().then(function(ok){if(ok)load()});}
   setTimeout(start,700);
 })();

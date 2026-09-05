@@ -5,28 +5,6 @@
   function localKey(){return '15m-replica-invoices'}
   function cache(){try{localStorage.setItem(localKey(),JSON.stringify(inv))}catch(e){}}
   function message(text){var box=document.getElementById('invoiceOnlineStatus');if(!box){box=document.createElement('div');box.id='invoiceOnlineStatus';box.className='notice';var view=document.getElementById('invoices');if(view)view.insertBefore(box,view.firstChild)}if(box)box.textContent=text}
-  /* Recovery for an owner session where the optional shared workspace check is
-     delayed. This runs only after invoices have already loaded under the
-     signed-in user's database permissions, then asks the database for the
-     branches that same user may select. */
-  async function recoverBranchPicker(){
-    var picker=document.getElementById('onlineBranchPicker');if(!picker||picker.options[0].text!=='Loading…'||!businessId||!userId)return;
-    try{
-      var membership=await db.from('business_memberships').select('role').eq('business_id',businessId).eq('user_id',userId).eq('status','active').maybeSingle();
-      if(membership.error||!membership.data)return;
-      var result=await db.from('branches').select('id,name').eq('business_id',businessId).eq('is_active',true).order('created_at');
-      if(result.error||!(result.data||[]).length)return;
-      var branches=result.data;
-      if(membership.data.role!=='owner'){
-        var access=await db.from('business_member_branch_access').select('branch_id').eq('business_id',businessId).eq('user_id',userId);if(access.error)return;
-        var allowed={};(access.data||[]).forEach(function(row){allowed[row.branch_id]=true});branches=branches.filter(function(branch){return allowed[branch.id]});
-      }
-      if(!branches.length)return;
-      var active=localStorage.getItem('bwc-active-branch'),selected=branches.filter(function(branch){return branch.id===active})[0]||branches[0];
-      picker.innerHTML=branches.map(function(branch){return '<option value="'+escapeHtml(branch.id)+'"'+(branch.id===selected.id?' selected':'')+'>'+escapeHtml(branch.name==='Main workspace'?'MAIN':branch.name)+'</option>'}).join('');
-      picker.disabled=branches.length<2;picker.onchange=function(){localStorage.setItem('bwc-active-branch',picker.value);location.reload()};
-    }catch(error){console.warn('Invoice branch picker recovery was unavailable:',error)}
-  }
   function normalize(row){var services=(row.invoice_services||[]).map(function(s){return {n:s.service_name,d:s.service_detail||'',a:Number(s.amount||0)}}),parts=(row.invoice_parts||[]).map(function(p){var q=Number(p.quantity||0),price=Number(p.unit_price||0);return {n:p.part_name,q:q,p:price,a:q*price}}),payments=(row.invoice_payments||[]).map(function(p){return {date:p.payment_date,amount:Number(p.amount||0),method:p.payment_method||'',reference:p.reference_number||'',notes:p.notes||'',createdAt:p.created_at||''}});return {id:row.invoice_number,remoteId:row.id,number:'INV-'+String(row.invoice_number).padStart(5,'0'),client:row.client_name,contact:row.contact_number,address:row.client_address,email:row.client_email||'',make:row.vehicle_make,yearModel:row.vehicle_year_model,color:row.vehicle_color,plate:row.plate_number,date:row.invoice_date,release:row.release_date||'',admin:row.assigned_admin,method:row.payment_method,source:row.client_source,services:services,parts:parts,payments:payments,total:Number(row.total_amount||0),paid:Number(row.amount_paid||0),balance:Math.max(0,Number(row.total_amount||0)-Number(row.amount_paid||0)),status:row.status}}
   async function resolveBusiness(){
     var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;if(!user)return null;userId=user.id;
@@ -40,7 +18,7 @@
     var query=db.from('invoices').select('*,invoice_services(*),invoice_parts(*),invoice_payments(*)').eq('business_id',businessId),branchId=localStorage.getItem('bwc-active-branch');if(branchId)query=query.eq('branch_id',branchId);
     var result=await query.order('invoice_date',{ascending:false}).order('invoice_number',{ascending:false});
     if(result.error){message('Online invoices could not load: '+result.error.message);return}
-    inv=(result.data||[]).map(function(row){var item=normalize(row);item.discount=Number(row.discount_amount||0);return item});cache();render();renderLists();if(edit)paymentEditShortcut();recoverBranchPicker();document.dispatchEvent(new Event('bwc:invoices-loaded'));message('Online invoice records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');
+    inv=(result.data||[]).map(function(row){var item=normalize(row);item.discount=Number(row.discount_amount||0);return item});cache();render();renderLists();if(edit)paymentEditShortcut();document.dispatchEvent(new Event('bwc:invoices-loaded'));message('Online invoice records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');
   }
   function escapeHtml(value){return String(value||'').replace(/[&<>"']/g,function(character){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]})}
   function isAdmin(worker){return /\badmin(istrator)?\b/i.test(String(worker.position||''))}
@@ -197,8 +175,8 @@ message('Saving invoice securely…');try{
   if(originalEditInvoice)window.editInvoice=function(id){originalEditInvoice(id);setTimeout(paymentEditShortcut,0)};
   if(originalResetInvoice)window.resetInvoice=function(){originalResetInvoice();setTimeout(paymentEditShortcut,0)};
   async function start(){
-    var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey||!window.BWCContext){setTimeout(start,150);return}
-    try{var context=await window.BWCContext.whenReady();if(context.platformAdmin)return;db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=context.business.id}catch(error){message('Online invoices could not start because workspace access is unavailable.');return}inv=[];cache();render();renderLists();online=true;await loadAdmins();loadRemote();
+    var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}
+    db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=await resolveBusiness();if(!businessId){message('Online invoices are ready, but this account has no selected active business yet. Approve or select the business first.');return}inv=[];cache();render();renderLists();online=true;await loadAdmins();loadRemote();
   }
   document.addEventListener('click',function(event){if(online&&event.target.closest('[data-t="invoices"]'))setTimeout(loadAdmins,80)});
   document.addEventListener('bwc:branch-ready',function(){if(online){loadAdmins();loadRemote()}});
