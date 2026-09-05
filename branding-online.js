@@ -17,10 +17,7 @@
      header finishes, restore that selection (falling back to MAIN) so a save
      never asks the user to choose a branch again. */
   async function activeBranchId(c){
-    /* The header starts with a disabled “Loading…” option. It is never a
-       branch ID and must not overwrite a branch the user just selected. */
-    var picker=document.getElementById('onlineBranchPicker'),pickerId=(picker&&!picker.disabled&&picker.value!=='Loading…')?picker.value:'',id=pickerId||localStorage.getItem('bwc-active-branch')||'';
-    if(id==='Loading…')id='';
+    var picker=document.getElementById('onlineBranchPicker'),id=(picker&&picker.value)||localStorage.getItem('bwc-active-branch')||'';
     if(id){localStorage.setItem('bwc-active-branch',id);return id}
     if(!c)return '';
     var result=await db.from('branches').select('id,name').eq('business_id',c.businessId).eq('is_active',true).order('created_at');
