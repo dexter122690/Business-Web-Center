@@ -5,14 +5,14 @@
   function safe(value){return String(value==null?'':value).replace(/[&<>'"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]})}
   function status(text){var box=document.getElementById('invoicePaymentOnlineStatus');if(!box){box=document.createElement('div');box.id='invoicePaymentOnlineStatus';box.className='notice';var host=document.getElementById('invoicePaymentsPanel');if(host)host.prepend(box)}if(box)box.textContent=text}
   async function identity(){
-    var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;if(!user)return false;userId=user.id;
-    var saved=localStorage.getItem('bwc-active-business');
-    var rows=await db.from('business_memberships').select('business_id,businesses!inner(id,status)').eq('user_id',user.id).eq('status','active');
-    var active=(rows.data||[]).filter(function(row){return row.businesses&&row.businesses.status==='active'}).find(function(row){return row.business_id===saved})||(rows.data||[]).filter(function(row){return row.businesses&&row.businesses.status==='active'})[0];
-    if(active){businessId=active.business_id;return true}
-    var own=await db.from('businesses').select('id').eq('created_by',user.id).limit(1);if(own.data&&own.data[0]){businessId=own.data[0].id;return true}return false;
+    /* Use the same authenticated workspace context as Invoice Making. This
+       prevents a fresh browser from querying payments before its branch is known. */
+    if(!window.BWCContext)return false;
+    var context=await window.BWCContext.whenReady();
+    if(!context||context.platformAdmin||!context.business||!context.branch)return false;
+    userId=context.user.id;businessId=context.business.id;return true;
   }
-  function currentBranch(){return localStorage.getItem('bwc-active-branch')||''}
+  function currentBranch(){var context=window.BWCContext&&window.BWCContext.get();return context&&context.branch?context.branch.id:''}
   function selected(){return records.find(function(row){return row.id===selectedId})||records[0]||null}
   function panel(){return document.getElementById('invoicePaymentsPanel')}
   function ensurePanel(){
@@ -86,6 +86,6 @@
   });
   document.addEventListener('bwc:invoices-loaded',function(){setTimeout(load,40)});
   document.addEventListener('bwc:branch-ready',function(){selectedId='';setTimeout(load,120)});
-  function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);identity().then(function(ok){if(ok)load()});}
+  function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey||!window.BWCContext){setTimeout(start,150);return}db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);identity().then(function(ok){if(ok)load()}).catch(function(){var host=ensurePanel();if(host)host.innerHTML='<div class="notice">Payment history is waiting for secure workspace access. Please refresh once.</div>'});}
   setTimeout(start,700);
 })();
