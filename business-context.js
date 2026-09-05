@@ -9,6 +9,10 @@
   function bounded(promise, milliseconds) {
     return Promise.race([promise, new Promise(function (resolve, reject) { setTimeout(function () { reject(new Error('Timed out')); }, milliseconds); })]);
   }
+  async function request(promise, message) {
+    try { return await bounded(promise, 6000); }
+    catch (error) { return { data: null, error: { message: message || 'The request timed out.' } }; }
+  }
   function publish(next, error) {
     state.status = next ? 'ready' : 'error'; state.data = next || null; state.error = error || null; state.version += 1;
     window.BWCContext = api;
@@ -48,30 +52,36 @@
     if (!window.supabase || !config.url || !config.publishableKey) { setTimeout(resolve, 150); return; }
     var db = window.businessSupabase || window.supabase.createClient(config.url, config.publishableKey);
     window.businessSupabase = db;
-    var sessionResult = await db.auth.getSession(), user = sessionResult.data && sessionResult.data.session && sessionResult.data.session.user;
+    var sessionResult;
+    try { sessionResult = await bounded(db.auth.getSession(), 6000); }
+    catch (ignore) { return publish(null, 'Your sign-in session took too long to respond. Please refresh this page.'); }
+    var user = sessionResult.data && sessionResult.data.session && sessionResult.data.session.user;
     if (!user) return publish(null, 'Please sign in to continue.');
     /* Repairs a delayed invitation/profile link when the database function is available. */
     /* A delayed background invitation refresh must never hold the whole branch
        picker on “Loading…”. The database membership remains the authority. */
-    try { await bounded(db.rpc('refresh_my_team_access'), 3000); } catch (ignore) {}
-    var profile = await db.from('profiles').select('platform_role').eq('id', user.id).maybeSingle();
-    if (profile.error) return publish(null, 'Your account profile could not be checked.');
+    try { db.rpc('refresh_my_team_access').catch(function () {}); } catch (ignore) {}
+    /* A profile is only needed for the exceptional platform-admin account.
+       Do not leave every business owner on a permanently loading page if that
+       optional profile lookup is delayed. */
+    var profile = await request(db.from('profiles').select('platform_role').eq('id', user.id).maybeSingle(), 'Your account profile took too long to respond.');
+    if (profile.error && !/timed out/i.test(profile.error.message || '')) return publish(null, 'Your account profile could not be checked.');
     if (profile.data && profile.data.platform_role === 'platform_admin') return publish({ user: user, platformAdmin: true, business: null, branch: null, role: 'platform_admin', permissions: {} });
-    var memberships = await db.from('business_memberships').select('business_id,role,permissions,status').eq('user_id', user.id).eq('status', 'active');
+    var memberships = await request(db.from('business_memberships').select('business_id,role,permissions,status').eq('user_id', user.id).eq('status', 'active'), 'Your business access took too long to respond.');
     if (memberships.error) return publish(null, 'Your business access could not be checked.');
     if (!memberships.data || !memberships.data.length) return publish(null, 'This account has no active business access.');
     var ids = memberships.data.map(function (row) { return row.business_id; });
-    var businesses = await db.from('businesses').select('id,name,status').in('id', ids);
+    var businesses = await request(db.from('businesses').select('id,name,status').in('id', ids), 'Your business workspace took too long to respond.');
     if (businesses.error) return publish(null, 'Your business workspace could not be loaded.');
     var membershipById = {}; memberships.data.forEach(function (row) { membershipById[row.business_id] = row; });
     var choices = (businesses.data || []).filter(function (row) { return row.status === 'active' && membershipById[row.id]; }).map(function (row) { row.membership = membershipById[row.id]; return row; });
     if (!choices.length) return publish(null, 'This account has no active business workspace.');
     var business = activeBusiness(choices), membership = business.membership;
-    var branchResult = await db.from('branches').select('id,name,address,contact_number,email').eq('business_id', business.id).eq('is_active', true).order('created_at');
+    var branchResult = await request(db.from('branches').select('id,name,address,contact_number,email').eq('business_id', business.id).eq('is_active', true).order('created_at'), 'Your branch list took too long to respond.');
     if (branchResult.error) return publish(null, 'Your branch list could not be loaded.');
     var branches = branchResult.data || [];
     if (membership.role !== 'owner') {
-      var access = await db.from('business_member_branch_access').select('branch_id').eq('business_id', business.id).eq('user_id', user.id);
+      var access = await request(db.from('business_member_branch_access').select('branch_id').eq('business_id', business.id).eq('user_id', user.id), 'Your branch access took too long to respond.');
       if (access.error) return publish(null, 'Your branch access could not be checked.');
       var allowed = {}; (access.data || []).forEach(function (row) { allowed[row.branch_id] = true; });
       branches = branches.filter(function (row) { return allowed[row.id]; });
