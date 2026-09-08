@@ -15,6 +15,18 @@
   async function context(){
     if(!await ready())return null;
     var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user,businessId=localStorage.getItem('bwc-active-business');
+    /* A hard refresh can run this selector before the invoice module has put
+       the active business back into local storage. Resolve it here as well so
+       a valid team member never sees a false MAIN fallback. */
+    if(user&&!businessId){
+      var memberships=await db.from('business_memberships').select('business_id,businesses!inner(id,name,status)').eq('user_id',user.id).eq('status','active');
+      var rows=(memberships.data||[]).filter(function(row){return row.businesses&&row.businesses.status==='active'}),chosen=rows[0];
+      if(chosen){
+        businessId=chosen.business_id;
+        localStorage.setItem('bwc-active-business',businessId);
+        localStorage.setItem('bwc-active-business-name',chosen.businesses.name);
+      }
+    }
     return user&&businessId?{user:user,businessId:businessId}:null;
   }
   function cacheKey(){return 'bwc-branch-directory:'+(localStorage.getItem('bwc-active-business')||'local')}
@@ -60,10 +72,9 @@
   }
   async function ensureMain(){
     var c=await context(),rows=await list();
-    if(!c||rows.length)return rows;
-    var inserted=await db.from('branches').insert({business_id:c.businessId,name:'MAIN'});
-    if(inserted.error)return rows;
-    return list();
+    /* Never manufacture a MAIN branch when a refresh is still restoring the
+       workspace or when a member cannot read its assigned branches. */
+    return rows;
   }
   function render(rows){
     var picker=mount();if(!picker)return;
