@@ -2,16 +2,28 @@
    invoices are stored per business in Supabase. */
 (function(){
   var db=null,businessId='',userId='',online=false;
+  /* Temporary diagnostic trail for fresh-browser workspace loading. Remove
+     after the Jomari Incognito test has captured its console output. */
+  function workspaceLog(stage,details){
+    try{console.info('[BWC workspace]',stage,Object.assign({workspaceId:businessId||null,cachedWorkspaceId:localStorage.getItem('bwc-active-business')||null,branchId:localStorage.getItem('bwc-active-branch')||null,online:online},details||{}))}catch(logError){}
+  }
   function localKey(){return '15m-replica-invoices'}
   function cache(){try{localStorage.setItem(localKey(),JSON.stringify(inv))}catch(e){}}
   function message(text){var box=document.getElementById('invoiceOnlineStatus');if(!box){box=document.createElement('div');box.id='invoiceOnlineStatus';box.className='notice';var view=document.getElementById('invoices');if(view)view.insertBefore(box,view.firstChild)}if(box)box.textContent=text}
   function normalize(row){var services=(row.invoice_services||[]).map(function(s){return {n:s.service_name,d:s.service_detail||'',a:Number(s.amount||0)}}),parts=(row.invoice_parts||[]).map(function(p){var q=Number(p.quantity||0),price=Number(p.unit_price||0);return {n:p.part_name,q:q,p:price,a:q*price}}),payments=(row.invoice_payments||[]).map(function(p){return {date:p.payment_date,amount:Number(p.amount||0),method:p.payment_method||'',reference:p.reference_number||'',notes:p.notes||'',createdAt:p.created_at||''}});return {id:row.invoice_number,remoteId:row.id,number:'INV-'+String(row.invoice_number).padStart(5,'0'),client:row.client_name,contact:row.contact_number,address:row.client_address,email:row.client_email||'',make:row.vehicle_make,yearModel:row.vehicle_year_model,color:row.vehicle_color,plate:row.plate_number,date:row.invoice_date,release:row.release_date||'',admin:row.assigned_admin,method:row.payment_method,source:row.client_source,services:services,parts:parts,payments:payments,total:Number(row.total_amount||0),paid:Number(row.amount_paid||0),balance:Math.max(0,Number(row.total_amount||0)-Number(row.amount_paid||0)),status:row.status}}
   async function resolveBusiness(){
-    var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;if(!user)return null;userId=user.id;
+    workspaceLog('resolveBusiness:start');
+    var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;
+    if(session.error){workspaceLog('resolveBusiness:session-error',{supabaseError:session.error});return null}
+    if(!user){workspaceLog('resolveBusiness:no-authenticated-user');return null}userId=user.id;
+    workspaceLog('resolveBusiness:authenticated-user',{userId:user.id,email:user.email||null});
     var memberships=await db.from('business_memberships').select('business_id,businesses!inner(id,name,status)').eq('user_id',user.id).eq('status','active');
-    var saved=localStorage.getItem('bwc-active-business'),activeRows=(memberships.data||[]).filter(function(row){return row.businesses&&row.businesses.status==='active'}),active=activeRows.find(function(row){return row.business_id===saved})||activeRows[0];if(active){localStorage.setItem('bwc-active-business',active.business_id);localStorage.setItem('bwc-active-business-name',active.businesses.name);return active.business_id}
+    workspaceLog('resolveBusiness:membership-result',{membershipCount:(memberships.data||[]).length,memberships:(memberships.data||[]).map(function(row){return {businessId:row.business_id,businessStatus:row.businesses&&row.businesses.status}}),supabaseError:memberships.error||null});
+    var saved=localStorage.getItem('bwc-active-business'),activeRows=(memberships.data||[]).filter(function(row){return row.businesses&&row.businesses.status==='active'}),active=activeRows.find(function(row){return row.business_id===saved})||activeRows[0];if(active){localStorage.setItem('bwc-active-business',active.business_id);localStorage.setItem('bwc-active-business-name',active.businesses.name);workspaceLog('resolveBusiness:active-workspace',{workspaceId:active.business_id,workspaceName:active.businesses.name});return active.business_id}
     var own=await db.from('businesses').select('id,name').eq('created_by',user.id).order('created_at',{ascending:true}).limit(2);
-    if(own.data&&own.data.length===1){localStorage.setItem('bwc-active-business',own.data[0].id);localStorage.setItem('bwc-active-business-name',own.data[0].name);return own.data[0].id}
+    workspaceLog('resolveBusiness:owner-workspace-result',{workspaceCount:(own.data||[]).length,supabaseError:own.error||null});
+    if(own.data&&own.data.length===1){localStorage.setItem('bwc-active-business',own.data[0].id);localStorage.setItem('bwc-active-business-name',own.data[0].name);workspaceLog('resolveBusiness:owner-workspace',{workspaceId:own.data[0].id});return own.data[0].id}
+    workspaceLog('resolveBusiness:no-active-workspace');
     return null;
   }
   async function loadRemote(){
@@ -48,13 +60,15 @@
   }
   function invoicePayload(x){return {business_id:businessId,branch_id:localStorage.getItem('bwc-active-branch'),client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,discount_amount:x.discount||0,total_amount:x.total,amount_paid:x.paid,status:x.status,created_by:userId}}
   async function confirmInvoiceBranchAccess(){
-    try{await db.rpc('refresh_my_team_access')}catch(refreshError){}
+    workspaceLog('saveInvoice:workspace-check-start',{saveInvoiceWorkspaceId:businessId||null,userId:userId||null});
+    try{var refreshed=await db.rpc('refresh_my_team_access');workspaceLog('saveInvoice:team-access-refresh',{refreshResult:refreshed.data||null,supabaseError:refreshed.error||null})}catch(refreshError){workspaceLog('saveInvoice:team-access-refresh-error',{supabaseError:refreshError})}
     /* The saved business can be stale immediately after a hard refresh. Resolve
        it again at save time, then use the database permission function as the
        authority. This avoids rejecting a valid Team Access member locally. */
     var currentBusinessId=await resolveBusiness();
-    if(!currentBusinessId)return {error:'Your business workspace is still loading. Please wait a moment and try again.'};
+    if(!currentBusinessId){workspaceLog('saveInvoice:no-workspace',{saveInvoiceWorkspaceId:businessId||null});return {error:'Your business workspace is still loading. Please wait a moment and try again.'};}
     businessId=currentBusinessId;
+    workspaceLog('saveInvoice:workspace-ready',{saveInvoiceWorkspaceId:businessId});
     var branchId=localStorage.getItem('bwc-active-branch');if(!branchId)return {error:'Your assigned branch is still loading. Please wait a moment and try again.'};
     var permitted=await db.rpc('can_manage_invoice_branch',{target_business_id:businessId,target_branch_id:branchId});
     if(!permitted.error&&permitted.data===true)return {ok:true};
@@ -183,7 +197,7 @@ message('Saving invoice securely…');try{
   if(originalResetInvoice)window.resetInvoice=function(){originalResetInvoice();setTimeout(paymentEditShortcut,0)};
   async function start(){
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}
-    db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=await resolveBusiness();if(!businessId){message('Online invoices are ready, but this account has no selected active business yet. Approve or select the business first.');return}inv=[];cache();render();renderLists();online=true;await loadAdmins();loadRemote();
+    db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);workspaceLog('invoice-start:initializing');businessId=await resolveBusiness();if(!businessId){workspaceLog('invoice-start:no-workspace');message('Online invoices are ready, but this account has no selected active business yet. Approve or select the business first.');return}workspaceLog('invoice-start:workspace-ready',{workspaceId:businessId});inv=[];cache();render();renderLists();online=true;await loadAdmins();loadRemote();
   }
   document.addEventListener('click',function(event){if(online&&event.target.closest('[data-t="invoices"]'))setTimeout(loadAdmins,80)});
   document.addEventListener('bwc:branch-ready',function(){if(online){loadAdmins();loadRemote()}});
