@@ -687,25 +687,42 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
       var db=window.supabase.createClient(config.url,config.publishableKey);
       window.businessSupabase=db;
       if(button)button.onclick=async function(){await db.auth.signOut();localStorage.removeItem('bwc-active-business');localStorage.removeItem('bwc-active-business-name');sendToSignIn()};
-      var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;
-      if(!user){sendToSignIn();return}
-      var profile=await db.from('profiles').select('platform_role').eq('id',user.id).maybeSingle();
-      if(profile.data&&profile.data.platform_role==='platform_admin')return;
-      var memberships=await db.from('business_memberships').select('business_id,role').eq('user_id',user.id).eq('status','active');
-      if(memberships.error||!memberships.data||!memberships.data.length){await db.auth.signOut();sendToSignIn();return}
-      var businesses=await db.from('businesses').select('id,name,status').in('id',memberships.data.map(function(row){return row.business_id}));
-      var activeRows=(businesses.data||[]).filter(function(row){return row.status==='active'}),savedBusiness=localStorage.getItem('bwc-active-business'),membershipByBusiness={};
-      memberships.data.forEach(function(row){membershipByBusiness[row.business_id]=row});
+      async function restoreWorkspace(attempt){
+        var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;
+        if(!user){sendToSignIn();return}
+        var profile=await db.from('profiles').select('platform_role').eq('id',user.id).maybeSingle();
+        if(profile.data&&profile.data.platform_role==='platform_admin')return;
+
+        /* Keep a valid session during a temporary network/RLS lookup failure.
+           A failed request is not proof that the person has no Team Access. */
+        var memberships=await db.from('business_memberships').select('business_id,role').eq('user_id',user.id).eq('status','active');
+        if(memberships.error){
+          console.warn('Workspace access check could not be completed; keeping the signed-in session.',memberships.error);
+          if(attempt<2){window.setTimeout(function(){restoreWorkspace(attempt+1)},1200)}
+          return;
+        }
+        if(!memberships.data||!memberships.data.length){await db.auth.signOut();sendToSignIn();return}
+
+        var businesses=await db.from('businesses').select('id,name,status').in('id',memberships.data.map(function(row){return row.business_id}));
+        if(businesses.error||!businesses.data||!businesses.data.length){
+          console.warn('Business workspace lookup could not be completed; keeping the signed-in session.',businesses.error);
+          if(attempt<2){window.setTimeout(function(){restoreWorkspace(attempt+1)},1200)}
+          return;
+        }
+        var activeRows=businesses.data.filter(function(row){return row.status==='active'}),savedBusiness=localStorage.getItem('bwc-active-business'),membershipByBusiness={};
+        memberships.data.forEach(function(row){membershipByBusiness[row.business_id]=row});
       /* A team member can have a small personal workspace from sign-up as
          well as the business they were invited to.  When there is exactly
          one active staff/admin workspace, open that assigned team workspace
          rather than an unrelated personal MAIN workspace. */
       var teamRows=activeRows.filter(function(row){var membership=membershipByBusiness[row.id];return membership&&['admin','staff'].includes(membership.role)});
       var active=teamRows.length===1?teamRows[0]:(activeRows.find(function(row){return row.id===savedBusiness})||activeRows[0]);
-      if(!active){await db.auth.signOut();sendToSignIn();return}
-      localStorage.setItem('bwc-active-business',active.id);
-      localStorage.setItem('bwc-active-business-name',active.name);
-      document.dispatchEvent(new Event('bwc:business-ready'));
+        if(!active){await db.auth.signOut();sendToSignIn();return}
+        localStorage.setItem('bwc-active-business',active.id);
+        localStorage.setItem('bwc-active-business-name',active.name);
+        document.dispatchEvent(new Event('bwc:business-ready'));
+      }
+      restoreWorkspace(0);
     });
   }).catch(function(){/* Local prototype mode remains available until Supabase configuration is added. */});
 })();
