@@ -687,15 +687,21 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
       var db=window.supabase.createClient(config.url,config.publishableKey);
       window.businessSupabase=db;
       if(button)button.onclick=async function(){await db.auth.signOut();localStorage.removeItem('bwc-active-business');localStorage.removeItem('bwc-active-business-name');sendToSignIn()};
+      function workspaceGateLog(stage,details){
+        try{console.info('[BWC workspace gate]',stage,Object.assign({workspaceId:localStorage.getItem('bwc-active-business')||null,branchId:localStorage.getItem('bwc-active-branch')||null},details||{}))}catch(logError){}
+      }
       async function restoreWorkspace(attempt){
         var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;
-        if(!user){sendToSignIn();return}
+        if(session.error){workspaceGateLog('session-error',{attempt:attempt,supabaseError:session.error});return}
+        if(!user){workspaceGateLog('no-authenticated-user',{attempt:attempt});sendToSignIn();return}
+        workspaceGateLog('authenticated-user',{attempt:attempt,userId:user.id,email:user.email||null});
         var profile=await db.from('profiles').select('platform_role').eq('id',user.id).maybeSingle();
         if(profile.data&&profile.data.platform_role==='platform_admin')return;
 
         /* Keep a valid session during a temporary network/RLS lookup failure.
            A failed request is not proof that the person has no Team Access. */
         var memberships=await db.from('business_memberships').select('business_id,role').eq('user_id',user.id).eq('status','active');
+        workspaceGateLog('membership-result',{attempt:attempt,membershipCount:(memberships.data||[]).length,memberships:(memberships.data||[]).map(function(row){return {businessId:row.business_id,role:row.role}}),supabaseError:memberships.error||null});
         if(memberships.error){
           console.warn('Workspace access check could not be completed; keeping the signed-in session.',memberships.error);
           if(attempt<2){window.setTimeout(function(){restoreWorkspace(attempt+1)},1200)}
@@ -704,6 +710,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
         if(!memberships.data||!memberships.data.length){await db.auth.signOut();sendToSignIn();return}
 
         var businesses=await db.from('businesses').select('id,name,status').in('id',memberships.data.map(function(row){return row.business_id}));
+        workspaceGateLog('business-result',{attempt:attempt,businessCount:(businesses.data||[]).length,businesses:(businesses.data||[]).map(function(row){return {businessId:row.id,status:row.status}}),supabaseError:businesses.error||null});
         if(businesses.error||!businesses.data||!businesses.data.length){
           console.warn('Business workspace lookup could not be completed; keeping the signed-in session.',businesses.error);
           if(attempt<2){window.setTimeout(function(){restoreWorkspace(attempt+1)},1200)}
@@ -720,6 +727,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
         if(!active){await db.auth.signOut();sendToSignIn();return}
         localStorage.setItem('bwc-active-business',active.id);
         localStorage.setItem('bwc-active-business-name',active.name);
+        workspaceGateLog('workspace-ready',{attempt:attempt,workspaceId:active.id,workspaceName:active.name});
         document.dispatchEvent(new Event('bwc:business-ready'));
       }
       restoreWorkspace(0);
