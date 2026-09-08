@@ -17,9 +17,10 @@
     if(session.error){workspaceLog('resolveBusiness:session-error',{supabaseError:session.error});return null}
     if(!user){workspaceLog('resolveBusiness:no-authenticated-user');return null}userId=user.id;
     workspaceLog('resolveBusiness:authenticated-user',{userId:user.id,email:user.email||null});
-    var memberships=await db.from('business_memberships').select('business_id,businesses!inner(id,name,status)').eq('user_id',user.id).eq('status','active');
-    workspaceLog('resolveBusiness:membership-result',{membershipCount:(memberships.data||[]).length,memberships:(memberships.data||[]).map(function(row){return {businessId:row.business_id,businessStatus:row.businesses&&row.businesses.status}}),supabaseError:memberships.error||null});
-    var saved=localStorage.getItem('bwc-active-business'),activeRows=(memberships.data||[]).filter(function(row){return row.businesses&&row.businesses.status==='active'}),active=activeRows.find(function(row){return row.business_id===saved})||activeRows[0];if(active){localStorage.setItem('bwc-active-business',active.business_id);localStorage.setItem('bwc-active-business-name',active.businesses.name);workspaceLog('resolveBusiness:active-workspace',{workspaceId:active.business_id,workspaceName:active.businesses.name});return active.business_id}
+    var memberships=await db.rpc('my_active_business_workspaces');
+    workspaceLog('resolveBusiness:membership-result',{membershipCount:(memberships.data||[]).length,memberships:(memberships.data||[]).map(function(row){return {businessId:row.business_id,businessStatus:row.business_status,role:row.member_role}}),supabaseError:memberships.error||null});
+    if(memberships.error)return null;
+    var saved=localStorage.getItem('bwc-active-business'),activeRows=memberships.data||[],active=activeRows.find(function(row){return row.business_id===saved})||activeRows[0];if(active){localStorage.setItem('bwc-active-business',active.business_id);localStorage.setItem('bwc-active-business-name',active.business_name);workspaceLog('resolveBusiness:active-workspace',{workspaceId:active.business_id,workspaceName:active.business_name});return active.business_id}
     var own=await db.from('businesses').select('id,name').eq('created_by',user.id).order('created_at',{ascending:true}).limit(2);
     workspaceLog('resolveBusiness:owner-workspace-result',{workspaceCount:(own.data||[]).length,supabaseError:own.error||null});
     if(own.data&&own.data.length===1){localStorage.setItem('bwc-active-business',own.data[0].id);localStorage.setItem('bwc-active-business-name',own.data[0].name);workspaceLog('resolveBusiness:owner-workspace',{workspaceId:own.data[0].id});return own.data[0].id}
