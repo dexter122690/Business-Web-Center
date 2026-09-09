@@ -86,7 +86,7 @@
   function start() {
     var config = window.BUSINESS_WEB_CENTER_SUPABASE || {};
     if (!window.supabase || !config.url || !config.publishableKey || !business() || !branch()) { setTimeout(start, 500); return; }
-    db = window.businessSupabase || window.supabase.createClient(config.url, config.publishableKey); online = true; ensureUi();
+    db = window.getBusinessSupabaseClient && window.getBusinessSupabaseClient(); if (!db) return; online = true; ensureUi();
     if (document.getElementById('workboard').classList.contains('active')) load();
   }
   document.addEventListener('click', function (event) { var save = event.target.closest('[data-work-save]'); if (save) { event.preventDefault(); saveStatus(save); } });

@@ -6,7 +6,7 @@
   function client() {
     var config = window.BUSINESS_WEB_CENTER_SUPABASE || {};
     if (!window.supabase || !config.url || !config.publishableKey) return null;
-    return window.businessSupabase || window.supabase.createClient(config.url, config.publishableKey);
+    return window.getBusinessSupabaseClient && window.getBusinessSupabaseClient();
   }
 
   function activeBusinessId() {

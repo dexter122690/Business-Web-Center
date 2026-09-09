@@ -5,7 +5,7 @@
   async function setup(){
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};
     if(!window.supabase||!config.url||!config.publishableKey){setTimeout(setup,300);return}
-    db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);
+    db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db)return;
     var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;
     if(!user)return;userId=user.id;
     var memberships=await db.from('business_memberships').select('business_id,role,businesses!inner(status)').eq('user_id',user.id).eq('status','active');

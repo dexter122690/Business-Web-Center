@@ -63,7 +63,7 @@
     pmsForm();
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};
     if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,450);return}
-    db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);
+    db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db){setTimeout(start,450);return}
     var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;if(!user){setTimeout(start,700);return}
     userId=user.id;businessId=localStorage.getItem('bwc-active-business')||'';
     if(!businessId||!branch()){setTimeout(start,500);return}

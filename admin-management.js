@@ -1,6 +1,6 @@
 /* Customer-specific feature and billing controls for platform administrators. */
 (function(){
-  var config=window.BUSINESS_WEB_CENTER_SUPABASE||{},db=config.url&&config.publishableKey&&window.supabase?window.supabase.createClient(config.url,config.publishableKey):null,records=[],current=null;
+  var config=window.BUSINESS_WEB_CENTER_SUPABASE||{},db=config.url&&config.publishableKey&&window.getBusinessSupabaseClient?window.getBusinessSupabaseClient():null,records=[],current=null;
   var features=[['invoices','Invoice Making'],['reports','Sales Report'],['clients','Client Masterlist'],['expenses','Expenses'],['feedback','Client & Owner Feedback'],['quotations','Quotation Making'],['payroll','Payroll'],['schedule','Schedule']];
   function esc(value){return String(value==null?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   function allFeatures(){return features.reduce(function(set,item){set[item[0]]=true;return set},{})}

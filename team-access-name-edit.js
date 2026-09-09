@@ -1,7 +1,7 @@
 /* Keep a staff display name accurate without changing their sign-in email,
    permissions, role, or assigned branches. */
 (function(){
-  function db(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};return window.businessSupabase||(window.supabase&&config.url&&config.publishableKey?window.supabase.createClient(config.url,config.publishableKey):null)}
+  function db(){return window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient()}
   function refresh(){var modal=document.getElementById('teamAccessModal');if(modal)modal.remove();setTimeout(function(){var button=document.getElementById('teamAccessMenuButton');if(button)button.click()},180)}
   function addNameButtons(){
     document.querySelectorAll('[data-team-edit]').forEach(function(edit){

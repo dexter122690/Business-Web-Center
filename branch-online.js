@@ -9,7 +9,7 @@
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};
     if(db)return Promise.resolve(true);
     if(!window.supabase||!config.url||!config.publishableKey)return Promise.resolve(false);
-    db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);
+    db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();
     return Promise.resolve(true);
   }
   async function context(){

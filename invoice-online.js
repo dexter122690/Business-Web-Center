@@ -198,7 +198,7 @@ message('Saving invoice securely…');try{
   if(originalResetInvoice)window.resetInvoice=function(){originalResetInvoice();setTimeout(paymentEditShortcut,0)};
   async function start(){
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}
-    db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);workspaceLog('invoice-start:initializing');businessId=await resolveBusiness();if(!businessId){workspaceLog('invoice-start:no-workspace');message('Online invoices are ready, but this account has no selected active business yet. Approve or select the business first.');return}workspaceLog('invoice-start:workspace-ready',{workspaceId:businessId});inv=[];cache();render();renderLists();online=true;await loadAdmins();loadRemote();
+    db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db){setTimeout(start,300);return}workspaceLog('invoice-start:initializing');businessId=await resolveBusiness();if(!businessId){workspaceLog('invoice-start:no-workspace');message('Online invoices are ready, but this account has no selected active business yet. Approve or select the business first.');return}workspaceLog('invoice-start:workspace-ready',{workspaceId:businessId});inv=[];cache();render();renderLists();online=true;await loadAdmins();loadRemote();
   }
   document.addEventListener('click',function(event){if(online&&event.target.closest('[data-t="invoices"]'))setTimeout(loadAdmins,80)});
   document.addEventListener('bwc:branch-ready',function(){if(online){loadAdmins();loadRemote()}});

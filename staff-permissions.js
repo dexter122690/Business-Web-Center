@@ -6,7 +6,7 @@
     if(db)return db;
     var c=window.BUSINESS_WEB_CENTER_SUPABASE||{};
     if(!window.supabase||!c.url||!c.publishableKey)return null;
-    db=window.businessSupabase||window.supabase.createClient(c.url,c.publishableKey);
+    db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();
     return db;
   }
   function keyForButton(button){

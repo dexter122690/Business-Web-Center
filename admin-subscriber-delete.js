@@ -1,7 +1,7 @@
 /* Permanent customer workspace deletion for the platform administrator only. */
 (function(){
   var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};
-  var db=config.url&&config.publishableKey&&window.supabase?window.supabase.createClient(config.url,config.publishableKey):null;
+  var db=config.url&&config.publishableKey&&window.getBusinessSupabaseClient?window.getBusinessSupabaseClient():null;
   function addDeleteButtons(){
     document.querySelectorAll('#businessTable tr').forEach(function(row){
       var action=row.querySelector('[data-set]');

@@ -4,7 +4,7 @@
   function ready(){
     if(db)return Promise.resolve(db);
     if(!window.supabase||!config.url||!config.publishableKey)return Promise.resolve(null);
-    db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);
+    db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db)return;
     return Promise.resolve(db);
   }
   function esc(value){return String(value==null?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}

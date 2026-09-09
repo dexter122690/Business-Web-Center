@@ -17,7 +17,8 @@
 
   async function setup() {
     if (!window.supabase || !config.url || !config.publishableKey) return;
-    db = window.businessSupabase || window.supabase.createClient(config.url, config.publishableKey);
+    db = window.getBusinessSupabaseClient && window.getBusinessSupabaseClient();
+    if (!db) return false;
     online = true;
     await load();
   }

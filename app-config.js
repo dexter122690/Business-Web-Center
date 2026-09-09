@@ -7,6 +7,21 @@ window.BUSINESS_WEB_CENTER_SUPABASE = {
   publishableKey: 'sb_publishable_jNlv1zVj4lBbbBBgVMYTug_zBLiCfOK'
 };
 
+/* Every authenticated page must share one Supabase client.  Creating several
+   clients for the same browser storage creates competing automatic token
+   refreshers, which can cause the refresh-token endpoint to rate-limit a
+   valid signed-in user. */
+window.getBusinessSupabaseClient = function () {
+  if (window.businessSupabase) return window.businessSupabase;
+  var config = window.BUSINESS_WEB_CENTER_SUPABASE || {};
+  if (!window.supabase || !config.url || !config.publishableKey ||
+      typeof window.supabase.createClient !== 'function') return null;
+  window.businessSupabase = window.supabase.createClient(config.url, config.publishableKey, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+  });
+  return window.businessSupabase;
+};
+
 /* Phone shortcut / installed-app identity. Kept here so all app pages that
    load the shared configuration receive the same BWC icon automatically. */
 (function () {

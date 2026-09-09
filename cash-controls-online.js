@@ -72,6 +72,6 @@
     if(!online||mountTimer)return;
     mountTimer=setTimeout(function(){mountTimer=0;ensureMounted()},90);
   }).observe(document.documentElement,{childList:true,subtree:true});
-  async function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);businessId=await resolveBusiness();if(!businessId)return;online=true;await load();setTimeout(ensureMounted,700)}
+  async function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db){setTimeout(start,300);return}businessId=await resolveBusiness();if(!businessId)return;online=true;await load();setTimeout(ensureMounted,700)}
   setTimeout(start,850);
 })();

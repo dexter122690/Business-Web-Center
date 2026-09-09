@@ -20,7 +20,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 (function(){
-  var config=window.BUSINESS_WEB_CENTER_SUPABASE||{},db=config.url&&config.publishableKey?window.supabase.createClient(config.url,config.publishableKey):null;
+  var config=window.BUSINESS_WEB_CENTER_SUPABASE||{},db=config.url&&config.publishableKey&&window.getBusinessSupabaseClient?window.getBusinessSupabaseClient():null;
   var metrics=document.getElementById('metrics'),table=document.getElementById('businessTable'),notice=document.getElementById('notice');
   function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   function tell(message,kind){notice.textContent=message;notice.style.borderLeftColor=kind==='error'?'#a62b1b':'var(--accent)';notice.style.background=kind==='error'?'#fff0ef':'#fff0e9'}

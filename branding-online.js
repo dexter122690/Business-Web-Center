@@ -11,7 +11,7 @@
     return /15m\s*autocare/i.test(company)?official15MLogo:(profile&&profile.logo||'');
   }
   function parse(key,fallback){try{return JSON.parse(localStorage.getItem(key)||'null')||fallback}catch(e){return fallback}}
-  function ready(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(db)return Promise.resolve(true);if(!window.supabase||!config.url||!config.publishableKey)return Promise.resolve(false);db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);return Promise.resolve(true)}
+  function ready(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(db)return Promise.resolve(true);if(!window.supabase||!config.url||!config.publishableKey)return Promise.resolve(false);db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();return Promise.resolve(!!db)}
   async function context(){if(!await ready())return null;var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user,businessId=localStorage.getItem('bwc-active-business');return user&&businessId?{user:user,businessId:businessId}:null}
   /* A branch is already selected in the header.  If a page loads before the
      header finishes, restore that selection (falling back to MAIN) so a save
