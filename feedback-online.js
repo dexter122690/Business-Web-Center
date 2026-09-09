@@ -5,7 +5,7 @@
   function read(){try{return JSON.parse(localStorage.getItem(key)||'[]')}catch(e){return []}}
   function write(items){localStorage.setItem(key,JSON.stringify(items))}
   function esc(value){return String(value||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
-  function ready(){if(db)return Promise.resolve(true);if(!window.supabase||!config.url||!config.publishableKey)return Promise.resolve(false);db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);return Promise.resolve(true)}
+  function ready(){if(db)return Promise.resolve(true);if(!window.supabase||!config.url||!config.publishableKey)return Promise.resolve(false);db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();return Promise.resolve(!!db)}
   async function context(){if(!await ready())return null;var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user,businessId=localStorage.getItem('bwc-active-business');return user&&businessId?{user:user,businessId:businessId}:null}
   function mapped(rows){return (rows||[]).map(function(row){return {id:row.id,client:row.client_name||'Anonymous client',rating:row.rating||'',text:row.feedback_text,created:row.created_at}})}
   function feedbackUrl(token){return new URL('feedback.html',location.href).href+'?token='+encodeURIComponent(token)}

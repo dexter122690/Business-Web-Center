@@ -1,7 +1,7 @@
 /* Link a saved quotation to one scheduled unit in the active branch. */
 (function(){
   var db=null,schedules=[];
-  function client(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(db)return db;if(!window.supabase||!config.url||!config.publishableKey)return null;db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);return db}
+  function client(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(db)return db;if(!window.supabase||!config.url||!config.publishableKey)return null;db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();return db}
   function esc(value){return String(value||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   function business(){return localStorage.getItem('bwc-active-business')||''}
   function branch(){return localStorage.getItem('bwc-active-branch')||''}

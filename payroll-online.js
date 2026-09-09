@@ -21,9 +21,9 @@
   function connect(){
     config=window.BUSINESS_WEB_CENTER_SUPABASE||{};
     if(!window.supabase||!config.url||!config.publishableKey||config.url.indexOf('YOUR_')>=0||config.publishableKey.indexOf('YOUR_')>=0)return false;
-    db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);
-    online=true;
-    return true;
+    db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();
+    online=!!db;
+    return online;
   }
   var payrollKey='15m-recovery-payroll',syncing=false;
   function businessId(){return localStorage.getItem('bwc-active-business')||''}

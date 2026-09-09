@@ -77,7 +77,8 @@
     starting=(async function(){
       for(var attempts=0;attempts<30&&!window.supabase;attempts++)await new Promise(function(resolve){setTimeout(resolve,100)});
       if(!window.supabase)throw new Error('Secure scheduling is still loading. Please try again in a moment.');
-      db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);
+      db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();
+      if(!db)throw new Error('Secure scheduling is still loading. Please try again in a moment.');
       return db;
     })();
     try{return await starting}finally{starting=null}

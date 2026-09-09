@@ -50,7 +50,7 @@
   }
   async function getRows() {
     var config = window.BUSINESS_WEB_CENTER_SUPABASE || {};
-    var db = window.businessSupabase || (window.supabase && config.url && config.publishableKey && window.supabase.createClient(config.url, config.publishableKey));
+    var db = window.getBusinessSupabaseClient && window.getBusinessSupabaseClient();
     var businessId = localStorage.getItem('bwc-active-business') || '';
     var branchId = localStorage.getItem('bwc-active-branch') || '';
     if (!db || !businessId) throw new Error('Your online workspace is still loading. Please try again in a moment.');

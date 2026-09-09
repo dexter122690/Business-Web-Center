@@ -86,6 +86,6 @@
   });
   document.addEventListener('bwc:invoices-loaded',function(){setTimeout(load,40)});
   document.addEventListener('bwc:branch-ready',function(){selectedId='';setTimeout(load,120)});
-  function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);identity().then(function(ok){if(ok)load()});}
+  function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db){setTimeout(start,300);return}identity().then(function(ok){if(ok)load()});}
   setTimeout(start,700);
 })();

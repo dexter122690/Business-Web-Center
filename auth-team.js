@@ -12,7 +12,7 @@
     choice.querySelector('input').onchange=change;
     form.onsubmit=async function(e){
       e.preventDefault();
-      var c=window.BUSINESS_WEB_CENTER_SUPABASE||{},db=window.supabase.createClient(c.url,c.publishableKey),join=choice.querySelector('input').checked,btn=e.submitter,name=(firstName.value.trim()+' '+lastName.value.trim()).trim(),message=document.getElementById('message');
+      var c=window.BUSINESS_WEB_CENTER_SUPABASE||{},db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient(),join=choice.querySelector('input').checked,btn=e.submitter,name=(firstName.value.trim()+' '+lastName.value.trim()).trim(),message=document.getElementById('message');if(!db)return;
       function say(t,k){message.textContent=t;message.className='message show '+(k||'info')}
       btn.disabled=true;btn.textContent='Submitting…';
       var result=await db.auth.signUp({email:signEmail.value.trim(),password:signPassword.value,options:{data:{full_name:name,business_name:join?'':business.value.trim(),mobile_number:mobile.value.trim(),joining_existing_team:join}}});

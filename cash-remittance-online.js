@@ -36,7 +36,7 @@
   async function remit(id){var row=rows.find(function(item){return item.id===id});if(!row||!confirm('Mark '+peso(row.amount)+' as remitted to the business owner?'))return;var result=await db.from('cash_collections').update({status:'Remitted',remitted_at:new Date().toISOString(),remitted_by:userId}).eq('id',id).eq('business_id',businessId);if(result.error){alert('The remittance could not be updated. '+result.error.message);return}await load();alert('Cash remittance recorded. The dashboard has been updated.')}
   async function start(){
     if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}
-    db=window.businessSupabase||window.supabase.createClient(config.url,config.publishableKey);
+    db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db)return;
     var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;if(!user)return;
     userId=user.id;businessId=localStorage.getItem('bwc-active-business')||'';await load();
     ['bwc:invoices-loaded','bwc:expenses-loaded','bwc:cash-updated','bwc:branch-ready'].forEach(function(name){document.addEventListener(name,function(){setTimeout(load,120)})});
