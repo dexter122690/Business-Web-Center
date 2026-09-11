@@ -156,7 +156,16 @@
     alert('Cash record deleted and balances updated.');
     document.dispatchEvent(new CustomEvent('bwc:cash-updated'));
   },true);
-  new MutationObserver(function(){setTimeout(function(){decorate();addCashActions()},40)}).observe(document.documentElement,{childList:true,subtree:true});
-  document.addEventListener('bwc:branch-ready',function(){setTimeout(decorate,100)});
+  /* Do not watch the entire document here. decorate() adds controls to the
+     cash panel, which made a document-wide MutationObserver trigger another
+     cash query after its own update.  The panel now emits one explicit event
+     when it has finished rendering. */
+  var decorateTimer=0;
+  function scheduleDecorate(delay){
+    clearTimeout(decorateTimer);
+    decorateTimer=setTimeout(function(){decorateTimer=0;decorate();addCashActions()},delay||0);
+  }
+  document.addEventListener('bwc:cash-controls-rendered',function(){scheduleDecorate(0)});
+  document.addEventListener('bwc:branch-ready',function(){scheduleDecorate(100)});
   setTimeout(function(){setup();addCashActions()},1000);
 })();
