@@ -160,23 +160,17 @@ message('Saving invoice securely…');try{
   window.deleteInvoice=async function(id){
     var item=inv.find(function(x){return x.id===id});
     if(!item)return;
-    if(!confirm('Delete '+String(item.number||'this invoice')+'? This also removes its services, parts, payment history, cash collection, and any linked repair order in the current branch.'))return;
+    if(!confirm('Delete '+String(item.number||'this invoice')+'? This also removes its services, parts, payment history, cash collection, linked CIB cash records, and any linked repair order in the current branch. Invoices with remitted cash cannot be deleted.'))return;
     if(online&&item.remoteId){
       var branchId=localStorage.getItem('bwc-active-branch');
       if(!businessId||!branchId){alert('The current branch is still loading. Please try again in a moment.');return}
       message('Deleting invoice securely…');
       try{
-        /* Repair orders deliberately protect their source invoice, so clear the
-           linked job card first. The remaining invoice children use cascade
-           deletion in Supabase. Every request is limited to this business and
-           this branch, so MAIN and STO. TOMAS can never delete each other's data. */
-        var repair=await db.from('service_repair_orders').delete().eq('business_id',businessId).eq('branch_id',branchId).eq('invoice_id',item.remoteId);
-        if(repair.error)throw new Error('Linked repair order could not be removed: '+repair.error.message);
-        var cash=await db.from('cash_transactions').delete().eq('business_id',businessId).eq('branch_id',branchId).eq('source_key','invoice-cash:'+item.remoteId);
-        if(cash.error)throw new Error('Invoice cash record could not be removed: '+cash.error.message);
-        var result=await db.from('invoices').delete().eq('id',item.remoteId).eq('business_id',businessId).eq('branch_id',branchId).select('id');
-        if(result.error)throw new Error(result.error.message);
-        if(!result.data||!result.data.length)throw new Error('This invoice was not found in the current branch. Refresh and try again.');
+        /* One database transaction removes the invoice, its linked repair
+           order, and both legacy and installment CIB records. It refuses to
+           delete an invoice whose cash was already remitted. */
+        var removed=await db.rpc('delete_invoice_with_linked_cash',{p_invoice_id:item.remoteId,p_branch_id:branchId});
+        if(removed.error)throw new Error(removed.error.message);
         document.dispatchEvent(new Event('bwc:cash-updated'));
         document.dispatchEvent(new Event('bwc:invoice-deleted'));
         await loadRemote();
