@@ -28,7 +28,9 @@
       action.dataset.cashActionReady='1';
       if(activeRole!=='owner')return;
       if(/^(invoice-cash:|invoice-payment-cash:)/.test(source)){
-        action.textContent='Edit invoice';
+        if(activeRole==='owner'){
+          var cleanup=document.createElement('button');cleanup.type='button';cleanup.className='secondary';cleanup.textContent='Check orphan';cleanup.dataset.orphanInvoiceCashDelete=id;cleanup.dataset.orphanInvoiceCashSource=source;action.appendChild(cleanup);
+        }else action.textContent='Edit invoice';
         return;
       }
       if(/^receipt:/.test(source)){
@@ -136,6 +138,19 @@
     var openExpenses=event.target.closest('[data-open-expenses]');if(openExpenses){event.preventDefault();var expenseTab=document.querySelector('[data-t="expenses"]');if(expenseTab)expenseTab.click();return}
     var remitButton=event.target.closest('[data-cash-remit]');if(remitButton&&db){event.preventDefault();remit();return}
     var transferButton=event.target.closest('[data-cash-transfer]');if(transferButton&&db){event.preventDefault();transfer();return}
+    var orphanCashButton=event.target.closest('[data-orphan-invoice-cash-delete]');if(orphanCashButton&&db){
+      event.preventDefault();
+      if(activeRole!=='owner'){alert('Only the business owner can remove an orphaned invoice cash record.');return}
+      var orphanSource=orphanCashButton.dataset.orphanInvoiceCashSource||'',orphanMatch=orphanSource.match(/^invoice(?:-payment)?-cash:([^:]+)(?::.*)?$/),orphanInvoiceId=orphanMatch&&orphanMatch[1];
+      if(!orphanInvoiceId){alert('This cash record does not have a valid invoice link.');return}
+      var invoiceCheck=await db.from('invoices').select('id').eq('id',orphanInvoiceId).eq('business_id',businessId).eq('branch_id',branch()).maybeSingle();
+      if(invoiceCheck.error){alert('Could not verify the linked invoice: '+invoiceCheck.error.message);return}
+      if(invoiceCheck.data){alert('This invoice still exists. Delete it from Invoice Making instead; its linked CIB record will be removed with it.');return}
+      if(!confirm('This invoice no longer exists. Remove this orphaned CIB record only if it was a duplicate/test entry and its cash was never remitted or used?'))return;
+      var orphanRemoved=await db.from('cash_transactions').delete().eq('id',orphanCashButton.dataset.orphanInvoiceCashDelete).eq('business_id',businessId).eq('branch_id',branch()).eq('source_key',orphanSource);
+      if(orphanRemoved.error){alert('The orphaned CIB record could not be removed: '+orphanRemoved.error.message);return}
+      alert('Orphaned CIB record removed.');document.dispatchEvent(new CustomEvent('bwc:cash-updated'));scheduleDecorate(120);return;
+    }
     var invoiceCashButton=event.target.closest('[data-cash-invoice-delete]');if(invoiceCashButton&&db){
       event.preventDefault();
       if(activeRole!=='owner'){alert('Only the business owner can delete an invoice cash payment.');return}
