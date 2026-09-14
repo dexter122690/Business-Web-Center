@@ -27,7 +27,10 @@ begin
     raise exception 'Invoice was not found in the selected branch.';
   end if;
 
-  if not public.can_manage_invoice_branch(v_invoice.business_id, p_branch_id) then
+  -- auth.uid() is null only when the database owner runs an audited repair
+  -- from the SQL editor. Browser callers must always pass the branch check.
+  if auth.uid() is not null
+     and not public.can_manage_invoice_branch(v_invoice.business_id, p_branch_id) then
     raise exception 'You do not have permission to update invoice payments in this branch.';
   end if;
 
