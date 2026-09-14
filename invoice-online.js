@@ -106,37 +106,20 @@
     if(servicesRows.length){var s=await db.from('invoice_services').insert(servicesRows);if(s.error)throw new Error(s.error.message)}
     if(partsRows.length){var p=await db.from('invoice_parts').insert(partsRows);if(p.error)throw new Error(p.error.message)}
   }
-  /* Cash received from an invoice belongs in CIB.  The record uses the
-     invoice id as its source key, so editing a payment replaces the old
-     cash-in instead of adding it again.  Non-cash methods never touch CIB. */
+  /* Cash received from an invoice belongs in CIB.  Installments are the
+     source of truth: each real cash payment gets one CIB entry. */
   async function syncInvoiceCashIn(remoteId,invoiceNumber,x){
-    var branchId=localStorage.getItem('bwc-active-branch'),sourceKey='invoice-cash:'+remoteId;
+    var branchId=localStorage.getItem('bwc-active-branch');
     if(!branchId)return;
-    /* Once installment history is enabled, CIB must follow only the cash
-       installments, not the invoice's combined received total. */
-    var paidAmount=Number(x.paid||0),cashPayments=null;
-    var history=await db.from('invoice_payments').select('amount,payment_method').eq('invoice_id',remoteId);
-    if(!history.error&&history.data&&history.data.length){
-      cashPayments=history.data.filter(function(payment){return String(payment.payment_method||'').trim().toLowerCase()==='cash'}).reduce(function(sum,payment){return sum+Number(payment.amount||0)},0);
+    var history=await db.from('invoice_payments').select('id').eq('invoice_id',remoteId);
+    if(history.error)throw new Error('CIB payment history could not be checked: '+history.error.message);
+    /* A paid invoice created today starts with a dated payment record.  This
+       prevents the old invoice-total CIB record from ever being created. */
+    if(!(history.data||[]).length&&Number(x.paid||0)>0){
+      var opening=await db.from('invoice_payments').insert({invoice_id:remoteId,business_id:businessId,branch_id:branchId,payment_date:x.date||new Date().toISOString().slice(0,10),amount:Number(x.paid||0),payment_method:x.method||'Cash',reference_number:'Opening recorded payment',notes:'Initial payment recorded when the invoice was created.',received_by:null,created_by:userId});
+      if(opening.error)throw new Error('Opening payment could not be recorded: '+opening.error.message);
     }
-    var cashAmount=cashPayments===null?(String(x.method||'').trim().toLowerCase()==='cash'?paidAmount:0):cashPayments;
-    /* Do not erase and recreate the linked cash record.  Erasing is rightly
-       owner-only, while staff with Expenses access may update a record that
-       belongs to the invoice they are saving.  Upsert also prevents duplicate
-       source keys when an existing invoice is edited. */
-    if(cashAmount<=0){document.dispatchEvent(new Event('bwc:cash-updated'));return}
-    var savedCash=await db.from('cash_transactions').upsert({
-      business_id:businessId,
-      branch_id:branchId,
-      cash_account:'CIB',
-      direction:'In',
-      amount:cashAmount,
-      transaction_date:x.date||new Date().toISOString().slice(0,10),
-      source_key:sourceKey,
-      reference_number:'INV-'+String(invoiceNumber).padStart(5,'0'),
-      notes:'Cash received from invoice · '+String(x.client||'Client'),
-      created_by:userId
-    },{onConflict:'branch_id,source_key'});
+    var savedCash=await db.rpc('sync_invoice_payment_cash',{p_invoice_id:remoteId,p_branch_id:branchId});
     if(savedCash.error)throw new Error('CIB update failed: '+savedCash.error.message);
     document.dispatchEvent(new Event('bwc:cash-updated'));
   }
