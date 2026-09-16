@@ -1,12 +1,19 @@
 /* Fixed-amount invoice discounts. The final invoice total is always the
    services/parts subtotal less this optional discount. */
 (function(){
+  /* P is declared by the page as a global lexical function, not as
+     window.P.  Keep this formatter local so this optional display feature
+     can never interrupt invoice saving or CIB synchronisation. */
+  function money(value){
+    if(typeof P==='function')return P(value);
+    return 'PHP '+Number(value||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
+  }
   function field(){return document.getElementById('discountAmount')}
   function number(value){return Math.max(0,Number(value)||0)}
   function subtotal(){var serviceLines=typeof services==='undefined'?[]:services,partLines=typeof parts==='undefined'?[]:parts;return serviceLines.reduce(function(sum,row){return sum+number(row.a)},0)+partLines.reduce(function(sum,row){return sum+number(row.a)},0)}
   function discount(){return Math.min(number(field()&&field().value),subtotal())}
-  function setSummary(id,value){var item=document.getElementById(id);if(item&&window.P)item.textContent=window.P(value)}
-  function update(){var gross=subtotal(),less=discount(),net=Math.max(0,gross-less),paid=number(document.getElementById('paid')&&document.getElementById('paid').value),status=document.getElementById('status');setSummary('total',net);setSummary('received',paid);setSummary('balance',Math.max(0,net-paid));if(status)status.value=net&&paid>=net?'Paid':paid?'Partially paid':'Pending';var note=document.getElementById('invoiceDiscountSummary');if(note)note.textContent=less>0?'Subtotal '+window.P(gross)+' − discount '+window.P(less)+' = final total '+window.P(net):'No discount applied.'}
+  function setSummary(id,value){var item=document.getElementById(id);if(item)item.textContent=money(value)}
+  function update(){var gross=subtotal(),less=discount(),net=Math.max(0,gross-less),paid=number(document.getElementById('paid')&&document.getElementById('paid').value),status=document.getElementById('status');setSummary('total',net);setSummary('received',paid);setSummary('balance',Math.max(0,net-paid));if(status)status.value=net&&paid>=net?'Paid':paid?'Partially paid':'Pending';var note=document.getElementById('invoiceDiscountSummary');if(note)note.textContent=less>0?'Subtotal '+money(gross)+' − discount '+money(less)+' = final total '+money(net):'No discount applied.'}
   function install(){
     var paid=document.getElementById('paid');if(!paid||field())return;
     var label=document.createElement('label');label.innerHTML='Discount amount (PHP)<input id="discountAmount" type="number" min="0" step=".01" value="0">';paid.closest('label').insertAdjacentElement('beforebegin',label);
