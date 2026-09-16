@@ -221,6 +221,93 @@
     }
   }
 
+  function escapeHtml(value) {
+    return String(value || '').replace(/[&<>"']/g, function (character) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character];
+    });
+  }
+
+  function permissionFields(values) {
+    var defaults = { dashboard: 'view', invoices: 'edit', expenses: 'edit', payroll: 'none', inventory: 'edit', schedule: 'edit' };
+    var labels = { dashboard: 'Dashboard', invoices: 'Invoices', expenses: 'Expenses', payroll: 'Payroll', inventory: 'Inventory', schedule: 'Schedule' };
+    values = values || defaults;
+    return Object.keys(labels).map(function (key) {
+      var value = values[key] || 'none';
+      return '<label>' + labels[key] + '<select data-team-member-permission="' + key + '">'
+        + '<option value="none"' + (value === 'none' ? ' selected' : '') + '>No access</option>'
+        + '<option value="view"' + (value === 'view' ? ' selected' : '') + '>View only</option>'
+        + '<option value="edit"' + (value === 'edit' ? ' selected' : '') + '>Can edit</option>'
+        + '</select></label>';
+    }).join('');
+  }
+
+  function openMemberEditor(item, assignments, branches) {
+    var existing = {}, selected = {};
+    assignments.forEach(function (row) { existing[row.branch_id] = row; selected[row.branch_id] = true; });
+    var old = document.getElementById('teamMemberEditor');
+    if (old) old.remove();
+    var editor = document.createElement('div');
+    editor.id = 'teamMemberEditor';
+    editor.style.cssText = 'position:fixed;inset:0;background:#0008;z-index:130;display:grid;place-items:center;padding:18px';
+    editor.innerHTML = '<form class="card" style="width:min(100%,760px);max-height:90vh;overflow:auto">'
+      + '<div class="heading"><div><div class="k">Owner controls</div><h2>Edit team access</h2><p class="muted">Change this person\'s branch access, role, and permissions. Saving updates their active account immediately.</p></div><button class="secondary" type="button" data-team-editor-close>Cancel</button></div>'
+      + '<p><b>' + escapeHtml(item.full_name || 'Team member') + '</b><br><small>' + escapeHtml(item.email) + '</small></p>'
+      + '<label>Access role<select id="teamMemberRole"><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option><option value="staff"' + (item.role !== 'admin' ? ' selected' : '') + '>Staff</option></select></label>'
+      + '<div style="margin-top:14px"><b>Branch access</b><p class="muted">Select every branch this person may open. At least one branch is required.</p><div class="formgrid">'
+      + branches.map(function (branch) { return '<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" data-team-member-branch="' + escapeHtml(branch.id) + '"' + (selected[branch.id] ? ' checked' : '') + ' style="width:auto">' + escapeHtml(branch.name === 'Main workspace' ? 'MAIN' : branch.name) + '</label>'; }).join('')
+      + '</div></div>'
+      + '<div style="margin-top:14px"><b>Permissions</b><div class="formgrid" style="margin-top:8px">' + permissionFields(item.permissions) + '</div></div>'
+      + '<p class="muted" data-team-editor-message style="min-height:18px"></p><div class="actions"><button class="primary" type="submit">Save access changes</button><button class="secondary" type="button" data-team-editor-close>Cancel</button></div>'
+      + '</form>';
+    document.body.appendChild(editor);
+    editor.addEventListener('click', function (event) { if (event.target === editor || event.target.closest('[data-team-editor-close]')) editor.remove(); });
+    editor.querySelector('form').onsubmit = async function (event) {
+      event.preventDefault();
+      var messageNode = editor.querySelector('[data-team-editor-message]');
+      try {
+        var ctx = await sessionContext();
+        var selectedBranches = Array.prototype.slice.call(editor.querySelectorAll('[data-team-member-branch]:checked')).map(function (field) { return field.dataset.teamMemberBranch; });
+        if (!selectedBranches.length) throw new Error('Select at least one branch.');
+        var permissions = {};
+        editor.querySelectorAll('[data-team-member-permission]').forEach(function (field) { permissions[field.dataset.teamMemberPermission] = field.value; });
+        var role = editor.querySelector('#teamMemberRole').value;
+        var hasActiveAssignment = assignments.some(function (row) { return ['approved', 'accepted'].includes(row.status); });
+        messageNode.textContent = 'Saving access changes...';
+        var records = selectedBranches.map(function (branchId) {
+          var prior = existing[branchId];
+          return { business_id: ctx.businessId, email: item.email, full_name: item.full_name, branch_id: branchId, role: role, permissions: permissions,
+            status: prior ? prior.status : (hasActiveAssignment ? 'accepted' : 'pending'), invited_by: prior ? prior.invited_by : ctx.user.id };
+        });
+        var saved = await ctx.db.from('business_team_invites').upsert(records, { onConflict: 'business_id,email,branch_id' });
+        if (saved.error) throw saved.error;
+        var removedBranches = assignments.filter(function (row) { return selectedBranches.indexOf(row.branch_id) < 0; }).map(function (row) { return row.branch_id; });
+        if (removedBranches.length) {
+          var removed = await ctx.db.from('business_team_invites').delete().eq('business_id', ctx.businessId).eq('email', item.email).in('branch_id', removedBranches);
+          if (removed.error) throw removed.error;
+        }
+        await syncRealAccess(ctx, item.email, role, permissions);
+        editor.remove();
+        refreshModal();
+      } catch (error) {
+        messageNode.textContent = error.message || 'The access changes could not be saved.';
+      }
+    };
+  }
+
+  async function editEveryBranch(id) {
+    try {
+      var ctx = await sessionContext();
+      var itemResult = await ctx.db.from('business_team_invites').select('*').eq('id', id).maybeSingle();
+      if (itemResult.error) throw itemResult.error;
+      if (!itemResult.data) throw new Error('This team member was not found.');
+      var assignments = await ctx.db.from('business_team_invites').select('*').eq('business_id', ctx.businessId).eq('email', itemResult.data.email);
+      if (assignments.error) throw assignments.error;
+      openMemberEditor(itemResult.data, assignments.data || [], await branchesFor(ctx));
+    } catch (error) {
+      alert(error.message || 'The Team Access editor could not be opened.');
+    }
+  }
+
   function decorate() {
     var select = document.getElementById('teamInviteBranch');
     if (!select || select.dataset.multiBranchReady) return;
@@ -257,6 +344,7 @@
     var approve = event.target.closest('[data-team-approve]');
     var suspend = event.target.closest('[data-team-suspend]');
     var remove = event.target.closest('[data-team-delete]');
+    var edit = event.target.closest('[data-team-edit]');
     if (approve) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -269,6 +357,10 @@
       event.preventDefault();
       event.stopImmediatePropagation();
       deleteOneBranch(remove.dataset.teamDelete);
+    } else if (edit) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      editEveryBranch(edit.dataset.teamEdit);
     }
   }, true);
 
