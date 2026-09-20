@@ -4,7 +4,7 @@
   var db=null,businessId='',invoices=[],expenses=[],cashRows=[],ready=false,timer=0,loadVersion=0;
   function peso(value){return 'PHP '+(Number(value||0)).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}
   function number(value){return Number(value||0)||0}
-  function writtenOff(invoice){return (invoice.invoice_balance_writeoffs||[]).reduce(function(sum,item){return sum+number(item.amount)},0)}
+  function writtenOff(invoice){var raw=invoice.invoice_balance_writeoffs,rows=Array.isArray(raw)?raw:(raw?[raw]:[]);return rows.reduce(function(sum,item){return sum+number(item.amount)},0)}
   function remainingBalance(invoice){return Math.max(0,number(invoice.total_amount)-number(invoice.amount_paid)-writtenOff(invoice))}
   function period(item,month,year){var date=new Date((item.invoice_date||item.expense_date||item.date)+'T00:00:00');return(!month||date.getMonth()===Number(month))&&(!year||String(date.getFullYear())===String(year))}
   function activeBusiness(){return localStorage.getItem('bwc-active-business')||''}
