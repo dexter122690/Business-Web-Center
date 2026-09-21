@@ -6,7 +6,8 @@
   function business(){return localStorage.getItem('bwc-active-business')||''}
   function branch(){return localStorage.getItem('bwc-active-branch')||''}
   function quoteKey(){return {client:(document.getElementById('qtClient')||{}).value||'',date:(document.getElementById('qtDate')||{}).value||'',vehicle:(document.getElementById('qtVehicle')||{}).value||'',plate:(document.getElementById('qtPlate')||{}).value||''}}
-  function localQuote(){var key=quoteKey(),all=[];try{all=JSON.parse(localStorage.getItem('15m-replica-quotes')||'[]')}catch(error){}return all.find(function(q){return q.client===key.client&&q.date===key.date&&q.vehicle===key.vehicle&&q.plate===key.plate})||all[0]||null}
+  function quoteStorageKey(){return '15m-replica-quotes:'+(business()||'pending-business')+':'+(branch()||'pending-branch')}
+  function localQuote(){var key=quoteKey(),all=[];try{all=JSON.parse(localStorage.getItem(quoteStorageKey())||'[]')}catch(error){}return all.find(function(q){return q.client===key.client&&q.date===key.date&&q.vehicle===key.vehicle&&q.plate===key.plate})||null}
   function optionLabel(row){return [row.scheduled_date||'',row.scheduled_time?String(row.scheduled_time).slice(0,5):'',row.client_name||'',row.vehicle||'',row.year_model||'',row.color||''].filter(Boolean).join(' · ')}
   async function loadSchedules(){
     var api=client(),businessId=business(),branchId=branch();if(!api||!businessId||!branchId)return [];
