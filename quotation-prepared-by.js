@@ -33,7 +33,7 @@
     window.BWCQuotationDiscount=function(quote,subtotal) { quote=priorDecorator?priorDecorator(quote,subtotal):quote; quote.preparedBy=(document.getElementById('qtPreparedBy')||{}).value||''; return quote; };
     document.addEventListener('click',function(event){ var edit=event.target.closest('[data-qt-edit]'); if(edit)setTimeout(function(){restorePreparedBy(edit.dataset.qtEdit);},90); if(event.target.closest('[data-t="quotes"],[data-qt="new"]'))setTimeout(mount,90); },true);
     priorPrint=window.printQuotation;
-    if (priorPrint) window.printQuotation=function(mode) { var prepared=(document.getElementById('qtPreparedBy')||{}).value||'', popup=priorPrint.call(this,mode); if(popup&&prepared){var terms=popup.document.querySelector('h3:last-of-type');var block='<div style="margin-top:42px;text-align:center;max-width:260px"><div style="border-top:1px solid #16100d;padding-top:6px;font-weight:bold">'+esc(prepared)+'</div><small>Prepared by</small></div>';if(terms)terms.insertAdjacentHTML('afterend',block);else popup.document.body.insertAdjacentHTML('beforeend',block);} return popup; };
+    if (priorPrint) window.printQuotation=function(mode) { var prepared=(document.getElementById('qtPreparedBy')||{}).value||'', popup=priorPrint.call(this,mode); if(popup&&prepared){var block='<div style="margin-top:42px;text-align:center;max-width:260px"><div style="border-top:1px solid #16100d;padding-top:6px;font-weight:bold">'+esc(prepared)+'</div><small>Prepared by</small></div>';popup.document.body.insertAdjacentHTML('beforeend',block);} return popup; };
     mount();
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(install,100);});else setTimeout(install,100);
