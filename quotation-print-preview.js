@@ -1,0 +1,30 @@
+/* In-page quotation preview. The browser's normal print dialog is only opened
+   after the user confirms from this preview. */
+(function () {
+  function esc(value) { return String(value || '').replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function value(id) { var field=document.getElementById(id); return field ? field.value.trim() : ''; }
+  function read(key, fallback) { try { return Object.assign({}, fallback, JSON.parse(localStorage.getItem(key) || '{}')); } catch (e) { return fallback; } }
+  function printableLines() {
+    var table=document.querySelector('#qtLines table');
+    if (!table) return '<p>No quotation lines have been added.</p>';
+    var copy=table.cloneNode(true);
+    copy.querySelectorAll('button').forEach(function (button) { var cell=button.closest('td'); if (cell) cell.remove(); });
+    copy.querySelectorAll('thead tr').forEach(function (row) { if (row.lastElementChild) row.lastElementChild.remove(); });
+    return copy.outerHTML;
+  }
+  function terms() {
+    var payment=value('qtTerms') || value('qtDeposit') || 'As agreed';
+    return '<ul><li>Prices cover only the services and parts listed in this quotation.</li><li>Additional work, parts, or materials require client approval before proceeding.</li><li>Estimated completion time depends on the service scope, parts availability, weather, curing time, and workshop schedule.</li><li>Vehicle condition is checked before and after service.</li><li>Payment terms and deposit, if any: '+esc(payment)+'.</li></ul><p><b>Estimated service time:</b> '+esc(value('qtRepair') || 'To be confirmed')+'</p>';
+  }
+  function documentHtml() {
+    var header=read('15m-custom-header',{company:'Your Business Name'}),contact=read('15m-business-contact',{address:'',phone:'',email:''}),theme=read('15m-brand-theme',{accent:'#ff5219',text:'#16100d',soft:'#fff0e9'}),logo=localStorage.getItem('15m-custom-logo')||'',identity=logo?'<img src="'+esc(logo)+'" alt="Company logo">':'<span class="logo">logo</span>',total=(document.getElementById('qtTotal')||{}).textContent||'PHP 0.00',prepared=value('qtPreparedBy'),discount=document.getElementById('qtDiscountSummary'),discountText=discount&&value('qtDiscountType')!=='none'?discount.textContent:'',signature=prepared?'<div class="signature"><b>'+esc(prepared)+'</b><small>Prepared by</small></div>':'';
+    return '<!doctype html><html><head><meta charset="utf-8"><title>Quotation preview</title><style>@page{margin:.45in}body{font:12px Arial;color:'+esc(theme.text)+';margin:0}.head{display:flex;gap:13px;align-items:center;border-bottom:3px solid '+esc(theme.accent)+';padding-bottom:12px}.head img{max-width:72px;max-height:58px;object-fit:contain}.logo{display:grid;place-items:center;width:54px;height:54px;border:1px solid '+esc(theme.accent)+';color:'+esc(theme.accent)+';font-weight:bold}.company{font-size:18px;font-weight:bold}.doc{margin-left:auto;color:'+esc(theme.accent)+';font-size:18px;font-weight:bold;letter-spacing:1px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{padding:7px;border-bottom:1px solid #ddd;text-align:left}th{background:'+esc(theme.soft)+';font-size:10px;text-transform:uppercase}.total{font-size:18px;font-weight:bold;color:'+esc(theme.accent)+';text-align:right;margin-top:16px}.discount{text-align:right;white-space:pre-line;margin-top:10px}.damage{background:'+esc(theme.soft)+';border-left:3px solid '+esc(theme.accent)+';padding:10px;margin:16px 0}.signature{margin-top:48px;text-align:center;max-width:260px}.signature b{display:block;border-top:1px solid #16100d;padding-top:6px}.signature small{display:block;margin-top:3px}</style></head><body><div class="head"><div>'+identity+'</div><div><div class="company">'+esc(header.company)+'</div><div>'+esc(contact.address)+'<br>'+esc(contact.phone)+'<br>'+esc(contact.email)+'</div></div><div class="doc">QUOTATION</div></div><h2>Quotation</h2><p><b>Customer:</b> '+esc(value('qtClient'))+'<br><b>Contact:</b> '+esc(value('qtContact'))+'<br><b>Address:</b> '+esc(value('qtAddress'))+'<br><b>Vehicle:</b> '+esc(value('qtVehicle'))+' · '+esc(value('qtPlate'))+'<br><b>Date:</b> '+esc(value('qtDate'))+'<br><b>Valid until:</b> '+esc(value('qtValid'))+'</p><div class="damage"><b>SERVICE REQUEST / INSPECTION NOTES</b><br>'+esc(value('qtDamage') || 'To be confirmed upon inspection.')+'</div>'+printableLines()+'<div class="discount">'+esc(discountText)+'</div><div class="total">TOTAL QUOTATION '+esc(total)+'</div><h3>Terms and conditions</h3>'+terms()+signature+'</body></html>';
+  }
+  window.showQuotationPreview=function () {
+    var old=document.getElementById('quotationPreviewModal'); if (old) old.remove();
+    var modal=document.createElement('div'); modal.id='quotationPreviewModal'; modal.style.cssText='position:fixed;inset:0;z-index:200;background:#0009;padding:18px;display:grid;place-items:center';
+    modal.innerHTML='<div class="card" style="width:min(100%,940px);height:min(92vh,900px);display:flex;flex-direction:column;padding:0;overflow:hidden"><div class="heading" style="padding:14px 18px;margin:0;border-bottom:1px solid #e5e7eb"><div><div class="k">Print preview</div><h2 style="margin:2px 0">Quotation</h2></div><div class="actions"><button class="secondary" type="button" data-quotation-preview-close>Close</button><button class="primary" type="button" data-quotation-preview-print>Print now</button></div></div><iframe title="Quotation print preview" style="border:0;width:100%;flex:1;background:#fff"></iframe></div>';
+    document.body.appendChild(modal); var frame=modal.querySelector('iframe'); frame.contentDocument.open(); frame.contentDocument.write(documentHtml()); frame.contentDocument.close();
+    modal.addEventListener('click',function(event){if(event.target===modal||event.target.closest('[data-quotation-preview-close]')){modal.remove();return}if(event.target.closest('[data-quotation-preview-print]')){frame.contentWindow.focus();frame.contentWindow.print();}});
+  };
+}());
