@@ -1,8 +1,8 @@
 /* Quote type fields for vehicle servicing, detailing, and corporate contracts. */
 (function(){
-  var key='15m-replica-quotes';
-  function read(){try{return JSON.parse(localStorage.getItem(key)||'[]')}catch(e){return []}}
-  function write(rows){localStorage.setItem(key,JSON.stringify(rows))}
+  function quoteStorageKey(){return '15m-replica-quotes:'+(localStorage.getItem('bwc-active-business')||'pending-business')+':'+(localStorage.getItem('bwc-active-branch')||'pending-branch')}
+  function read(){try{return JSON.parse(localStorage.getItem(quoteStorageKey())||'[]')}catch(e){return []}}
+  function write(rows){localStorage.setItem(quoteStorageKey(),JSON.stringify(rows))}
   function value(id){var field=document.getElementById(id);return field?field.value.trim():''}
   function data(){var quoteType=value('qtQuoteType')||'Standard vehicle service',corporate=quoteType==='Corporate maintenance contract';return {quoteType:quoteType,odometer:value('qtOdometer'),concern:value('qtConcern'),recommendations:value('qtRecommendations'),location:value(corporate?'qtServiceLocationCorporate':'qtServiceLocation'),frequency:value(corporate?'qtFrequencyCorporate':'qtFrequency'),detailers:value('qtDetailers'),dutyHours:value('qtDutyHours'),contractStart:value('qtContractStart'),contractEnd:value('qtContractEnd'),billing:value('qtBilling'),terms:value('qtTerms'),exclusions:value('qtExclusions')}}
   function set(id,text){var field=document.getElementById(id);if(field)field.value=text||''}

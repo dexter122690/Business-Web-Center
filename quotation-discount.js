@@ -1,9 +1,10 @@
 /* Quotation-wide discount controls. Discounts stay in quotation details so
    existing saved quotations and the shared online record remain compatible. */
 (function () {
-  var key = '15m-replica-quotes', lastSubtotal = 0;
+  var lastSubtotal = 0;
 
-  function read() { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { return []; } }
+  function quoteStorageKey() { return '15m-replica-quotes:' + (localStorage.getItem('bwc-active-business') || 'pending-business') + ':' + (localStorage.getItem('bwc-active-branch') || 'pending-branch'); }
+  function read() { try { return JSON.parse(localStorage.getItem(quoteStorageKey()) || '[]'); } catch (e) { return []; } }
   function money(value) { return 'PHP ' + Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   function value(id) { var el = document.getElementById(id); return el ? el.value : ''; }
   function number(value) { return Math.max(0, Number(value) || 0); }

@@ -2,7 +2,8 @@
 (function () {
   var priorDecorator, priorPrint;
   function esc(value) { return String(value || '').replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
-  function read() { try { return JSON.parse(localStorage.getItem('15m-replica-quotes') || '[]'); } catch (e) { return []; } }
+  function quoteStorageKey() { return '15m-replica-quotes:' + (localStorage.getItem('bwc-active-business') || 'pending-business') + ':' + (localStorage.getItem('bwc-active-branch') || 'pending-branch'); }
+  function read() { try { return JSON.parse(localStorage.getItem(quoteStorageKey()) || '[]'); } catch (e) { return []; } }
   function selectedQuote() { var client=(document.getElementById('qtClient')||{}).value||'', date=(document.getElementById('qtDate')||{}).value||'', vehicle=(document.getElementById('qtVehicle')||{}).value||'', plate=(document.getElementById('qtPlate')||{}).value||''; return read().find(function(q){ return q.client===client&&q.date===date&&q.vehicle===vehicle&&q.plate===plate; }) || null; }
   function mount() {
     var deposit=document.getElementById('qtDeposit'); if (!deposit || document.getElementById('qtPreparedBy')) return;
