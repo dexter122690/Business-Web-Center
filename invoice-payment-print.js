@@ -2,7 +2,20 @@
 (function(){
   function esc(value){return String(value==null?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   function amount(value){return 'PHP '+Number(value||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}
-  function getInvoices(){try{return JSON.parse(localStorage.getItem('15m-replica-invoices')||'[]')}catch(e){return []}}
+  function getInvoices(){
+    /* The invoice register is refreshed from the active business/branch before
+       its browser cache settles. Prefer that live list so a staff member can
+       print the record they can already see on screen. */
+    try{if(typeof inv!=='undefined'&&Array.isArray(inv)&&inv.length)return inv}catch(e){}
+    try{return JSON.parse(localStorage.getItem('15m-replica-invoices')||'[]')}catch(e){return []}
+  }
+  function findInvoice(id){
+    var value=String(id==null?'':id),digits=value.replace(/^INV-0*/i,'');
+    return getInvoices().find(function(item){
+      var number=String(item.number||''),itemDigits=number.replace(/^INV-0*/i,'');
+      return String(item.id)===value||String(item.remoteId||'')===value||number===value||itemDigits===digits;
+    });
+  }
   function settings(key,fallback){try{return Object.assign({},fallback,JSON.parse(localStorage.getItem(key)||'{}'))}catch(e){return fallback}}
   function paymentRows(invoice){return (invoice.payments||invoice.invoice_payments||[]).map(function(p){return {date:p.date||p.payment_date||'',method:p.method||p.payment_method||'',reference:p.reference||p.reference_number||'',notes:p.notes||'',amount:Number(p.amount||0)}}).sort(function(a,b){return String(a.date).localeCompare(String(b.date))})}
   async function paymentsFromServer(invoice){
@@ -15,7 +28,7 @@
     }catch(e){return known}
   }
   async function printInvoice(id,outputMode){
-    var invoice=getInvoices().find(function(x){return String(x.id)===String(id)});
+    var invoice=findInvoice(id);
     if(!invoice){alert('Invoice record not found.');return}
     var win=window.open('','_blank');
     if(!win){alert('Allow pop-ups to print the invoice.');return}
@@ -50,7 +63,7 @@
     link.href=url;link.download=name;document.body.appendChild(link);link.click();link.remove();setTimeout(function(){URL.revokeObjectURL(url)},1200);
   }
   async function downloadSimpleInvoicePdf(id){
-    var invoice=getInvoices().find(function(x){return String(x.id)===String(id)});
+    var invoice=findInvoice(id);
     if(!invoice){alert('Invoice record not found.');return}
     var brand=settings('15m-custom-header',{company:'Your Business Name'}),contact=settings('15m-business-contact',{address:'',phone:'',email:''});
     var payments=await paymentsFromServer(invoice),paid=Number(invoice.paid||0),total=Number(invoice.total||0),discount=Math.max(0,Number(invoice.discount||invoice.discount_amount||0)),subtotal=total+discount,balance=Math.max(0,total-paid);
@@ -89,7 +102,7 @@
   async function downloadInvoicePdf(id){
     /* Capture the exact same branded document used by Print, then place that
        image onto A4 PDF pages. This keeps both copies visually identical. */
-    var record=getInvoices().find(function(item){return String(item.id)===String(id)}),fileNumber=(record&&record.number)||id||'record',win=await printInvoice(id,'capture');if(!win)return;
+    var record=findInvoice(id),fileNumber=(record&&record.number)||id||'record',win=await printInvoice(id,'capture');if(!win)return;
     try{
       await waitForImages(win);
       await loadPopupScript(win,'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',function(){return !!win.html2canvas});
