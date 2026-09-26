@@ -17,7 +17,16 @@
     if(!db||!businessId||!branch())return;
     var result=await db.from('cash_transactions').select('id,direction,source_key,transaction_date,cash_account,amount').eq('business_id',businessId).eq('branch_id',branch()).order('transaction_date',{ascending:false}).order('created_at',{ascending:false});
     if(result.error)return;
-    var records=result.data||[];
+    var records=result.data||[],duplicateCashIds={};
+    /* A few legacy entries were saved twice: once as a receipt cash-out and
+       once as a quick-expense cash-out for the same expense.  The receipt is
+       the canonical record because it remains attached to the receipt item.
+       Mark only the extra direct cash row, and only after checking its exact
+       expense, date, receipt, account, and amount. */
+    if(activeRole==='owner'){
+      var expenses=await db.from('expenses').select('id,expense_date,supplier_name,receipt_number,quantity,unit_amount,payment_method').eq('business_id',businessId).eq('branch_id',branch());
+      if(!expenses.error)duplicateCashIds=findDuplicateCashOnlyIds(records,expenses.data||[]);
+    }
     /* Put the correction control where the owner sees the actual CIB/Petty
        Cash entry.  Staff never receive an erase control.  Entries generated
        by invoices and Expenses remain protected and must be corrected from
@@ -37,6 +46,7 @@
         var receiptButton=document.createElement('button');receiptButton.type='button';receiptButton.className='secondary';receiptButton.textContent='Erase';receiptButton.dataset.cashReceiptDelete=source;action.appendChild(receiptButton);return;
       }
       if(/^(expense:|petty-expense:|cib-expense:)/.test(source)){
+        if(duplicateCashIds[id]){var duplicateButton=document.createElement('button');duplicateButton.type='button';duplicateButton.className='secondary';duplicateButton.textContent='Remove duplicate';duplicateButton.dataset.cashDuplicateDelete=id;action.appendChild(duplicateButton);return}
         var expenseId=linkedExpenseId(source);if(expenseId){var expenseButton=document.createElement('button');expenseButton.type='button';expenseButton.className='secondary';expenseButton.textContent='Erase';expenseButton.dataset.cashExpenseDelete=expenseId;action.appendChild(expenseButton)}return;
       }
       var erase=document.createElement('button');erase.type='button';erase.className='secondary';erase.textContent='Erase';erase.dataset.cashDelete=id;action.appendChild(erase);
@@ -72,6 +82,17 @@
   function sourceId(prefix){return prefix+'-'+Date.now()+'-'+Math.random().toString(36).slice(2)}
   function linkedExpenseId(source){var match=String(source||'').match(/^(?:expense|petty-expense|cib-expense):(.+)$/);return match?match[1]:''}
   function receiptInfo(source){var parts=String(source||'').slice('receipt:'.length).split('|');return parts.length>=3?{supplier:parts[0],receipt:parts[1],date:parts.slice(2).join('|')}:null}
+  function cashAmount(row){return Math.round((Number(row&&row.amount)||0)*100)}
+  function receiptSource(item){return 'receipt:'+[item.supplier_name||'',item.receipt_number||'',item.expense_date||''].join('|')}
+  function findDuplicateCashOnlyIds(records,expenses){
+    var byExpense={};expenses.forEach(function(item){byExpense[item.id]=item});
+    var ids={};records.forEach(function(row){
+      var expenseId=linkedExpenseId(row.source_key),expense=byExpense[expenseId];
+      if(!expense||row.direction!=='Out'||!expense.receipt_number||String(expense.payment_method||'')!==String(row.cash_account||''))return;
+      var matchingReceipt=records.some(function(candidate){return candidate.id!==row.id&&candidate.direction==='Out'&&candidate.cash_account===row.cash_account&&candidate.transaction_date===expense.expense_date&&cashAmount(candidate)===cashAmount(row)&&candidate.source_key===receiptSource(expense)});
+      if(matchingReceipt)ids[row.id]=true;
+    });return ids
+  }
   function addExpenseActions(action,source){
     var expenseId=linkedExpenseId(source);
     if(expenseId){
@@ -135,6 +156,20 @@
     }
     var deleteExpenseButton=event.target.closest('[data-cash-expense-delete]');if(deleteExpenseButton){
       event.preventDefault();if(window.__expenseOnlineActions)window.__expenseOnlineActions.remove(deleteExpenseButton.dataset.cashExpenseDelete);else alert('Expenses are still loading. Please try again in a moment.');return
+    }
+    var duplicateCashButton=event.target.closest('[data-cash-duplicate-delete]');if(duplicateCashButton&&db){
+      event.preventDefault();
+      if(activeRole!=='owner'){alert('Only the business owner can remove a duplicate cash movement.');return}
+      var duplicate=await db.from('cash_transactions').select('id,source_key,cash_account,direction,amount,transaction_date').eq('id',duplicateCashButton.dataset.cashDuplicateDelete).eq('business_id',businessId).eq('branch_id',branch()).maybeSingle();
+      if(duplicate.error||!duplicate.data){alert('The cash record could not be verified.');return}
+      var duplicateExpenseId=linkedExpenseId(duplicate.data.source_key),expenseCheck=duplicateExpenseId?await db.from('expenses').select('id,expense_date,supplier_name,receipt_number,payment_method').eq('id',duplicateExpenseId).eq('business_id',businessId).eq('branch_id',branch()).maybeSingle():null;
+      if(!expenseCheck||expenseCheck.error||!expenseCheck.data||!expenseCheck.data.receipt_number||expenseCheck.data.payment_method!==duplicate.data.cash_account){alert('This cash record is not a verified duplicate. Correct it from Expenses instead.');return}
+      var matching=await db.from('cash_transactions').select('id').eq('business_id',businessId).eq('branch_id',branch()).eq('cash_account',duplicate.data.cash_account).eq('direction','Out').eq('transaction_date',expenseCheck.data.expense_date).eq('amount',duplicate.data.amount).eq('source_key',receiptSource(expenseCheck.data)).maybeSingle();
+      if(matching.error||!matching.data){alert('A matching receipt cash-out was not found. Nothing was removed.');return}
+      if(!confirm('Remove this duplicate cash movement only? The expense and its receipt will stay recorded.'))return;
+      var removed=await db.from('cash_transactions').delete().eq('id',duplicate.data.id).eq('business_id',businessId).eq('branch_id',branch()).eq('source_key',duplicate.data.source_key);
+      if(removed.error){alert('The duplicate cash movement could not be removed: '+removed.error.message);return}
+      alert('Duplicate cash movement removed. The expense was not changed.');document.dispatchEvent(new CustomEvent('bwc:cash-updated'));scheduleDecorate(120);return;
     }
     var editReceipt=event.target.closest('[data-cash-receipt-edit]');if(editReceipt){
       event.preventDefault();var receiptTab=document.querySelector('[data-t="expenses"]');if(receiptTab)receiptTab.click();
