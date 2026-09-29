@@ -332,7 +332,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
      replacing the multi-item receipt workflow after online records load. */
   window.__bwcMultiReceiptExpenses=true;
   var key='15m-recovery-expenses',items=[];
-  function read(){try{return JSON.parse(localStorage.getItem(key)||'[]')}catch(e){return []}}
+  function read(){if(Array.isArray(window.__bwcOnlineExpenses))return window.__bwcOnlineExpenses.slice();try{return JSON.parse(localStorage.getItem(key)||'[]')}catch(e){return []}}
   function save(value){localStorage.setItem(key,JSON.stringify(value))}
   function peso(n){return 'PHP '+Number(n||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}
   function esc(s){return String(s||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -755,7 +755,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
 <script src="invoice-payments-online.js?v=20260921-unremitted-closure-fix"></script>
 <script src="invoice-payment-print.js?v=20260924-invoice-date"></script>
 <script src="invoice-pdf-actions.js?v=20260829"></script>
-<script src="expense-online.js?v=20260928-cash-duplicate-fix"></script>
+<script src="expense-online.js?v=20260929-expense-cache-fix"></script>
 <script src="cash-controls-online.js"></script>
 <script src="cash-controls-delete.js"></script>
 <script src="inventory-online.js"></script>
