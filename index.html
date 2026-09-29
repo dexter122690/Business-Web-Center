@@ -490,6 +490,18 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
 </script><script>
 /* The local version opens directly; online account security will be added when it is hosted. */
 </script><script>
+/* The legacy browser-only dashboard add-ons below still respond to user actions,
+   but their 2–4 second background timers are unnecessary once online reporting
+   is active. Suppress only those timers while this legacy block is evaluated. */
+(function(){
+  var nativeSetInterval=window.setInterval.bind(window);
+  window.__bwcRestoreLegacyIntervals=function(){window.setInterval=nativeSetInterval};
+  window.setInterval=function(callback,delay){
+    if(Number(delay)>=2000&&Number(delay)<=4000)return 0;
+    return nativeSetInterval(callback,delay);
+  };
+}());
+</script><script>
 /* Single reporting source: invoices and expenses use the same saved records everywhere. */
 (function(){
   function list(key){try{return JSON.parse(localStorage.getItem(key)||'[]')}catch(e){return []}}
@@ -751,6 +763,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
   }).catch(function(){/* Local prototype mode remains available until Supabase configuration is added. */});
 })();
 </script>
+<script>if(window.__bwcRestoreLegacyIntervals)window.__bwcRestoreLegacyIntervals();</script>
 <script src="invoice-online.js?v=20260921-unremitted-closure-fix"></script>
 <script src="client-source-options.js?v=20260920-specific-sources"></script>
 <script src="invoice-discounts.js?v=20260916-currency-fix"></script>
