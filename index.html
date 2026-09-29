@@ -499,6 +499,9 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
   function inPeriod(item,p){var d=new Date(item.date+'T00:00:00');return (!p.month||d.getMonth()===Number(p.month))&&(!p.year||String(d.getFullYear())===String(p.year))}
   function records(){var p=period();return {invoices:list('15m-replica-invoices').filter(function(x){return inPeriod(x,p)}),expenses:list('15m-recovery-expenses').filter(function(x){return inPeriod(x,p)})}}
   function dashboard(){
+    /* The online reporter is the sole source once it has loaded. This older
+       local fallback must never overwrite the completed online totals. */
+    if(window.__bwcOnlineReportingActive)return;
     var data=records(),invoices=data.invoices,expenses=data.expenses,payments=invoices.filter(function(x){return Number(x.paid||0)>0}),sales=payments.reduce(function(sum,x){return sum+Number(x.paid||0)},0),unpaid=invoices.reduce(function(sum,x){return sum+Number(x.balance||0)},0),cost=expenses.filter(function(x){return (x.category||x.type)==='Cost of Sales'}).reduce(function(sum,x){return sum+Number(x.amount||0)*Number(x.quantity||1)},0),opexEntries=expenses.filter(function(x){return (x.category||x.type)!=='Cost of Sales'}),opex=opexEntries.reduce(function(sum,x){return sum+Number(x.amount||0)*Number(x.quantity||1)},0),mix={};
     payments.forEach(function(invoice){var ratio=Number(invoice.total||0)>0?Math.min(1,Number(invoice.paid||0)/Number(invoice.total||0)):0;(invoice.services||[]).forEach(function(service){mix[service.n]=(mix[service.n]||0)+Number(service.a||0)*ratio})});
     var paidSales=document.getElementById('paidSales'),paidCount=document.getElementById('paidCount'),unpaidEl=document.getElementById('unpaid'),expenseCard=document.querySelector('#dashboard .grid .card:nth-child(2)'),profit=document.getElementById('profit'),net=document.getElementById('net'),gross=document.getElementById('gross'),services=document.getElementById('dashboardServices');
@@ -760,7 +763,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
 <script src="cash-controls-delete.js"></script>
 <script src="inventory-online.js"></script>
 <script src="purchase-orders-online.js"></script>
-<script src="reporting-online.js?v=20260929-complete-dashboard"></script>
+<script src="reporting-online.js?v=20260929-online-source-lock"></script>
 <script src="dashboard-date-range.js?v=20260921"></script><script src="dashboard-current-period.js?v=20260922"></script><script src="tab-current-periods.js?v=20260922b"></script>
 <script src="dashboard-branch-refresh.js?v=20260929-complete-dashboard"></script>
 <script src="feature-flags.js"></script>
