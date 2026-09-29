@@ -1,14 +1,14 @@
-/* Keep a branch switch from showing another branch's cached dashboard totals. */
+/* Do not reveal the dashboard until one complete, branch-matched report is ready. */
 (function(){
-  var waiting=true,coreReady=false,invoicesReady=false,expensesReady=false,timeout=0;
-  var style=document.createElement('style');style.textContent='#dashboard.bwc-dashboard-loading{position:relative;min-height:480px}#dashboard.bwc-dashboard-loading>*{visibility:hidden}#dashboard.bwc-dashboard-loading:after{content:"Loading selected branch dashboard…";position:absolute;top:90px;left:0;right:0;text-align:center;color:#75645d;font-weight:bold;visibility:visible}';document.head.appendChild(style);
+  var waiting=true,timeout=0;
+  var style=document.createElement('style');style.textContent='#dashboard.bwc-dashboard-loading{position:relative;min-height:480px}#dashboard.bwc-dashboard-loading>*{visibility:hidden}#dashboard.bwc-dashboard-loading:after{content:"Loading complete dashboard totals…";position:absolute;top:90px;left:0;right:0;text-align:center;color:#75645d;font-weight:bold;visibility:visible}#dashboard.bwc-dashboard-loading.bwc-dashboard-delayed:after{content:"Still loading complete sales and expense totals…"}';document.head.appendChild(style);
   function dashboard(){return document.getElementById('dashboard')}
-  function finish(){waiting=false;clearTimeout(timeout);var view=dashboard();if(view)view.classList.remove('bwc-dashboard-loading')}
-  function tryFinish(){if(waiting&&coreReady&&invoicesReady&&expensesReady)finish()}
-  function begin(){waiting=true;coreReady=false;invoicesReady=false;expensesReady=false;clearTimeout(timeout);var view=dashboard();if(view)view.classList.add('bwc-dashboard-loading');timeout=setTimeout(finish,4500)}
+  function finish(){waiting=false;clearTimeout(timeout);var view=dashboard();if(view)view.classList.remove('bwc-dashboard-loading','bwc-dashboard-delayed')}
+  function begin(){waiting=true;clearTimeout(timeout);var view=dashboard();if(view){view.classList.remove('bwc-dashboard-delayed');view.classList.add('bwc-dashboard-loading')}timeout=setTimeout(function(){var current=dashboard();if(waiting&&current)current.classList.add('bwc-dashboard-delayed')},8000)}
+  function complete(event){if(!waiting)return;var branchId=event.detail&&event.detail.branchId;if(!branchId||branchId===localStorage.getItem('bwc-active-branch'))finish()}
   document.addEventListener('bwc:branch-ready',begin);
-  document.addEventListener('bwc:dashboard-data-ready',function(event){if(!waiting)return;var branchId=event.detail&&event.detail.branchId;if(!branchId||branchId===localStorage.getItem('bwc-active-branch')){coreReady=true;tryFinish()}});
-  document.addEventListener('bwc:invoices-loaded',function(){if(waiting){invoicesReady=true;tryFinish()}});
-  document.addEventListener('bwc:expenses-loaded',function(){if(waiting){expensesReady=true;tryFinish()}});
+  document.addEventListener('bwc:dashboard-period-changed',begin);
+  document.addEventListener('bwc:dashboard-data-ready',complete);
+  document.addEventListener('click',function(event){if(event.target&&event.target.closest('[data-t="dashboard"]'))begin()});
   begin();
 })();
