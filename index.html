@@ -635,11 +635,16 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
   document.addEventListener('click',function(event){if(event.target.closest('[data-t="dashboard"],[data-receipt-save],[data-exp-add],[onclick*="createInvoice"]'))setTimeout(update,190)});document.addEventListener('change',function(event){if(['dm','dy','exMonth','exYear'].includes(event.target.id))setTimeout(update,110)});window.addEventListener('load',function(){setTimeout(update,760)});setInterval(update,2500);
 })();
 </script><script>
-/* Local recovery history for the business records and custom page settings. */
+/* Online records are authoritative. Remove only obsolete recovery copies; keep
+   the current workspace, drafts, branch choice, branding, and sign-in intact. */
 (function(){
-  var keys=['15m-replica-invoices','15m-recovery-expenses','15m-recovery-payroll','15m-replica-quotes','15m-replica-client-feedback','15m-unit-schedule','15m-unit-schedule-alerts','15m-brand-theme','15m-custom-header','15m-business-contact'],historyKey='15m-replica-data-snapshots';
-  function snapshot(){try{var state={};keys.forEach(function(key){state[key]=localStorage.getItem(key)});var signature=JSON.stringify(state),history=JSON.parse(localStorage.getItem(historyKey)||'[]'),last=history[history.length-1];if(last&&last.signature===signature)return;history.push({savedAt:new Date().toISOString(),signature:signature,state:state});if(history.length>15)history=history.slice(-15);localStorage.setItem(historyKey,JSON.stringify(history))}catch(e){}}
-  window.__saveBusinessRecoverySnapshot=snapshot;window.addEventListener('load',function(){setTimeout(snapshot,900)});window.addEventListener('beforeunload',snapshot);setInterval(snapshot,4000);
+  function clearObsoleteRecovery(){try{
+    localStorage.removeItem('15m-replica-data-snapshots');
+    var stale=[];for(var i=0;i<localStorage.length;i++){var key=localStorage.key(i);if(key&&key.indexOf('15m-recovery-expenses:')===0)stale.push(key)}
+    stale.forEach(function(key){localStorage.removeItem(key)});
+  }catch(error){}}
+  window.__saveBusinessRecoverySnapshot=function(){};
+  clearObsoleteRecovery();
 })();
 </script><script>
 /* The detailed monthly profit-and-loss panel has been replaced by the accounting summary. */
