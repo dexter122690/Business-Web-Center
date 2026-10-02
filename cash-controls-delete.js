@@ -45,7 +45,7 @@
       if(/^receipt:/.test(source)){
         var receiptButton=document.createElement('button');receiptButton.type='button';receiptButton.className='secondary';receiptButton.textContent='Erase';receiptButton.dataset.cashReceiptDelete=source;action.appendChild(receiptButton);return;
       }
-      if(/^(expense:|petty-expense:|cib-expense:)/.test(source)){
+      if(/^(expense:|receipt-line:|petty-expense:|cib-expense:)/.test(source)){
         if(duplicateCashIds[id]){var duplicateButton=document.createElement('button');duplicateButton.type='button';duplicateButton.className='secondary';duplicateButton.textContent='Remove duplicate';duplicateButton.dataset.cashDuplicateDelete=id;action.appendChild(duplicateButton);return}
         var expenseId=linkedExpenseId(source);if(expenseId){var expenseButton=document.createElement('button');expenseButton.type='button';expenseButton.className='secondary';expenseButton.textContent='Erase';expenseButton.dataset.cashExpenseDelete=expenseId;action.appendChild(expenseButton)}return;
       }
@@ -55,7 +55,7 @@
       var cells=row.querySelectorAll('td');if(cells.length<5||cells.length>5)return;
       var record=records[index];
       var action=document.createElement('td');
-      var source=String(record&&record.source_key||''),protectedRecord=/^(invoice-cash:|expense:|receipt:|petty-expense:|cib-expense:)/.test(source);
+      var source=String(record&&record.source_key||''),protectedRecord=/^(invoice-cash:|expense:|receipt:|receipt-line:|petty-expense:|cib-expense:)/.test(source);
       if(protectedRecord){
         if(source.indexOf('invoice-cash:')===0&&activeRole==='owner'){
           var invoiceButton=document.createElement('button');invoiceButton.type='button';invoiceButton.className='secondary';invoiceButton.textContent='Delete cash payment';invoiceButton.dataset.cashInvoiceDelete=source.slice('invoice-cash:'.length);action.appendChild(invoiceButton);
@@ -73,14 +73,14 @@
     var actions=document.createElement('div');actions.id='cashTransferPanel';actions.className='two';actions.style.marginTop='14px';
     var categories='<option>Parts &amp; Materials</option><option>Labor</option><option>Salaries &amp; Wages</option><option>Cost of Sales</option><option>Shipping Expense</option><option>Transportation Allowance</option><option>Supplies Expense</option><option>Marketing Expense</option><option>Utilities Expense</option><option>Staff Cash Shortage / Unremitted Collection</option><option>Other</option>',today=new Date().toISOString().slice(0,10);
     function receiptExpenseForm(prefix,title,account){return '<div class="mini"><div class="k">'+account+' purchase</div><h3>'+title+'</h3><p class="muted">Save this purchase once. It creates the expense record and the matching '+account+' Out automatically.</p><div class="formgrid"><label>Date<input id="'+prefix+'Date" type="date" value="'+today+'"></label><label>Supplier name<input id="'+prefix+'Supplier" placeholder="e.g., ABC Auto Supply"></label><label>Receipt number<input id="'+prefix+'Receipt" placeholder="e.g., OR-000123"></label><label style="grid-column:span 2">Item / description<input id="'+prefix+'Description" placeholder="e.g., Emergency supplies"></label><label>Category<select id="'+prefix+'Category">'+categories+'</select></label><label>Amount (PHP)<input id="'+prefix+'Amount" type="number" min="0.01" step=".01" value="0"></label></div><button class="primary" type="button" data-'+(account==='CIB'?'cib':'petty')+'-expense style="margin-top:10px">'+title+'</button></div>'}
-    var reconciliation=activeRole==='owner'?'<div class="mini"><div class="k">Owner reconciliation</div><h3>Set Petty Cash to zero</h3><p class="muted">Creates a cash-ledger reconciliation adjustment only. It does not create an expense, sale, or invoice payment.</p><div class="formgrid"><label style="grid-column:span 2">Meeting note / reason<input id="cashPettyReconcileNote" placeholder="e.g., Meeting reconciliation — misunderstanding corrected"></label></div><button class="secondary" type="button" data-petty-reconcile style="margin-top:10px">Reconcile Petty Cash to zero</button></div>':'';
+    var reconciliation=activeRole==='owner'?'<div class="mini"><div class="k">Owner reconciliation</div><h3>Match Petty Cash to a physical count</h3><p class="muted">Use only after counting the actual cash. This creates a clearly labeled cash-ledger adjustment; it never creates or changes an expense, sale, or invoice.</p><div class="formgrid"><label>Actual counted cash (PHP)<input id="cashPettyCountedAmount" type="number" min="0" step=".01" value="0"></label><label>Count note / reason<input id="cashPettyCountedNote" placeholder="e.g., Physical count, 02 Oct 2026"></label></div><button class="secondary" type="button" data-petty-count-reconcile style="margin-top:10px">Reconcile to counted cash</button></div>':'';
     actions.innerHTML='<div class="mini"><div class="k">CIB remittance</div><h3>Remit CIB to owner</h3><p class="muted">Records money taken from CIB and remitted to the business owner.</p><div class="formgrid"><label>Amount (PHP)<input id="cashRemitAmount" type="number" min="0" step=".01" value="0"></label><label style="grid-column:span 2">Reference / note<input id="cashRemitNote" placeholder="e.g., Remitted to owner"></label></div><button class="primary" type="button" data-cash-remit style="margin-top:10px">Remit from CIB</button></div><div class="mini"><div class="k">Fund transfer</div><h3>Move CIB to Petty Cash</h3><p class="muted">Moves the same amount out of CIB and into Petty Cash.</p><div class="formgrid"><label>Amount (PHP)<input id="cashTransferAmount" type="number" min="0" step=".01" value="0"></label><label style="grid-column:span 2">Reference / note<input id="cashTransferNote" placeholder="e.g., Weekly petty cash fund"></label></div><button class="primary" type="button" data-cash-transfer style="margin-top:10px">Transfer to Petty Cash</button></div>'+reconciliation+receiptExpenseForm('pettyExpense','Record Petty Cash Expense with Receipt','Petty Cash')+receiptExpenseForm('cibExpense','Record CIB Expense with Receipt','CIB');
     var recent=Array.from(panel.children).find(function(child){return child.textContent.indexOf('Recent cash movement')>=0});
     if(recent)recent.insertAdjacentElement('beforebegin',actions);else panel.appendChild(actions);
   }
   function inputValue(id){var element=document.getElementById(id);return element?element.value.trim():''}
   function sourceId(prefix){return prefix+'-'+Date.now()+'-'+Math.random().toString(36).slice(2)}
-  function linkedExpenseId(source){var match=String(source||'').match(/^(?:expense|petty-expense|cib-expense):(.+)$/);return match?match[1]:''}
+  function linkedExpenseId(source){var match=String(source||'').match(/^(?:expense|receipt-line|petty-expense|cib-expense):(.+)$/);return match?match[1]:''}
   function receiptInfo(source){var parts=String(source||'').slice('receipt:'.length).split('|');return parts.length>=3?{supplier:parts[0],receipt:parts[1],date:parts.slice(2).join('|')}:null}
   function cashAmount(row){return Math.round((Number(row&&row.amount)||0)*100)}
   function receiptSource(item){return 'receipt:'+[item.supplier_name||'',item.receipt_number||'',item.expense_date||''].join('|')}
@@ -130,6 +130,16 @@
     var result=await db.from('cash_transactions').insert({business_id:businessId,branch_id:branch(),cash_account:'Petty Cash',direction:direction,amount:amount,transaction_date:new Date().toISOString().slice(0,10),source_key:sourceId('owner-petty-reconciliation'),reference_number:'Owner cash reconciliation',notes:description,created_by:userId});
     if(result.error){alert('Petty Cash reconciliation could not be saved: '+result.error.message);return}
     alert('Petty Cash was reconciled to zero. No expense or revenue was created.');document.dispatchEvent(new CustomEvent('bwc:cash-updated'));
+  }
+  async function reconcilePettyToCount(){
+    if(activeRole!=='owner'){alert('Only the business owner can reconcile Petty Cash.');return}
+    var counted=Number(inputValue('cashPettyCountedAmount')),note=inputValue('cashPettyCountedNote');if(!Number.isFinite(counted)||counted<0){alert('Enter the actual counted Petty Cash amount.');return}if(!note){alert('Enter the physical-count note or reason first.');return}
+    var movements=await db.from('cash_transactions').select('direction,amount').eq('business_id',businessId).eq('branch_id',branch()).eq('cash_account','Petty Cash');if(movements.error){alert('Petty Cash balance could not be checked: '+movements.error.message);return}
+    var balance=(movements.data||[]).reduce(function(total,row){return total+(row.direction==='In'?1:-1)*(Number(row.amount)||0)},0),difference=Math.round((counted-balance)*100)/100,amount=Math.abs(difference);if(amount<0.005){alert('The ledger already matches the counted cash.');return}
+    var direction=difference>0?'In':'Out',description='Physical cash count reconciliation — '+note;
+    if(!confirm('The ledger is PHP '+Math.abs(difference).toLocaleString('en-PH',{minimumFractionDigits:2})+' '+(direction==='In'?'below':'above')+' the counted cash. Record '+direction+' of PHP '+amount.toLocaleString('en-PH',{minimumFractionDigits:2})+' so Petty Cash becomes PHP '+counted.toLocaleString('en-PH',{minimumFractionDigits:2})+'?'))return;
+    var result=await db.from('cash_transactions').insert({business_id:businessId,branch_id:branch(),cash_account:'Petty Cash',direction:direction,amount:amount,transaction_date:new Date().toISOString().slice(0,10),source_key:sourceId('owner-petty-physical-count'),reference_number:'Physical cash count reconciliation',notes:description,created_by:userId});if(result.error){alert('Petty Cash reconciliation could not be saved: '+result.error.message);return}
+    alert('Petty Cash now matches the documented physical count. No expense, sale, or invoice was changed.');document.dispatchEvent(new CustomEvent('bwc:cash-updated'));
   }
   async function pettyExpense(){
     return recordCashExpense('Petty Cash','pettyExpense','petty-expense');
@@ -188,6 +198,7 @@
     var remitButton=event.target.closest('[data-cash-remit]');if(remitButton&&db){event.preventDefault();remit();return}
     var transferButton=event.target.closest('[data-cash-transfer]');if(transferButton&&db){event.preventDefault();transfer();return}
     var reconcileButton=event.target.closest('[data-petty-reconcile]');if(reconcileButton&&db){event.preventDefault();reconcilePettyCash();return}
+    var countedReconcileButton=event.target.closest('[data-petty-count-reconcile]');if(countedReconcileButton&&db){event.preventDefault();reconcilePettyToCount();return}
     var orphanCashButton=event.target.closest('[data-orphan-invoice-cash-delete]');if(orphanCashButton&&db){
       event.preventDefault();
       if(activeRole!=='owner'){alert('Only the business owner can remove an orphaned invoice cash record.');return}
