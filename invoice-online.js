@@ -115,8 +115,8 @@
     if(history.error)throw new Error('CIB payment history could not be checked: '+history.error.message);
     /* A paid invoice created today starts with a dated payment record.  This
        prevents the old invoice-total CIB record from ever being created. */
-    if(!(history.data||[]).length&&Number(x.paid||0)>0){
-      var opening=await db.from('invoice_payments').insert({invoice_id:remoteId,business_id:businessId,branch_id:branchId,payment_date:x.date||new Date().toISOString().slice(0,10),amount:Number(x.paid||0),payment_method:x.method||'Cash',reference_number:'Opening recorded payment',notes:'Initial payment recorded when the invoice was created.',received_by:null,created_by:userId});
+    if(x.isNewInvoice&&!(history.data||[]).length&&Number(x.paid||0)>0){
+      var opening=await db.from('invoice_payments').insert({invoice_id:remoteId,business_id:businessId,branch_id:branchId,payment_date:x.paymentDate,amount:Number(x.paid||0),payment_method:x.method||'Cash',reference_number:'Initial recorded payment',notes:'Initial payment recorded when the invoice was created.',received_by:null,created_by:userId});
       if(opening.error)throw new Error('Opening payment could not be recorded: '+opening.error.message);
     }
     var savedCash=await db.rpc('sync_invoice_payment_cash',{p_invoice_id:remoteId,p_branch_id:branchId});
@@ -127,9 +127,10 @@
     var req=['client','contact','address','make','yearModel','color','plate','invoiceDate','admin','source'];if(req.some(function(x){return !formValue(x)})){alert('Please complete every required field.');return}
     if(!services.length&&!parts.length){alert('Add at least one service or auto part.');return}
     var rawSubtotal=services.reduce(function(sum,row){return sum+Number(row.a||0)},0)+parts.reduce(function(sum,row){return sum+Number(row.a||0)},0),discount=Math.max(0,Number((document.getElementById('discountAmount')||{}).value)||0);if(discount>rawSubtotal){alert('Discount cannot be higher than the services and parts total.');return}
-    var x={id:edit||Date.now(),remoteId:edit&&(inv.find(function(i){return i.id===edit})||{}).remoteId,number:'',client:formValue('client'),contact:formValue('contact'),address:formValue('address'),email:formValue('email'),make:formValue('make'),yearModel:formValue('yearModel'),color:formValue('color'),plate:formValue('plate'),date:invoiceDate.value,release:releaseDate.value,admin:admin.value,method:method.value,source:source.value,services:services.slice(),parts:parts.slice(),discount:discount,total:total(),paid:+paid.value||0};
+    var x={id:edit||Date.now(),remoteId:edit&&(inv.find(function(i){return i.id===edit})||{}).remoteId,isNewInvoice:!edit,number:'',client:formValue('client'),contact:formValue('contact'),address:formValue('address'),email:formValue('email'),make:formValue('make'),yearModel:formValue('yearModel'),color:formValue('color'),plate:formValue('plate'),date:invoiceDate.value,release:releaseDate.value,paymentDate:formValue('paymentDate'),admin:admin.value,method:method.value,source:source.value,services:services.slice(),parts:parts.slice(),discount:discount,total:total(),paid:+paid.value||0};
     if(x.total<=0){alert('Enter at least one service or auto part amount greater than ₱0 before creating the invoice.');return}
     if(x.paid>x.total){alert('Amount paid cannot be higher than the invoice total.');return}
+    if(x.isNewInvoice&&x.paid>0&&!x.paymentDate){alert('Enter the actual payment received date before saving an initial payment.');return}
     x.balance=Math.max(0,x.total-x.paid);x.status=x.paid>=x.total?'Paid':x.paid?'Partially paid':'Pending';
     if(!online){var position=inv.findIndex(function(i){return i.id===x.id});x.number=edit?(inv[position]||{}).number:'INV-'+String(inv.length+1).padStart(5,'0');position<0?inv.unshift(x):inv[position]=x;cache();resetInvoice();render();show('invoices');return}
     if(!businessId||!localStorage.getItem('bwc-active-branch')){alert('The selected branch is still loading. Please wait a few seconds, then create the invoice again.');return}
@@ -172,7 +173,7 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
      existing online invoice is being edited. */
   var originalEditInvoice=window.editInvoice,originalResetInvoice=window.resetInvoice;
   if(originalEditInvoice)window.editInvoice=function(id){originalEditInvoice(id);setTimeout(paymentEditShortcut,0)};
-  if(originalResetInvoice)window.resetInvoice=function(){originalResetInvoice();setTimeout(paymentEditShortcut,0)};
+  if(originalResetInvoice)window.resetInvoice=function(){originalResetInvoice();setTimeout(function(){var paymentDate=document.getElementById('paymentDate');if(paymentDate)paymentDate.value='';paymentEditShortcut()},0)};
   async function start(){
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}
     db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db){setTimeout(start,300);return}workspaceLog('invoice-start:initializing');businessId=await resolveBusiness();if(!businessId){workspaceLog('invoice-start:no-workspace');message('Online invoices are ready, but this account has no selected active business yet. Approve or select the business first.');return}workspaceLog('invoice-start:workspace-ready',{workspaceId:businessId});inv=[];cache();render();renderLists();online=true;await loadAdmins();loadRemote();
