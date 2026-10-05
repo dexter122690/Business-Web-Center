@@ -522,6 +522,10 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
     if(services)services.innerHTML=Object.keys(mix).length?Object.keys(mix).map(function(name){return '<div class="line"><span>'+esc(name)+'</span><b>'+money(mix[name])+'</b></div>'}).join(''):'<div class="empty">No invoice payments recorded.</div>';
   }
   function salesReport(){
+    /* Once the online reporting layer is ready, it owns this view.  The
+       browser-only fallback has no payment-date records and would otherwise
+       overwrite the correct detailed payment report after the tab opens. */
+    if(window.__bwcOnlineReportingActive)return;
     var root=document.getElementById('reports');if(!root)return;var invoices=records().invoices.filter(function(x){return Number(x.paid||0)>0});
     root.innerHTML='<div class="heading"><div><div class="k">Auto-posted sales</div><h1>Invoice payments — complete reporting detail</h1><p class="muted">Every amount received, including partial payments, appears here automatically from Invoice Making.</p></div><div class="notice">The Dashboard filters control this report.</div></div><div class="card" style="padding:0;overflow:auto">'+(invoices.length?'<table><thead><tr><th>Invoice / date</th><th>Client</th><th>Vehicle</th><th>Service / work</th><th>Invoice total</th><th>Received</th><th>Balance</th><th>Status</th><th>Action</th></tr></thead><tbody>'+invoices.map(function(x){var work=(x.services||[]).map(function(s){return esc(s.n+(s.d?' - '+s.d:''))}).join('<br>')||'Parts only';return '<tr><td><b>'+esc(x.number)+'</b><br><small>'+esc(x.date)+'</small></td><td>'+esc(x.client)+'</td><td>'+esc([x.make,x.yearModel,x.plate].filter(Boolean).join(' '))+'</td><td>'+work+'</td><td>'+money(x.total)+'</td><td><b>'+money(x.paid)+'</b></td><td>'+money(x.balance)+'</td><td><span class="badge">'+esc(x.status||'Pending')+'</span></td><td><button class="secondary" data-linked-print="'+esc(x.id)+'">Print</button></td></tr>'}).join('')+'</tbody></table>':'<div class="empty">No invoice payments in the selected period.</div>')+'</div>';
   }
