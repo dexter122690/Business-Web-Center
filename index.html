@@ -963,7 +963,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
   function improveInitialPaymentForm(){
     var invoiceDate=document.getElementById('invoiceDate'),releaseDate=document.getElementById('releaseDate'),paid=document.getElementById('paid');
     if(!invoiceDate||!releaseDate||!paid)return;
-    if(!document.getElementById('paymentDate')){var label=document.createElement('label');label.innerHTML='Payment received date *<input id="paymentDate" type="date"><small>Required only when recording an initial payment.</small>';releaseDate.closest('label').insertAdjacentElement('afterend',label)}
+    if(!document.getElementById('paymentDate')){var label=document.createElement('label'),caption=document.createTextNode('Actual initial payment date *'),field=document.createElement('input'),help=document.createElement('small');field.id='paymentDate';field.type='date';help.textContent='Required only when an initial payment is entered. Use the real date the client paid.';label.appendChild(caption);label.appendChild(field);label.appendChild(help);releaseDate.closest('label').insertAdjacentElement('afterend',label)}
     var paidLabel=paid.closest('label');if(paidLabel)paidLabel.firstChild.nodeValue='Initial payment received (PHP)';
     var received=document.getElementById('received'),receivedLabel=received&&received.previousElementSibling;if(receivedLabel)receivedLabel.textContent='Initial payment received';
   }

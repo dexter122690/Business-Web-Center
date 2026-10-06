@@ -59,7 +59,8 @@
     var admins=combined.filter(isAdmin);renderAdmins(combined);
     if(!admins.length){var branchName=(document.querySelector('#onlineBranchPicker option:checked')||{}).textContent||'this branch';message('No active employee with the designation Admin is saved online for '+branchName+'. Open Payroll > Workers, set the employee designation to Admin, and save the employee.');}
   }
-  function invoicePayload(x){return {business_id:businessId,branch_id:localStorage.getItem('bwc-active-branch'),client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,discount_amount:x.discount||0,total_amount:x.total,amount_paid:x.paid,status:x.status,created_by:userId}}
+  function paidFromHistory(item){return Math.max(Number(item&&item.paid||0),(item&&item.payments||[]).reduce(function(sum,payment){return sum+Number(payment.amount||0)},0))}
+  function invoicePayload(x){var openingPayment=!!(x.isNewInvoice&&Number(x.paid||0)>0);return {business_id:businessId,branch_id:localStorage.getItem('bwc-active-branch'),client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,discount_amount:x.discount||0,total_amount:x.total,amount_paid:openingPayment?0:x.paid,status:openingPayment?'Pending':x.status,created_by:userId}}
   async function confirmInvoiceBranchAccess(){
     workspaceLog('saveInvoice:workspace-check-start',{saveInvoiceWorkspaceId:businessId||null,userId:userId||null});
     try{var refreshed=await db.rpc('refresh_my_team_access');workspaceLog('saveInvoice:team-access-refresh',{refreshResult:refreshed.data||null,supabaseError:refreshed.error||null})}catch(refreshError){workspaceLog('saveInvoice:team-access-refresh-error',{supabaseError:refreshError})}
@@ -118,6 +119,8 @@
     if(x.isNewInvoice&&!(history.data||[]).length&&Number(x.paid||0)>0){
       var opening=await db.from('invoice_payments').insert({invoice_id:remoteId,business_id:businessId,branch_id:branchId,payment_date:x.paymentDate,amount:Number(x.paid||0),payment_method:x.method||'Cash',reference_number:'Initial recorded payment',notes:'Initial payment recorded when the invoice was created.',received_by:null,created_by:userId});
       if(opening.error)throw new Error('Opening payment could not be recorded: '+opening.error.message);
+      var openingStatus=Number(x.paid||0)>=Number(x.total||0)?'Paid':'Partially paid',header=await db.from('invoices').update({amount_paid:Number(x.paid||0),status:openingStatus,payment_method:x.method||'Cash'}).eq('id',remoteId).eq('business_id',businessId).eq('branch_id',branchId);
+      if(header.error)throw new Error('Opening payment was saved, but the invoice total could not be updated: '+header.error.message);
     }
     var savedCash=await db.rpc('sync_invoice_payment_cash',{p_invoice_id:remoteId,p_branch_id:branchId});
     if(savedCash.error)throw new Error('CIB update failed: '+savedCash.error.message);
@@ -127,11 +130,14 @@
     var req=['client','contact','address','make','yearModel','color','plate','invoiceDate','admin','source'];if(req.some(function(x){return !formValue(x)})){alert('Please complete every required field.');return}
     if(!services.length&&!parts.length){alert('Add at least one service or auto part.');return}
     var rawSubtotal=services.reduce(function(sum,row){return sum+Number(row.a||0)},0)+parts.reduce(function(sum,row){return sum+Number(row.a||0)},0),discount=Math.max(0,Number((document.getElementById('discountAmount')||{}).value)||0);if(discount>rawSubtotal){alert('Discount cannot be higher than the services and parts total.');return}
-    var x={id:edit||Date.now(),remoteId:edit&&(inv.find(function(i){return i.id===edit})||{}).remoteId,isNewInvoice:!edit,number:'',client:formValue('client'),contact:formValue('contact'),address:formValue('address'),email:formValue('email'),make:formValue('make'),yearModel:formValue('yearModel'),color:formValue('color'),plate:formValue('plate'),date:invoiceDate.value,release:releaseDate.value,paymentDate:formValue('paymentDate'),admin:admin.value,method:method.value,source:source.value,services:services.slice(),parts:parts.slice(),discount:discount,total:total(),paid:+paid.value||0};
+    var existing=edit&&inv.find(function(i){return i.id===edit}),x={id:edit||Date.now(),remoteId:existing&&existing.remoteId,isNewInvoice:!edit,number:'',client:formValue('client'),contact:formValue('contact'),address:formValue('address'),email:formValue('email'),make:formValue('make'),yearModel:formValue('yearModel'),color:formValue('color'),plate:formValue('plate'),date:invoiceDate.value,release:releaseDate.value,paymentDate:formValue('paymentDate'),admin:admin.value,method:method.value,source:source.value,services:services.slice(),parts:parts.slice(),discount:discount,total:total(),paid:+paid.value||0};
     if(x.total<=0){alert('Enter at least one service or auto part amount greater than ₱0 before creating the invoice.');return}
     if(x.paid>x.total){alert('Amount paid cannot be higher than the invoice total.');return}
     if(x.isNewInvoice&&x.paid>0&&!x.paymentDate){alert('Enter the actual payment received date before saving an initial payment.');return}
-    x.balance=Math.max(0,x.total-x.paid);x.status=x.paid>=x.total?'Paid':x.paid?'Partially paid':'Pending';
+    /* Editing invoice details must never silently change the amount collected.
+       New money is recorded only through the installment history. */
+    if(existing){x.paid=paidFromHistory(existing);x.status=existing.writtenOff>0?existing.status:(x.paid>=x.total?'Paid':x.paid?'Partially paid':'Pending')}
+    x.balance=Math.max(0,x.total-x.paid);x.status=x.paid>=x.total?'Paid':x.paid?'Partially paid':x.status||'Pending';
     if(!online){var position=inv.findIndex(function(i){return i.id===x.id});x.number=edit?(inv[position]||{}).number:'INV-'+String(inv.length+1).padStart(5,'0');position<0?inv.unshift(x):inv[position]=x;cache();resetInvoice();render();show('invoices');return}
     if(!businessId||!localStorage.getItem('bwc-active-branch')){alert('The selected branch is still loading. Please wait a few seconds, then create the invoice again.');return}
     var branchAccess=await confirmInvoiceBranchAccess();if(branchAccess.corrected){alert('Your saved branch was corrected to your assigned branch. The page will now refresh; create the invoice again after it reloads.');location.reload();return}if(branchAccess.error){alert(branchAccess.error);return}
@@ -172,8 +178,8 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
      changing the familiar editor so the payment workflow appears only when an
      existing online invoice is being edited. */
   var originalEditInvoice=window.editInvoice,originalResetInvoice=window.resetInvoice;
-  if(originalEditInvoice)window.editInvoice=function(id){originalEditInvoice(id);setTimeout(paymentEditShortcut,0)};
-  if(originalResetInvoice)window.resetInvoice=function(){originalResetInvoice();setTimeout(function(){var paymentDate=document.getElementById('paymentDate');if(paymentDate)paymentDate.value='';paymentEditShortcut()},0)};
+  if(originalEditInvoice)window.editInvoice=function(id){originalEditInvoice(id);setTimeout(function(){var amount=document.getElementById('paid'),amountLabel=amount&&amount.closest('label');if(amount){amount.disabled=true;amount.title='Use Payment records to add or correct money received.'}if(amountLabel){amountLabel.firstChild.nodeValue='Amount received to date (managed in Payment records)'}paymentEditShortcut()},0)};
+  if(originalResetInvoice)window.resetInvoice=function(){originalResetInvoice();setTimeout(function(){var paymentDate=document.getElementById('paymentDate'),amount=document.getElementById('paid'),amountLabel=amount&&amount.closest('label');if(paymentDate)paymentDate.value='';if(amount){amount.disabled=false;amount.title=''}if(amountLabel)amountLabel.firstChild.nodeValue='Initial payment received (PHP)';paymentEditShortcut()},0)};
   async function start(){
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}
     db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db){setTimeout(start,300);return}workspaceLog('invoice-start:initializing');businessId=await resolveBusiness();if(!businessId){workspaceLog('invoice-start:no-workspace');message('Online invoices are ready, but this account has no selected active business yet. Approve or select the business first.');return}workspaceLog('invoice-start:workspace-ready',{workspaceId:businessId});inv=[];cache();render();renderLists();online=true;await loadAdmins();loadRemote();
