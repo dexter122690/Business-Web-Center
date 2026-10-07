@@ -28,7 +28,11 @@
     return (!period.month || date.getMonth() === Number(period.month)) && (!period.year || String(date.getFullYear()) === String(period.year));
   }
   function datedTotal(invoice) { return (invoice.invoice_payments || []).reduce(function (sum, payment) { return sum + number(payment.amount); }, 0); }
-  function writeoffTotal(invoice) { return (invoice.invoice_balance_writeoffs || []).reduce(function (sum, item) { return sum + number(item.amount); }, 0); }
+  function writeoffRecords(invoice) {
+    var value = invoice && invoice.invoice_balance_writeoffs;
+    return Array.isArray(value) ? value : (value ? [value] : []);
+  }
+  function writeoffTotal(invoice) { return writeoffRecords(invoice).reduce(function (sum, item) { return sum + number(item.amount); }, 0); }
   function receivedTotal(invoice) { return Math.max(number(invoice.amount_paid), datedTotal(invoice)); }
   function outstanding(invoice) { return Math.max(0, number(invoice.total_amount) - receivedTotal(invoice) - writeoffTotal(invoice)); }
   function missingDate(invoice) { return Math.max(0, number(invoice.amount_paid) - datedTotal(invoice)); }
