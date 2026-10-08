@@ -75,7 +75,13 @@
   async function deleteExpense(id){
     if(!id||pendingExpenseDeletes[id])return;
     var item=await findExpense(id);if(item&&item.remarks==='Manual multi-item receipt entry'){alert('This is a legacy shared receipt line. It cannot be deleted individually because its cash record is shared. Use a documented cash adjustment instead.');return}
-    var decision=prompt('How should the cash be treated? Type REVERSE if this was a mistaken entry and no money was spent. Type KEEP if the cash was actually spent and only the expense record should be removed.','');if(!decision)return;decision=decision.trim().toUpperCase();if(decision!=='REVERSE'&&decision!=='KEEP'){alert('Nothing was changed. Type REVERSE or KEEP.');return}
+    var decision;
+    if(!cashAccount((item||{}).paymentMethod)){
+      if(!confirm('Permanently delete this Authorized Manager expense? It has no linked CIB or Petty Cash movement.'))return;
+      decision='REVERSE';
+    }else{
+      decision=prompt('How should the cash be treated? Type REVERSE if this was a mistaken entry and no money was spent. Type KEEP if the cash was actually spent and only the expense record should be removed.','');if(!decision)return;decision=decision.trim().toUpperCase();if(decision!=='REVERSE'&&decision!=='KEEP'){alert('Nothing was changed. Type REVERSE or KEEP.');return}
+    }
     var keepReason='';if(decision==='KEEP'){keepReason=prompt('Enter why the cash must remain after this expense record is removed.','');if(!keepReason)return}
     pendingExpenseDeletes[id]=true;
     Array.prototype.forEach.call(document.querySelectorAll('[data-delete-expense]'),function(button){if(button.dataset.deleteExpense===String(id)){button.disabled=true;button.textContent='Deleting…';var row=button.closest('tr');if(row)row.style.opacity='.45'}});
