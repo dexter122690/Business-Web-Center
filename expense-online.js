@@ -87,7 +87,7 @@
   }
   async function deleteExpense(id,decision,keepReason){
     if(!id||pendingExpenseDeletes[id])return;
-    var item=await findExpense(id);if(item&&item.remarks==='Manual multi-item receipt entry'){alert('This is a legacy shared receipt line. It cannot be deleted individually because its cash record is shared. Use a documented cash adjustment instead.');return}
+    var item=await findExpense(id);
     if(!decision){voidExpensePanel(id,item);return}
     if(['REVERSE','KEEP'].indexOf(decision)<0)return;if(decision==='KEEP'&&!String(keepReason||'').trim()){alert('Enter why the cash remains spent.');return}
     pendingExpenseDeletes[id]=true;
