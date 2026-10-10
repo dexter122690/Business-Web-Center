@@ -1,7 +1,7 @@
 /* Separate Inventory Tracker. Legacy Inventory data is never read or changed. */
 (function(){
   var db=null,materials=[],vehicles=[],usages=[],usageLines=[],selected='',lines=[],expanded=false,archiveExpanded=false,query='',busy=false;
-  var defaults=['LIHA 120','LIHA 220','LIHA 240','LIHA 400','LIHA 600','LIHA 800','LIHA 1000','LIHA 1500','LIHA 2000','LIHA 3000','MASILYA 1 Gal','THINNER Gallon','PRIMER SURFACER 1L','Masking Tape','Dyaryo','Topcoat 1L','Paint Strainer','Degreasing Cloth','Tack Cloth','Rubbing Compound','Ceramic Coating Chemical 1 Bottle'];
+  var defaults=['Liha 120','Liha 220','Liha 240','Liha 400','Liha 600','Liha 800','Liha 1000','Liha 1500','Liha 2000','Liha 3000','Masilya (1 gal)','Thinner (1 gal)','Primer Surfacer (1 L)','Masking Tape','Dyaryo','Topcoat (1 L)','Paint Strainer','Degreasing Cloth','Tack Cloth','Rubbing Compound','Ceramic Coating Chemical (1 bottle)'];
   function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   function biz(){return localStorage.getItem('bwc-active-business')||''}function branch(){return localStorage.getItem('bwc-active-branch')||''}
   function emptyLines(){return Array.from({length:5},function(){return {material_id:'',quantity:1}})}
