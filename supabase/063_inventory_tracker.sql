@@ -18,12 +18,8 @@ create table if not exists public.inventory_tracker_vehicles (
   branch_id uuid not null references public.branches(id) on delete restrict,
   vehicle_name text not null, plate_number text not null,
   created_by uuid references auth.users(id) on delete set null,
-  released_at timestamptz,
-  released_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
-alter table public.inventory_tracker_vehicles add column if not exists released_at timestamptz;
-alter table public.inventory_tracker_vehicles add column if not exists released_by uuid references auth.users(id) on delete set null;
 create table if not exists public.inventory_tracker_usage (
   id uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses(id) on delete cascade,
