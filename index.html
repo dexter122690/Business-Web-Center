@@ -984,7 +984,24 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
   window.addEventListener('load',function(){setTimeout(improveInitialPaymentForm,80)});
   document.addEventListener('click',function(event){if(event.target.closest('[data-t="invoices"]'))setTimeout(improveInitialPaymentForm,40)});
 }());
-</script><script src="attendance-register.js"></script><script src="quotation-discount.js?v=20260921"></script><script src="quotation-prepared-by.js?v=20260922-signature"></script><script src="quotation-print-preview.js?v=20260922"></script></body></html>
+</script><script src="attendance-register.js"></script><script src="quotation-discount.js?v=20260921"></script><script src="quotation-prepared-by.js?v=20260922-signature"></script><script src="quotation-print-preview.js?v=20260922"></script><script>
+(function(){
+  var specs=[
+    {id:'search',label:'Search previous invoice records by client name or plate number',placeholder:'Search client name or plate number'},
+    {id:'cmSearch',label:'Search previous client records by name or plate number',placeholder:'Search client name or plate number'},
+    {id:'masterSearch',label:'Search previous client records by name or plate number',placeholder:'Search client name or plate number'}
+  ];
+  function enhance(){
+    specs.forEach(function(spec){
+      var input=document.getElementById(spec.id);if(!input)return;
+      input.placeholder=spec.placeholder;input.setAttribute('aria-label',spec.label);input.classList.add('bwc-record-search');
+      var label=input.closest('label');if(label){label.classList.add('bwc-record-search-label');if(label.firstChild&&label.firstChild.nodeType===3)label.firstChild.nodeValue=spec.label}
+    });
+    if(!document.getElementById('bwcRecordSearchStyle')){var style=document.createElement('style');style.id='bwcRecordSearchStyle';style.textContent='.bwc-record-search-label{font-weight:700;min-width:280px}.bwc-record-search{border:1px solid #ffb08e!important;box-shadow:0 0 0 2px rgba(255,82,25,.06);font-size:14px}.bwc-record-search:focus{border-color:#ff5219!important;box-shadow:0 0 0 3px rgba(255,82,25,.15)}';document.head.appendChild(style)}
+  }
+  enhance();new MutationObserver(enhance).observe(document.body,{childList:true,subtree:true});
+})();
+</script></body></html>
 
 
 
