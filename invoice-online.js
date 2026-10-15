@@ -45,10 +45,15 @@
     field.innerHTML=admins.length?'<option value="">Select admin</option>'+admins.map(function(worker){return '<option value="'+escapeHtml(worker.full_name)+'">'+escapeHtml(worker.full_name)+'</option>'}).join(''):'<option value="">No Admin employee in this branch</option>';
     if(admins.some(function(worker){return worker.full_name===selected}))field.value=selected;
   }
+  function renderOfflineAdmins(){
+    var field=document.getElementById('admin');if(!field)return;
+    field.dataset.onlineAdmins='0';
+    field.innerHTML='<option value="">Select admin</option><option value="Owner / Admin">Owner / Admin</option>';
+  }
   async function loadAdmins(){
-    var branchId=localStorage.getItem('bwc-active-branch');if(!businessId||!branchId){renderAdmins([]);return}
+    var branchId=localStorage.getItem('bwc-active-branch');if(!navigator.onLine){renderOfflineAdmins();return}if(!businessId||!branchId){renderAdmins([]);return}
     var result=await db.from('payroll_workers').select('full_name,position,is_active').eq('business_id',businessId).eq('branch_id',branchId).eq('is_active',true).order('full_name');
-    if(result.error){renderAdmins([]);message('Admin list could not load: '+result.error.message);return}
+    if(result.error){renderOfflineAdmins();message('Admin list is unavailable online. You can use Owner / Admin while offline.');return}
     /* Team Access administrators are valid invoice assignees even when they
        are not paid through the Payroll employee roster. Read the approved
        assignment itself so a newly accepted account is not missed while its
