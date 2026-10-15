@@ -1,10 +1,11 @@
-const CACHE_NAME = 'bwc-invoice-offline-v1';
+const CACHE_NAME = 'bwc-invoice-offline-v2';
 const APP_SHELL = [
   '/index.html',
   '/auth.html',
   '/app-config.js',
   '/site.webmanifest',
   '/invoice-online.js',
+  '/payroll-online.js?v=20261015-money-fix',
   '/invoice-discounts.js',
   '/invoice-payments-online.js',
   '/invoice-payment-print.js',
