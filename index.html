@@ -1002,6 +1002,8 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
   }
   enhance();new MutationObserver(enhance).observe(document.body,{childList:true,subtree:true});
 })();
+</script><script>
+if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(error){console.warn('Offline app cache unavailable:',error)})})}
 </script></body></html>
 
 

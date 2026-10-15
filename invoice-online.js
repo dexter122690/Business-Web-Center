@@ -9,6 +9,9 @@
   }
   function localKey(){return '15m-replica-invoices'}
   function cache(){try{localStorage.setItem(localKey(),JSON.stringify(inv))}catch(e){}}
+  function offlineQueueKey(){return '15m-offline-invoice-queue'}
+  function readOfflineQueue(){try{var rows=JSON.parse(localStorage.getItem(offlineQueueKey())||'[]');return Array.isArray(rows)?rows:[]}catch(e){return []}}
+  function writeOfflineQueue(rows){try{localStorage.setItem(offlineQueueKey(),JSON.stringify(rows||[]))}catch(e){}}
   function message(text){var box=document.getElementById('invoiceOnlineStatus');if(!box){box=document.createElement('div');box.id='invoiceOnlineStatus';box.className='notice';var view=document.getElementById('invoices');if(view)view.insertBefore(box,view.firstChild)}if(box)box.textContent=text}
   function normalize(row){var services=(row.invoice_services||[]).map(function(s){return {n:s.service_name,d:s.service_detail||'',a:Number(s.amount||0)}}),parts=(row.invoice_parts||[]).map(function(p){var q=Number(p.quantity||0),price=Number(p.unit_price||0);return {n:p.part_name,q:q,p:price,a:q*price}}),payments=(row.invoice_payments||[]).map(function(p){return {date:p.payment_date,amount:Number(p.amount||0),method:p.payment_method||'',reference:p.reference_number||'',notes:p.notes||'',createdAt:p.created_at||''}}),rawWriteoffs=row.invoice_balance_writeoffs,writeoffs=Array.isArray(rawWriteoffs)?rawWriteoffs:(rawWriteoffs?[rawWriteoffs]:[]),writtenOff=writeoffs.reduce(function(sum,item){return sum+Number(item.amount||0)},0);return {id:row.invoice_number,remoteId:row.id,number:'INV-'+String(row.invoice_number).padStart(5,'0'),client:row.client_name,contact:row.contact_number,address:row.client_address,email:row.client_email||'',make:row.vehicle_make,yearModel:row.vehicle_year_model,color:row.vehicle_color,plate:row.plate_number,date:row.invoice_date,release:row.release_date||'',admin:row.assigned_admin,method:row.payment_method,source:row.client_source,services:services,parts:parts,payments:payments,total:Number(row.total_amount||0),paid:Number(row.amount_paid||0),writtenOff:writtenOff,balance:Math.max(0,Number(row.total_amount||0)-Number(row.amount_paid||0)-writtenOff),status:row.status}}
   async function resolveBusiness(){
@@ -126,6 +129,23 @@
     if(savedCash.error)throw new Error('CIB update failed: '+savedCash.error.message);
     document.dispatchEvent(new Event('bwc:cash-updated'));
   }
+  async function syncOfflineQueue(){
+    if(!online||!businessId||!localStorage.getItem('bwc-active-branch'))return;
+    var queue=readOfflineQueue();if(!queue.length)return;
+    message('Syncing '+queue.length+' invoice'+(queue.length===1?'':'s')+' saved offline…');
+    var remaining=[];
+    for(var i=0;i<queue.length;i++){
+      var item=queue[i];
+      try{
+        var inserted=await db.from('invoices').insert(invoicePayload(item)).select('id,invoice_number').single();
+        if(inserted.error)throw new Error(inserted.error.message);
+        await writeLines(inserted.data.id,item);
+        await syncInvoiceCashIn(inserted.data.id,inserted.data.invoice_number,item);
+      }catch(error){remaining.push(item);console.warn('Offline invoice remains queued:',error)}
+    }
+    writeOfflineQueue(remaining);await loadRemote();
+    message(remaining.length?remaining.length+' offline invoice'+(remaining.length===1?'':'s')+' still waiting to sync. We will retry automatically.':'All offline invoices synced securely online.');
+  }
   window.createInvoice=async function(){
     var req=['client','contact','address','make','yearModel','color','plate','invoiceDate','admin','source'];if(req.some(function(x){return !formValue(x)})){alert('Please complete every required field.');return}
     if(!services.length&&!parts.length){alert('Add at least one service or auto part.');return}
@@ -138,7 +158,7 @@
        New money is recorded only through the installment history. */
     if(existing){x.paid=paidFromHistory(existing);x.status=existing.writtenOff>0?existing.status:(x.paid>=x.total?'Paid':x.paid?'Partially paid':'Pending')}
     x.balance=Math.max(0,x.total-x.paid);x.status=x.paid>=x.total?'Paid':x.paid?'Partially paid':x.status||'Pending';
-    if(!online){var position=inv.findIndex(function(i){return i.id===x.id});x.number=edit?(inv[position]||{}).number:'INV-'+String(inv.length+1).padStart(5,'0');position<0?inv.unshift(x):inv[position]=x;cache();resetInvoice();render();show('invoices');return}
+    if(!online){var position=inv.findIndex(function(i){return i.id===x.id});x.number=edit?(inv[position]||{}).number:'OFF-'+String(Date.now()).slice(-8);x.offlinePending=true;var pending=readOfflineQueue();pending.push(x);writeOfflineQueue(pending);position<0?inv.unshift(x):inv[position]=x;cache();resetInvoice();render();show('invoices');message('Invoice saved offline on this device. It will sync automatically when internet returns.');return}
     if(!businessId||!localStorage.getItem('bwc-active-branch')){alert('The selected branch is still loading. Please wait a few seconds, then create the invoice again.');return}
     var branchAccess=await confirmInvoiceBranchAccess();if(branchAccess.corrected){alert('Your saved branch was corrected to your assigned branch. The page will now refresh; create the invoice again after it reloads.');location.reload();return}if(branchAccess.error){alert(branchAccess.error);return}
 message('Saving invoice securely…');var savedInvoiceNumber=null;try{
@@ -182,7 +202,7 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
   if(originalResetInvoice)window.resetInvoice=function(){originalResetInvoice();setTimeout(function(){var paymentDate=document.getElementById('paymentDate'),amount=document.getElementById('paid'),amountLabel=amount&&amount.closest('label');if(paymentDate)paymentDate.value='';if(amount){amount.disabled=false;amount.title=''}if(amountLabel)amountLabel.firstChild.nodeValue='Initial payment received (PHP)';paymentEditShortcut()},0)};
   async function start(){
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}
-    db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db){setTimeout(start,300);return}workspaceLog('invoice-start:initializing');businessId=await resolveBusiness();if(!businessId){workspaceLog('invoice-start:no-workspace');message('Online invoices are ready, but this account has no selected active business yet. Approve or select the business first.');return}workspaceLog('invoice-start:workspace-ready',{workspaceId:businessId});inv=[];cache();render();renderLists();online=true;await loadAdmins();loadRemote();
+    db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db){setTimeout(start,300);return}workspaceLog('invoice-start:initializing');businessId=await resolveBusiness();if(!businessId){workspaceLog('invoice-start:no-workspace');message('Offline invoice mode is ready on this device. Existing local drafts can still be used.');return}workspaceLog('invoice-start:workspace-ready',{workspaceId:businessId});inv=[];cache();render();renderLists();online=true;await loadAdmins();await loadRemote();syncOfflineQueue();
   }
   document.addEventListener('click',function(event){if(online&&event.target.closest('[data-t="invoices"]'))setTimeout(loadAdmins,80)});
   document.addEventListener('bwc:branch-ready',function(){if(online){loadAdmins();loadRemote()}});
@@ -196,6 +216,8 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
   document.addEventListener('bwc:workers-loaded',function(){if(online)loadAdmins()});
   document.addEventListener('bwc:invoice-deleted',function(){if(online)loadRemote()});
   document.addEventListener('bwc:invoice-payments-updated',function(){if(online)loadRemote()});
+  window.addEventListener('offline',function(){message('Offline mode: new invoices will be saved on this device until internet returns.')});
+  window.addEventListener('online',function(){if(online)syncOfflineQueue();else start()});
   function safe(value){return String(value||'').replace(/[&<>'"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]})}
   function money(value){return 'PHP '+Number(value||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}
   function preview(){var panel=document.querySelector('#invoices aside.card');if(!panel)return;var header={company:'Your Business Name'},contact={address:'',phone:'',email:''},theme={accent:'#ff5219',text:'#16100d',soft:'#fff0e9'};try{header=Object.assign(header,JSON.parse(localStorage.getItem('15m-custom-header')||'{}'));contact=Object.assign(contact,JSON.parse(localStorage.getItem('15m-business-contact')||'{}'));theme=Object.assign(theme,JSON.parse(localStorage.getItem('15m-brand-theme')||'{}'))}catch(error){}var logo=localStorage.getItem('15m-custom-logo')||'',client=formValue('client')||'Client name',vehicle=[formValue('make'),formValue('yearModel'),formValue('plate')].filter(Boolean).join(' · ')||'Vehicle details',serviceRows=(window.services||[]).slice(0,3).map(function(row){return '<div class="bwc-preview-row"><span>'+safe(row.n)+(row.d?' - '+safe(row.d):'')+'</span><b>'+money(row.a)+'</b></div>'}).join('')||'<div class="bwc-preview-row"><span>Service details</span><b>PHP 0.00</b></div>',partRows=(window.parts||[]).slice(0,2).map(function(row){return '<div class="bwc-preview-row"><span>'+safe(row.n)+' × '+Number(row.q||0)+'</span><b>'+money(row.a||Number(row.q||0)*Number(row.p||0))+'</b></div>'}).join(''),total=typeof window.total==='function'?window.total():0,discount=Math.max(0,Number((document.getElementById('discountAmount')||{}).value)||0),subtotal=total+discount,discountRows=discount>0?'<div class="bwc-preview-row"><span>Subtotal</span><b>'+money(subtotal)+'</b></div><div class="bwc-preview-row bwc-preview-discount"><span>Discount</span><b>- '+money(discount)+'</b></div>':'';panel.innerHTML='<style>.bwc-print-preview{font:10px Arial;color:'+theme.text+';background:#fff;border:1px solid #dcd2cd;border-radius:8px;padding:13px}.bwc-preview-head{display:flex;gap:8px;align-items:center;border-bottom:2px solid '+theme.accent+';padding-bottom:8px}.bwc-preview-head img{max-width:34px;max-height:34px;object-fit:contain}.bwc-preview-logo{display:grid;place-items:center;width:31px;height:31px;border:1px solid '+theme.accent+';color:'+theme.accent+';font-size:8px}.bwc-preview-doc{margin-left:auto;color:'+theme.accent+';font-weight:bold;letter-spacing:.8px}.bwc-preview-row{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid #eee}.bwc-preview-discount{color:#9a3819}.bwc-preview-section{font-weight:bold;color:'+theme.accent+';margin-top:9px}.bwc-preview-total{text-align:right;color:'+theme.accent+';font-size:13px;font-weight:bold;margin-top:9px}</style><div class="k">Invoice preview</div><h2>Printed copy preview</h2><div class="bwc-print-preview"><div class="bwc-preview-head">'+(logo?'<img src="'+safe(logo)+'" alt="Logo">':'<div class="bwc-preview-logo">logo</div>')+'<div><b>'+safe(header.company)+'</b><br><small>'+safe(contact.address)+'<br>'+safe(contact.phone)+'<br>'+safe(contact.email)+'</small></div><div class="bwc-preview-doc">INVOICE<br><small>INV-NEW</small></div></div><p><b>'+safe(client)+'</b><br>'+safe(formValue('contact'))+'<br>'+safe(formValue('address'))+'<br>'+safe(vehicle)+'</p><div class="bwc-preview-section">SERVICES</div>'+serviceRows+(partRows?'<div class="bwc-preview-section">PARTS</div>'+partRows:'')+discountRows+'<div class="bwc-preview-total">TOTAL '+money(total)+'</div></div><p class="muted" style="margin-bottom:0">This is a live preview. The final printable invoice also includes the assigned admin and signature lines.</p>'}

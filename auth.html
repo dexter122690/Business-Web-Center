@@ -86,4 +86,6 @@ forgot.onclick=async function(){if(!db)return unavailable();if(!loginEmail.value
   var form=document.getElementById('inviteAcceptForm');form.classList.add('active');
   document.getElementById('invitePasswordForm').onsubmit=async function(event){event.preventDefault();var button=event.submitter,current=await session();if(!current){say('This invitation link has expired. Ask the business owner to resend it.','error');return}button.disabled=true;button.textContent='Saving...';var updated=await db.auth.updateUser({password:document.getElementById('invitePassword').value});button.disabled=false;button.textContent='Save password';if(updated.error){say(updated.error.message,'error');return}say('Password saved. Checking your team access...','info');await enterTeam()};
 })();
-</script><script src="auth-team.js"></script></body></html>
+</script><script src="auth-team.js"></script><script>
+if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(error){console.warn('Offline app cache unavailable:',error)})})}
+</script></body></html>
