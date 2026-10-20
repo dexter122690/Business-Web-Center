@@ -559,7 +559,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
   function list(key){try{return JSON.parse(localStorage.getItem(key)||'[]')}catch(e){return []}}
   function money(value){return 'PHP '+Number(value||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}
   function inPeriod(item){var month=(document.getElementById('dm')||{}).value||'',year=(document.getElementById('dy')||{}).value||'',date=new Date(item.date+'T00:00:00');return (!month||date.getMonth()===Number(month))&&(!year||String(date.getFullYear())===String(year))}
-  function update(){
+  function update(){if(window.__bwcOnlineReportingActive)return;
     var dashboard=document.getElementById('dashboard');if(!dashboard)return;var box=document.getElementById('financialPieCard');if(!box){box=document.createElement('div');box.id='financialPieCard';box.className='card';box.style.marginTop='14px';dashboard.appendChild(box)}
     var invoices=list('15m-replica-invoices').filter(inPeriod),expenses=list('15m-recovery-expenses').filter(inPeriod),sales=invoices.reduce(function(sum,item){return sum+Number(item.paid||0)},0),cost=expenses.filter(function(item){return (item.category||item.type)==='Cost of Sales'}).reduce(function(sum,item){return sum+Number(item.amount||0)*Number(item.quantity||1)},0),totalExpenses=expenses.reduce(function(sum,item){return sum+Number(item.amount||0)*Number(item.quantity||1)},0),opex=Math.max(0,totalExpenses-cost),gross=sales-cost,net=sales-totalExpenses;
     var values=[sales,cost,opex,gross,net].map(function(value){return Math.max(0,Number(value||0))}),total=values.reduce(function(sum,value){return sum+value},0)||1,colors=['var(--o)','#3b82f6','#a855f7','#16a34a','#f59e0b'],angle=0,stops=values.map(function(value,index){var start=angle,finish=angle+(value/total*360);angle=finish;return colors[index]+' '+start+'deg '+finish+'deg'}).join(', '),rows=[['Total sales',sales],['Cost of sales',cost],['Total OPEX',opex],['Gross profit',gross],['Net income',net]].map(function(row,index){return [row[0],row[1],(values[index]/total*100).toFixed(1)]});
@@ -787,7 +787,7 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
 <script src="vertical-layout.js?v=20261011"></script>
 <script src="inventory-tracker.js?v=20261011"></script>
 <script src="purchase-orders-online.js?v=20260929-startup-restore"></script>
-<script src="reporting-online.js?v=20261006-accounting-register"></script>
+<script src="reporting-online.js?v=20261021-live-dashboard-visuals"></script>
 <script src="audit-export.js?v=20261007-owner-audit-workbook"></script>
 <script>
 /* The original offline renderer remains for archive exports only. Once the
