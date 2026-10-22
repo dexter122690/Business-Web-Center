@@ -6,7 +6,7 @@
   function business() { return localStorage.getItem('bwc-active-business') || ''; }
   function branch() { return localStorage.getItem('bwc-active-branch') || ''; }
   function page() { return document.getElementById(pageId); }
-  function catalog() { return [{ id: 'builtin-pms', name: '15M PMS Checklist', storage_path: null, public_path: 'forms/15M_PMS_Checklist_Control_No.pdf', mime_type: 'application/pdf', created_at: '2026-10-22T00:00:00Z', builtin: true }].concat(rows); }
+  function catalog() { return rows.slice(); }
   function status(text, error) { var box = document.getElementById('formsFolderStatus'); if (box) { box.textContent = text; box.style.borderLeftColor = error ? '#b63d25' : ''; } }
   function ensurePage() {
     var main = document.querySelector('main'); if (!main) return null;
@@ -18,7 +18,7 @@
   function render() {
     var list = document.getElementById('formsList'); if (!list) return;
     var all = catalog();
-    list.innerHTML = all.length ? '<table><thead><tr><th>Form name</th><th>Type</th><th>Uploaded</th><th>Action</th></tr></thead><tbody>' + all.map(function (item) { return '<tr><td><b>' + esc(item.name) + '</b></td><td>' + esc((item.mime_type || 'FILE').split('/').pop().toUpperCase()) + '</td><td>' + (item.builtin ? 'Included' : esc(new Date(item.created_at).toLocaleDateString())) + '</td><td class="actions"><button type="button" class="secondary" data-form-open="' + esc(item.id) + '">Open / print</button><button type="button" class="secondary" data-form-download="' + esc(item.id) + '">Download</button>' + (item.builtin ? '' : '<button type="button" class="secondary" data-form-delete="' + esc(item.id) + '">Delete</button>') + '</td></tr>'; }).join('') + '</tbody></table>' : '<div class="empty">No shared forms uploaded for this branch yet.</div>';
+    list.innerHTML = all.length ? '<table><thead><tr><th>Form name</th><th>Type</th><th>Uploaded</th><th>Action</th></tr></thead><tbody>' + all.map(function (item) { return '<tr><td><b>' + esc(item.name) + '</b></td><td>' + esc((item.mime_type || 'FILE').split('/').pop().toUpperCase()) + '</td><td>' + esc(new Date(item.created_at).toLocaleDateString()) + '</td><td class="actions"><button type="button" class="secondary" data-form-open="' + esc(item.id) + '">Open / print</button><button type="button" class="secondary" data-form-download="' + esc(item.id) + '">Download</button><button type="button" class="secondary" data-form-delete="' + esc(item.id) + '">Delete</button></td></tr>'; }).join('') + '</tbody></table>' : '<div class="empty">No shared forms uploaded for this branch yet.</div>';
   }
   async function load() {
     var client = db(); if (!client || !business() || !branch()) { online = false; status('Online workspace is still loading. Please try again.', true); render(); return; }
