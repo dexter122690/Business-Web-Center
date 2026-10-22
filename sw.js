@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bwc-invoice-offline-v3';
+const CACHE_NAME = 'bwc-invoice-offline-v4';
 const APP_SHELL = [
   '/index.html',
   '/auth.html',
@@ -12,6 +12,8 @@ const APP_SHELL = [
   '/invoice-pdf-actions.js',
   '/client-source-options.js',
   '/pms-client-history.js',
+  '/forms-folder-online.js?v=20261024',
+  '/forms/15M_PMS_Checklist_Control_No.pdf',
   '/vertical-layout.js',
   '/icons/bwc-app-icon.png?v=2'
 ];
