@@ -12,6 +12,7 @@
 <section id="inForm" class="form active"><h2>Sign in to Business Web Center</h2><p class="intro">Use your approved email and password to continue.</p><form id="login" class="fields"><label>Email address<input id="loginEmail" required type="email" autocomplete="email" placeholder="you@business.com"></label><label>Password<span class="password-field"><input id="loginPassword" required type="password" autocomplete="current-password" placeholder="Enter your password"><button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false" data-password-toggle="loginPassword"><svg class="eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg><svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 6.2A10.9 10.9 0 0 1 12 6c6 0 9.5 6 9.5 6a17.7 17.7 0 0 1-3 3.7M6.4 6.4A17.5 17.5 0 0 0 2.5 12S6 18 12 18c1.4 0 2.6-.3 3.6-.8"></path><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path></svg></button></span></label><button class="primary" type="submit">Sign in</button></form><button class="link" id="forgot" type="button">Forgot password?</button></section>
 <section id="upForm" class="form"><h2>Create your account</h2><p class="intro">Your account is submitted for approval before your workspace opens.</p><form id="signup" class="fields"><div class="two"><label>First name<input id="firstName" required autocomplete="given-name"></label><label>Last name<input id="lastName" required autocomplete="family-name"></label></div><label>Business name<input id="businessName" required autocomplete="organization" placeholder="Your business name"></label><label>Mobile number<input id="mobile" required autocomplete="tel" placeholder="09XX XXX XXXX"></label><label>Email address<input id="signEmail" required type="email" autocomplete="email" placeholder="you@business.com"></label><label>Password<span class="password-field"><input id="signPassword" required minlength="8" type="password" autocomplete="new-password" placeholder="At least 8 characters"><button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false" data-password-toggle="signPassword"><svg class="eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg><svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 6.2A10.9 10.9 0 0 1 12 6c6 0 9.5 6 9.5 6a17.7 17.7 0 0 1-3 3.7M6.4 6.4A17.5 17.5 0 0 0 2.5 12S6 18 12 18c1.4 0 2.6-.3 3.6-.8"></path><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path></svg></button></span></label><button class="primary" type="submit">Submit account request</button></form><p class="small">By submitting, you agree that the account owner can review and approve your request before access is given.</p></section>
 <section id="inviteAcceptForm" class="form"><h2>Accept team invitation</h2><p class="intro">Create a password for your Business Web Center team account.</p><form id="invitePasswordForm" class="fields"><label>New password<span class="password-field"><input id="invitePassword" required minlength="8" type="password" autocomplete="new-password" placeholder="At least 8 characters"><button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false" data-password-toggle="invitePassword"><svg class="eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg><svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 6.2A10.9 10.9 0 0 1 12 6c6 0 9.5 6 9.5 6a17.7 17.7 0 0 1-3 3.7M6.4 6.4A17.5 17.5 0 0 0 2.5 12S6 18 12 18c1.4 0 2.6-.3 3.6-.8"></path><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path></svg></button></span></label><button class="primary" type="submit">Save password</button></form><p class="small">After saving, the business owner can approve your assigned branch and permissions.</p></section>
+<section id="resetForm" class="form"><h2>Create a new password</h2><p class="intro">Choose a new password for your Business Web Center account.</p><form id="passwordResetForm" class="fields"><label>New password<span class="password-field"><input id="resetPassword" required minlength="8" type="password" autocomplete="new-password" placeholder="At least 8 characters"><button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false" data-password-toggle="resetPassword"><svg class="eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg><svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 6.2A10.9 10.9 0 0 1 12 6c6 0 9.5 6 9.5 6a17.7 17.7 0 0 1-3 3.7M6.4 6.4A17.5 17.5 0 0 0 2.5 12S6 18 12 18c1.4 0 2.6-.3 3.6-.8"></path><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path></svg></button></span></label><label>Confirm new password<span class="password-field"><input id="resetPasswordConfirm" required minlength="8" type="password" autocomplete="new-password" placeholder="Enter it again"><button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false" data-password-toggle="resetPasswordConfirm"><svg class="eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg><svg class="eye-off" viewBox="0 0 24 18" aria-hidden="true"><path d="m3 3 18 18M10.6 6.2A10.9 10.9 0 0 1 12 6c6 0 9.5 6 9.5 6a17.7 17.7 0 0 1-3 3.7M6.4 6.4A17.5 17.5 0 0 0 2.5 12S6 18 12 18c1.4 0 2.6-.3 3.6-.8"></path><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path></svg></button></span></label><button class="primary" type="submit">Save new password</button></form><p class="small">After saving, return to the sign-in page and use your new password.</p></section>
 <div id="message" class="message info" role="status"></div><p class="footer">Business Web Center &middot; Secure business management<br><a href="privacy.html">Privacy</a> &middot; <a href="terms.html">Terms</a> &middot; <a href="contact.html">Contact support</a></p></div></main></div>
 <script>
 (function(){var c=window.BUSINESS_WEB_CENTER_SUPABASE||{},ready=c.url&&c.publishableKey&&c.url.indexOf('YOUR_')<0&&c.publishableKey.indexOf('YOUR_')<0,db=ready&&window.getBusinessSupabaseClient?window.getBusinessSupabaseClient():null,msg=document.getElementById('message');
@@ -82,9 +83,58 @@ forgot.onclick=async function(){if(!db)return unavailable();if(!loginEmail.value
   function say(text,kind){message.textContent=text;message.className='message show '+(kind||'info')}
   async function session(){var result=await db.auth.getSession();return result.data&&result.data.session}
   async function enterTeam(){var current=await session();if(!current){say('Open the newest secure link from your invitation email.','error');return}await db.rpc('sync_my_team_invites');var memberships=await db.from('business_memberships').select('business_id,status').eq('user_id',current.user.id).eq('status','active');if(memberships.error||!memberships.data||!memberships.data.length){await db.auth.signOut();say('Your email is verified. Ask the business owner to approve your team access, then sign in.','info');return}var businesses=await db.from('businesses').select('id,name,status').in('id',memberships.data.map(function(row){return row.business_id}));var active=(businesses.data||[]).find(function(row){return row.status==='active'});if(!active){await db.auth.signOut();say('Your business access is waiting for approval.','info');return}localStorage.setItem('bwc-active-business',active.id);localStorage.setItem('bwc-active-business-name',active.name);location.replace('index.html')}
-  if(isTeamSignIn){say('Opening your team account...','info');enterTeam();return}
+  if(isTeamSignIn){
+    /* Existing users receive a recovery link for team access. Let the
+       recovery handler below show the password form before entering the team. */
+    if(new URLSearchParams(location.hash.replace(/^#/,'')).get('type')==='recovery')return;
+    say('Opening your team account...','info');enterTeam();return
+  }
   var form=document.getElementById('inviteAcceptForm');form.classList.add('active');
   document.getElementById('invitePasswordForm').onsubmit=async function(event){event.preventDefault();var button=event.submitter,current=await session();if(!current){say('This invitation link has expired. Ask the business owner to resend it.','error');return}button.disabled=true;button.textContent='Saving...';var updated=await db.auth.updateUser({password:document.getElementById('invitePassword').value});button.disabled=false;button.textContent='Save password';if(updated.error){say(updated.error.message,'error');return}say('Password saved. Checking your team access...','info');await enterTeam()};
+})();
+</script><script>
+/* Handle Supabase password-recovery links. The recovery session is delivered
+   in the URL hash, so it must be handled before the page falls back to sign in. */
+(function(){
+  var config=window.BUSINESS_WEB_CENTER_SUPABASE||{},db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();
+  if(!db||!config.url||!config.publishableKey)return;
+  var hashParams=new URLSearchParams(location.hash.replace(/^#/,'')),query=new URLSearchParams(location.search);
+  var recoveryInUrl=hashParams.get('type')==='recovery'||query.get('type')==='recovery';
+  var resetForm=document.getElementById('resetForm'),form=document.getElementById('passwordResetForm'),message=document.getElementById('message');
+  if(!resetForm||!form)return;
+  function say(text,kind){message.textContent=text;message.className='message show '+(kind||'info')}
+  function showReset(){
+    document.querySelector('.tabs').style.display='none';
+    document.querySelectorAll('.form').forEach(function(section){section.classList.remove('active')});
+    resetForm.classList.add('active');
+  }
+  function invalid(){showReset();form.style.display='none';say('This password-reset link is invalid or expired. Request a new reset email and use the newest link.','error')}
+  async function hasSession(){var result=await db.auth.getSession();return result.data&&result.data.session}
+  function handleRecovery(event,session){
+    if(event==='PASSWORD_RECOVERY'||(recoveryInUrl&&session)){showReset();form.style.display='grid'}
+  }
+  db.auth.onAuthStateChange(handleRecovery);
+  if(!recoveryInUrl)return;
+  showReset();
+  /* Give Supabase time to exchange the recovery hash for a session before
+     deciding that the link is invalid. */
+  setTimeout(function(){hasSession().then(function(session){if(!session)invalid()})},1500);
+  form.onsubmit=async function(event){
+    event.preventDefault();
+    var password=document.getElementById('resetPassword').value,confirmation=document.getElementById('resetPasswordConfirm').value,button=event.submitter;
+    if(password!==confirmation){say('The passwords do not match.','error');return}
+    var current=await hasSession();if(!current){invalid();return}
+    button.disabled=true;button.textContent='Saving...';
+    var result=await db.auth.updateUser({password:password});
+    button.disabled=false;button.textContent='Save new password';
+    if(result.error){say(result.error.message,'error');return}
+    await db.auth.signOut();
+    history.replaceState({},document.title,location.pathname);
+    document.getElementById('inForm').classList.add('active');
+    document.querySelector('.tabs').style.display='flex';
+    say('Password saved. Sign in with your new password.','info');
+    form.reset();
+  };
 })();
 </script><script src="auth-team.js"></script><script>
 if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(error){console.warn('Offline app cache unavailable:',error)})})}
