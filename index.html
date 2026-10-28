@@ -710,6 +710,12 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
 /* Online account gate. It activates only after app-config.js is added. */
 (function(){
   var button=document.querySelector('.logout');
+  /* Recovery links can be configured to return to the site root. Redirect
+     them to the account page before this dashboard initializes Supabase and
+     consumes the recovery session. */
+  var recoveryHash=new URLSearchParams(location.hash.replace(/^#/,'')).get('type')==='recovery';
+  var recoveryCode=new URLSearchParams(location.search).has('code');
+  if(recoveryHash||recoveryCode){location.replace('auth.html'+location.search+location.hash);return}
   function sendToSignIn(){location.href='auth.html'}
   if(button)button.onclick=sendToSignIn;
   function load(src){

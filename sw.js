@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bwc-invoice-offline-v6';
+const CACHE_NAME = 'bwc-invoice-offline-v7';
 const APP_SHELL = [
   '/index.html',
   '/auth.html',
