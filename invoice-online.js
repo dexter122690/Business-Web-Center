@@ -1,7 +1,7 @@
 /* Online invoice adapter. The original page keeps its familiar interface while
    invoices are stored per business in Supabase. */
 (function(){
-  var db=null,businessId='',userId='',online=false;
+  var db=null,businessId='',userId='',online=false,refreshChannel=null,refreshUsesBroadcast=false,refreshListenersReady=false,refreshSource='tab-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2),refreshKey='bwc-invoice-refresh';
   /* Temporary diagnostic trail for fresh-browser workspace loading. Remove
      after the Jomari Incognito test has captured its console output. */
   function workspaceLog(stage,details){
@@ -9,6 +9,26 @@
   }
   function localKey(){return '15m-replica-invoices'}
   function cache(){try{localStorage.setItem(localKey(),JSON.stringify(inv))}catch(e){}}
+  function refreshScope(){return String(businessId||localStorage.getItem('bwc-active-business')||'')+'|'+String(localStorage.getItem('bwc-active-branch')||'')}
+  function handleCrossTabRefresh(payload){
+    if(!payload||payload.source===refreshSource||payload.scope!==refreshScope()||!online)return;
+    loadRemote().then(function(){
+      document.dispatchEvent(new Event('bwc:cash-updated'));
+      if(payload.type==='invoice-saved')document.dispatchEvent(new CustomEvent('bwc:invoice-saved',{detail:Object.assign({},payload.detail||{},{remote:true,sourceTab:payload.source})}));
+    });
+  }
+  function setupCrossTabRefresh(){
+    if(refreshListenersReady)return;refreshListenersReady=true;
+    if('BroadcastChannel' in window){try{refreshChannel=new BroadcastChannel('bwc-invoice-refresh');refreshChannel.addEventListener('message',function(event){handleCrossTabRefresh(event.data)});refreshUsesBroadcast=true}catch(error){refreshChannel=null}}
+    /* Storage events cover browsers without BroadcastChannel.  They fire only
+       in other tabs, so the source tab cannot refresh itself twice. */
+    window.addEventListener('storage',function(event){if(!refreshUsesBroadcast&&event.key===refreshKey&&event.newValue){try{handleCrossTabRefresh(JSON.parse(event.newValue))}catch(error){}}});
+  }
+  function publishCrossTabRefresh(type,detail){
+    var payload={type:type,detail:detail||{},scope:refreshScope(),source:refreshSource,at:Date.now()};
+    if(refreshChannel){try{refreshChannel.postMessage(payload);return}catch(error){refreshChannel=null;refreshUsesBroadcast=false}}
+    try{localStorage.setItem(refreshKey,JSON.stringify(payload))}catch(error){}
+  }
   function offlineQueueKey(){return '15m-offline-invoice-queue'}
   function readOfflineQueue(){try{var rows=JSON.parse(localStorage.getItem(offlineQueueKey())||'[]');return Array.isArray(rows)?rows:[]}catch(e){return []}}
   function writeOfflineQueue(rows){try{localStorage.setItem(offlineQueueKey(),JSON.stringify(rows||[]))}catch(e){}}
@@ -196,6 +216,7 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
          only events; editing an invoice never rewrites payment or CIB history. */
       document.dispatchEvent(new Event('bwc:cash-updated'));
       document.dispatchEvent(new CustomEvent('bwc:invoice-saved',{detail:{remoteId:saved.id,invoiceNumber:saved.invoice_number,edited:!x.isNewInvoice}}));
+      publishCrossTabRefresh('invoice-saved',{remoteId:saved.id,invoiceNumber:saved.invoice_number,edited:!x.isNewInvoice});
       resetInvoice();setInvoiceFormMode(false);show('invoices');message('Invoice '+('INV-'+String(saved.invoice_number).padStart(5,'0'))+' saved securely online.'+pmsWarning+cashWarning);
     }catch(error){var detail=String((error&&error.message)||'Unknown database error');if(savedInvoiceNumber!==null){console.error('Invoice was saved but the page could not finish updating:',error);message('Invoice INV-'+String(savedInvoiceNumber).padStart(5,'0')+' was saved, but the page could not finish refreshing.');alert('Invoice INV-'+String(savedInvoiceNumber).padStart(5,'0')+' was saved. Please reload the page before creating another invoice. Reason: '+detail);return}message('Invoice was not saved during '+saveStep+': '+detail);alert('The invoice could not be saved during '+saveStep+'. Reason: '+detail)}};
   window.deleteInvoice=async function(id){
@@ -215,6 +236,7 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
         document.dispatchEvent(new Event('bwc:cash-updated'));
         document.dispatchEvent(new Event('bwc:invoice-deleted'));
         await loadRemote();
+        publishCrossTabRefresh('invoice-deleted',{remoteId:item.remoteId,invoiceNumber:item.number});
         message(String(item.number||'Invoice')+' was deleted from this branch only.');
         alert('Invoice deleted successfully from the current branch.');
       }catch(error){
@@ -250,7 +272,7 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
   });
   async function start(){
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}
-    db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db){setTimeout(start,300);return}workspaceLog('invoice-start:initializing');businessId=await resolveBusiness();if(!businessId){workspaceLog('invoice-start:no-workspace');message('Offline invoice mode is ready on this device. Existing local drafts can still be used.');return}workspaceLog('invoice-start:workspace-ready',{workspaceId:businessId});inv=[];cache();render();renderLists();online=true;await loadAdmins();await loadRemote();syncOfflineQueue();
+    db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db){setTimeout(start,300);return}workspaceLog('invoice-start:initializing');businessId=await resolveBusiness();if(!businessId){workspaceLog('invoice-start:no-workspace');message('Offline invoice mode is ready on this device. Existing local drafts can still be used.');return}workspaceLog('invoice-start:workspace-ready',{workspaceId:businessId});inv=[];cache();render();renderLists();online=true;setupCrossTabRefresh();await loadAdmins();await loadRemote();syncOfflineQueue();
   }
   document.addEventListener('click',function(event){if(online&&event.target.closest('[data-t="invoices"]'))setTimeout(loadAdmins,80)});
   document.addEventListener('bwc:branch-ready',function(){if(online){loadAdmins();loadRemote()}});
