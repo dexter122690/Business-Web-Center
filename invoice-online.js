@@ -156,6 +156,7 @@
     if(!services.length&&!parts.length){alert('Add at least one service or auto part.');return}
     var rawSubtotal=services.reduce(function(sum,row){return sum+Number(row.a||0)},0)+parts.reduce(function(sum,row){return sum+Number(row.a||0)},0),discount=Math.max(0,Number((document.getElementById('discountAmount')||{}).value)||0);if(discount>rawSubtotal){alert('Discount cannot be higher than the services and parts total.');return}
     var existing=edit&&inv.find(function(i){return i.id===edit}),x={id:edit||Date.now(),remoteId:existing&&existing.remoteId,isNewInvoice:!edit,number:'',client:formValue('client'),contact:formValue('contact'),address:formValue('address'),email:formValue('email'),make:formValue('make'),yearModel:formValue('yearModel'),color:formValue('color'),plate:formValue('plate'),date:invoiceDate.value,release:releaseDate.value,paymentDate:formValue('paymentDate'),admin:admin.value,method:method.value,source:source.value,services:services.slice(),parts:parts.slice(),discount:discount,total:total(),paid:+paid.value||0};
+    x.total=Math.max(0,Number(x.total||0)-discount);
     if(x.total<=0){alert('Enter at least one service or auto part amount greater than ₱0 before creating the invoice.');return}
     if(x.paid>x.total){alert('Amount paid cannot be higher than the invoice total.');return}
     if(x.isNewInvoice&&x.paid>0&&!x.paymentDate){alert('Enter the actual payment received date before saving an initial payment.');return}
