@@ -23,5 +23,6 @@
   }
   new MutationObserver(prepare).observe(document.documentElement,{childList:true,subtree:true});
   document.addEventListener('click',function(){setTimeout(prepare,0)});
+  document.addEventListener('bwc:invoice-saved',function(){setTimeout(prepare,0)});
   window.addEventListener('load',prepare);
 })();

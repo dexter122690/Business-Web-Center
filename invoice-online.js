@@ -189,7 +189,14 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
       }
       savedInvoiceNumber=saved.invoice_number;
       if(!x.remoteId){saveStep='the service and parts lines';await writeLines(saved.id,x)}
-      var pmsWarning='';if(window.bwcSyncPmsRecord){try{await window.bwcSyncPmsRecord(saved.id,x)}catch(pmsError){console.warn('PMS history was not saved:',pmsError);pmsWarning=' The invoice is saved; PMS history will be available after the database update.'}}var cashWarning='';if(x.isNewInvoice){try{saveStep='the CIB cash record';await syncInvoiceCashIn(saved.id,saved.invoice_number,x)}catch(cashError){console.warn('Invoice CIB update was not saved:',cashError);cashWarning=' The invoice is saved; its CIB cash record could not be updated automatically.'}}saveStep='refreshing the saved invoice screen';await loadRemote();resetInvoice();setInvoiceFormMode(false);show('invoices');message('Invoice '+('INV-'+String(saved.invoice_number).padStart(5,'0'))+' saved securely online.'+pmsWarning+cashWarning);
+      var pmsWarning='';if(window.bwcSyncPmsRecord){try{await window.bwcSyncPmsRecord(saved.id,x)}catch(pmsError){console.warn('PMS history was not saved:',pmsError);pmsWarning=' The invoice is saved; PMS history will be available after the database update.'}}var cashWarning='';if(x.isNewInvoice){try{saveStep='the CIB cash record';await syncInvoiceCashIn(saved.id,saved.invoice_number,x)}catch(cashError){console.warn('Invoice CIB update was not saved:',cashError);cashWarning=' The invoice is saved; its CIB cash record could not be updated automatically.'}}saveStep='refreshing the saved invoice screen';await loadRemote();
+      /* loadRemote refreshes the invoice register and emits
+         bwc:invoices-loaded.  These follow-up signals fan the completed save
+         out to cash/reporting cards and client/PDF views.  They are refresh-
+         only events; editing an invoice never rewrites payment or CIB history. */
+      document.dispatchEvent(new Event('bwc:cash-updated'));
+      document.dispatchEvent(new CustomEvent('bwc:invoice-saved',{detail:{remoteId:saved.id,invoiceNumber:saved.invoice_number,edited:!x.isNewInvoice}}));
+      resetInvoice();setInvoiceFormMode(false);show('invoices');message('Invoice '+('INV-'+String(saved.invoice_number).padStart(5,'0'))+' saved securely online.'+pmsWarning+cashWarning);
     }catch(error){var detail=String((error&&error.message)||'Unknown database error');if(savedInvoiceNumber!==null){console.error('Invoice was saved but the page could not finish updating:',error);message('Invoice INV-'+String(savedInvoiceNumber).padStart(5,'0')+' was saved, but the page could not finish refreshing.');alert('Invoice INV-'+String(savedInvoiceNumber).padStart(5,'0')+' was saved. Please reload the page before creating another invoice. Reason: '+detail);return}message('Invoice was not saved during '+saveStep+': '+detail);alert('The invoice could not be saved during '+saveStep+'. Reason: '+detail)}};
   window.deleteInvoice=async function(id){
     var item=inv.find(function(x){return x.id===id});
