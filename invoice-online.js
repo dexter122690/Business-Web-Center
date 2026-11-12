@@ -115,6 +115,13 @@
     if(servicesRows.length){var s=await db.from('invoice_services').insert(servicesRows);if(s.error)throw new Error(s.error.message)}
     if(partsRows.length){var p=await db.from('invoice_parts').insert(partsRows);if(p.error)throw new Error(p.error.message)}
   }
+  function invoiceEditPayload(x){
+    var payload=invoicePayload(x);
+    /* The edit RPC ignores client totals, payment totals, status, and creator;
+       it derives those values from the locked invoice and submitted lines. */
+    delete payload.total_amount;delete payload.amount_paid;delete payload.status;delete payload.created_by;
+    return payload;
+  }
   /* Cash received from an invoice belongs in CIB.  Installments are the
      source of truth: each real cash payment gets one CIB entry. */
   async function syncInvoiceCashIn(remoteId,invoiceNumber,x){
@@ -170,8 +177,19 @@
 message('Saving invoice securely…');var savedInvoiceNumber=null;try{
       var saveStep='the invoice record';
       var saved;
-      if(x.remoteId){var updated=await db.from('invoices').update(invoicePayload(x)).eq('id',x.remoteId).select('id,invoice_number').single();if(updated.error)throw new Error(updated.error.message);saved=updated.data;saveStep='the previous service and parts lines';var removeServices=await db.from('invoice_services').delete().eq('invoice_id',x.remoteId);if(removeServices.error)throw new Error(removeServices.error.message);var removeParts=await db.from('invoice_parts').delete().eq('invoice_id',x.remoteId);if(removeParts.error)throw new Error(removeParts.error.message)}else{var inserted=await db.from('invoices').insert(invoicePayload(x)).select('id,invoice_number').single();if(inserted.error)throw new Error(inserted.error.message);saved=inserted.data}
-      savedInvoiceNumber=saved.invoice_number;saveStep='the service and parts lines';await writeLines(saved.id,x);var pmsWarning='';if(window.bwcSyncPmsRecord){try{await window.bwcSyncPmsRecord(saved.id,x)}catch(pmsError){console.warn('PMS history was not saved:',pmsError);pmsWarning=' The invoice is saved; PMS history will be available after the database update.'}}var cashWarning='';try{saveStep='the CIB cash record';await syncInvoiceCashIn(saved.id,saved.invoice_number,x)}catch(cashError){console.warn('Invoice CIB update was not saved:',cashError);cashWarning=' The invoice is saved; its CIB cash record could not be updated automatically.'}saveStep='refreshing the saved invoice screen';await loadRemote();resetInvoice();setInvoiceFormMode(false);show('invoices');message('Invoice '+('INV-'+String(saved.invoice_number).padStart(5,'0'))+' saved securely online.'+pmsWarning+cashWarning);
+      if(x.remoteId){
+        saveStep='the invoice and line items transaction';
+        var updated=await db.rpc('update_invoice_with_lines',{p_invoice_id:x.remoteId,p_branch_id:localStorage.getItem('bwc-active-branch'),p_payload:invoiceEditPayload(x),p_services:x.services.map(function(s){return {service_name:s.n,service_detail:s.d||null,amount:Number(s.a||0)}}),p_parts:x.parts.map(function(p){return {part_name:p.n,quantity:Number(p.q||0),unit_price:Number(p.p||0)}})});
+        if(updated.error)throw new Error(updated.error.message);
+        var result=updated.data||{};saved={id:x.remoteId,invoice_number:result.invoice_number};
+      }else{
+        var inserted=await db.from('invoices').insert(invoicePayload(x)).select('id,invoice_number').single();
+        if(inserted.error)throw new Error(inserted.error.message);
+        saved=inserted.data;
+      }
+      savedInvoiceNumber=saved.invoice_number;
+      if(!x.remoteId){saveStep='the service and parts lines';await writeLines(saved.id,x)}
+      var pmsWarning='';if(window.bwcSyncPmsRecord){try{await window.bwcSyncPmsRecord(saved.id,x)}catch(pmsError){console.warn('PMS history was not saved:',pmsError);pmsWarning=' The invoice is saved; PMS history will be available after the database update.'}}var cashWarning='';if(x.isNewInvoice){try{saveStep='the CIB cash record';await syncInvoiceCashIn(saved.id,saved.invoice_number,x)}catch(cashError){console.warn('Invoice CIB update was not saved:',cashError);cashWarning=' The invoice is saved; its CIB cash record could not be updated automatically.'}}saveStep='refreshing the saved invoice screen';await loadRemote();resetInvoice();setInvoiceFormMode(false);show('invoices');message('Invoice '+('INV-'+String(saved.invoice_number).padStart(5,'0'))+' saved securely online.'+pmsWarning+cashWarning);
     }catch(error){var detail=String((error&&error.message)||'Unknown database error');if(savedInvoiceNumber!==null){console.error('Invoice was saved but the page could not finish updating:',error);message('Invoice INV-'+String(savedInvoiceNumber).padStart(5,'0')+' was saved, but the page could not finish refreshing.');alert('Invoice INV-'+String(savedInvoiceNumber).padStart(5,'0')+' was saved. Please reload the page before creating another invoice. Reason: '+detail);return}message('Invoice was not saved during '+saveStep+': '+detail);alert('The invoice could not be saved during '+saveStep+'. Reason: '+detail)}};
   window.deleteInvoice=async function(id){
     var item=inv.find(function(x){return x.id===id});
