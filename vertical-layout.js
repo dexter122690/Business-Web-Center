@@ -1,11 +1,12 @@
 /* Optional vertical navigation presentation. Existing tabs and page logic remain unchanged. */
 (function(){
-  var order=['dashboard','invoices','expenses','inventoryTracker','repaintMonitoring','clients','purchaseorders','feedback','quotes','payroll','schedule','clientRequests'];
+  var order=['formsFolder','dashboard','invoices','expenses','inventoryTracker','repaintMonitoring','clients','purchaseorders','feedback','quotes','payroll','schedule','clientRequests'];
   var icons={dashboard:'▦',invoices:'▤',expenses:'▣',inventoryTracker:'◇',repaintMonitoring:'▱',clients:'♧',purchaseorders:'🛒',feedback:'▢',quotes:'＄',payroll:'♙',schedule:'▣',clientRequests:'▤'};
-  function buttonId(b){return b.dataset.restoreTab||b.dataset.t||({'scheduleTab':'schedule','clientRequestsTab':'clientRequests'}[b.id]||'')}
+  function buttonId(b){return b.dataset.restoreTab||b.dataset.t||({'formsFolderTab':'formsFolder','scheduleTab':'schedule','clientRequestsTab':'clientRequests'}[b.id]||'')}
   function arrange(){
     var nav=document.getElementById('nav');if(!nav)return;
-    order.forEach(function(id){var b=Array.from(nav.querySelectorAll('button')).find(function(x){return buttonId(x)===id});if(b)nav.appendChild(b)});
+    var footer=document.getElementById('navAccountFooter');
+    order.forEach(function(id){var b=Array.from(nav.querySelectorAll('button')).find(function(x){return buttonId(x)===id});if(b){if(footer)footer.before(b);else nav.appendChild(b)}});
     nav.querySelectorAll('button').forEach(function(b){var id=buttonId(b);if(!id)return;var label=b.querySelector('.nav-label');if(!label){label=document.createElement('span');label.className='nav-label';while(b.firstChild)label.appendChild(b.firstChild);b.appendChild(label)}if(!b.querySelector('.nav-icon')){var icon=document.createElement('span');icon.className='nav-icon';icon.setAttribute('aria-hidden','true');icon.textContent=icons[id]||'•';b.insertBefore(icon,label)}});
   }
   function moveAccountControls(nav){
