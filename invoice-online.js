@@ -202,9 +202,17 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
   /* The original page owns editInvoice/resetInvoice.  Wrap them rather than
      changing the familiar editor so the payment workflow appears only when an
      existing online invoice is being edited. */
+  function setInvoiceFormMode(editing){
+    var form=document.querySelector('#invoices .invoice-grid > .card');
+    if(!form)return;
+    var mode=form.querySelector('.k'),title=form.querySelector('h2'),save=form.querySelector('button[onclick*="createInvoice"]');
+    if(mode)mode.textContent=editing?'Edit invoice':'New invoice';
+    if(title)title.textContent=editing?'Update client, vehicle & service details':'Client, vehicle & service details';
+    if(save){save.textContent=editing?'Save changes':'Create invoice';save.setAttribute('aria-label',editing?'Save invoice changes':'Create a new invoice');}
+  }
   var originalEditInvoice=window.editInvoice,originalResetInvoice=window.resetInvoice;
-  if(originalEditInvoice)window.editInvoice=function(id){originalEditInvoice(id);setTimeout(function(){var amount=document.getElementById('paid'),amountLabel=amount&&amount.closest('label');if(amount){amount.disabled=true;amount.title='Use Payment records to add or correct money received.'}if(amountLabel){amountLabel.firstChild.nodeValue='Amount received to date (managed in Payment records)'}paymentEditShortcut()},0)};
-  if(originalResetInvoice)window.resetInvoice=function(){originalResetInvoice();setTimeout(function(){var paymentDate=document.getElementById('paymentDate'),amount=document.getElementById('paid'),amountLabel=amount&&amount.closest('label');if(paymentDate)paymentDate.value='';if(amount){amount.disabled=false;amount.title=''}if(amountLabel)amountLabel.firstChild.nodeValue='Initial payment received (PHP)';paymentEditShortcut()},0)};
+  if(originalEditInvoice)window.editInvoice=function(id){originalEditInvoice(id);setInvoiceFormMode(true);setTimeout(function(){var amount=document.getElementById('paid'),amountLabel=amount&&amount.closest('label');if(amount){amount.disabled=true;amount.title='Use Payment records to add or correct money received.'}if(amountLabel){amountLabel.firstChild.nodeValue='Amount received to date (managed in Payment records)'}paymentEditShortcut()},0)};
+  if(originalResetInvoice)window.resetInvoice=function(){originalResetInvoice();setInvoiceFormMode(false);setTimeout(function(){var paymentDate=document.getElementById('paymentDate'),amount=document.getElementById('paid'),amountLabel=amount&&amount.closest('label');if(paymentDate)paymentDate.value='';if(amount){amount.disabled=false;amount.title=''}if(amountLabel)amountLabel.firstChild.nodeValue='Initial payment received (PHP)';paymentEditShortcut()},0)};
   async function start(){
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}
     db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db){setTimeout(start,300);return}workspaceLog('invoice-start:initializing');businessId=await resolveBusiness();if(!businessId){workspaceLog('invoice-start:no-workspace');message('Offline invoice mode is ready on this device. Existing local drafts can still be used.');return}workspaceLog('invoice-start:workspace-ready',{workspaceId:businessId});inv=[];cache();render();renderLists();online=true;await loadAdmins();await loadRemote();syncOfflineQueue();
