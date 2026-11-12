@@ -210,6 +210,7 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
     if(title)title.textContent=editing?'Update client, vehicle & service details':'Client, vehicle & service details';
     if(save){save.textContent=editing?'Save changes':'Create invoice';save.setAttribute('aria-label',editing?'Save invoice changes':'Create a new invoice');}
   }
+  window.setInvoiceFormMode=setInvoiceFormMode;
   var originalEditInvoice=window.editInvoice,originalResetInvoice=window.resetInvoice;
   if(originalEditInvoice)window.editInvoice=function(id){originalEditInvoice(id);setInvoiceFormMode(true);setTimeout(function(){var amount=document.getElementById('paid'),amountLabel=amount&&amount.closest('label');if(amount){amount.disabled=true;amount.title='Use Payment records to add or correct money received.'}if(amountLabel){amountLabel.firstChild.nodeValue='Amount received to date (managed in Payment records)'}paymentEditShortcut()},0)};
   if(originalResetInvoice)window.resetInvoice=function(){originalResetInvoice();setInvoiceFormMode(false);setTimeout(function(){var paymentDate=document.getElementById('paymentDate'),amount=document.getElementById('paid'),amountLabel=amount&&amount.closest('label');if(paymentDate)paymentDate.value='';if(amount){amount.disabled=false;amount.title=''}if(amountLabel)amountLabel.firstChild.nodeValue='Initial payment received (PHP)';paymentEditShortcut()},0)};

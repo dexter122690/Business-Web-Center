@@ -779,7 +779,17 @@ function copyEmployeeClockLink(){var input=document.getElementById('prEmployeeCl
 })();
 </script>
 <script>if(window.__bwcRestoreLegacyIntervals)window.__bwcRestoreLegacyIntervals();</script>
-<script src="invoice-online.js?v=20261112-edit-mode-fallback"></script>
+<script>
+/* Keep the edit-mode label in sync with the legacy inline invoice handlers.
+   Capture the click and apply the label after the handler has populated or
+   cleared the form, even when those lexical functions are not on window. */
+document.addEventListener('click',function(event){
+  var target=event.target.closest('#invoices [onclick*="editInvoice"],#invoices [onclick*="resetInvoice"]');
+  if(!target)return;
+  var editing=target.getAttribute('onclick').indexOf('editInvoice')>=0;
+  setTimeout(function(){if(window.setInvoiceFormMode)window.setInvoiceFormMode(editing)},0);
+},true);
+</script><script src="invoice-online.js?v=20261112-edit-mode-fallback2"></script>
 <script src="client-source-options.js?v=20260920-specific-sources"></script>
 <script src="invoice-discounts.js?v=20260916-currency-fix"></script>
 <script src="pms-client-history.js"></script>
