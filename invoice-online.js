@@ -9,6 +9,17 @@
   }
   function localKey(){return '15m-replica-invoices'}
   function cache(){try{localStorage.setItem(localKey(),JSON.stringify(inv))}catch(e){}}
+  /* The live dashboard reporter wraps the legacy window.render function once
+     it has loaded.  That wrapper intentionally skips the legacy dashboard
+     renderer, but the Invoice Register is still owned by the legacy page.
+     Refresh the register directly after remote data arrives so the initial
+     month selection cannot remain stuck on the pre-load empty array. */
+  function refreshInvoiceRegister(){
+    try{
+      if(typeof window.renderRegister==='function'){window.renderRegister();return}
+      if(typeof renderRegister==='function')renderRegister();
+    }catch(error){console.warn('Invoice Register refresh failed:',error)}
+  }
   function refreshScope(){return String(businessId||localStorage.getItem('bwc-active-business')||'')+'|'+String(localStorage.getItem('bwc-active-branch')||'')}
   function handleCrossTabRefresh(payload){
     if(!payload||payload.source===refreshSource||payload.scope!==refreshScope()||!online)return;
@@ -54,7 +65,7 @@
     var query=db.from('invoices').select('*,invoice_services(*),invoice_parts(*),invoice_payments(*),invoice_balance_writeoffs(*)').eq('business_id',businessId),branchId=localStorage.getItem('bwc-active-branch');if(branchId)query=query.eq('branch_id',branchId);
     var result=await query.order('invoice_date',{ascending:false}).order('invoice_number',{ascending:false});
     if(result.error){message('Online invoices could not load: '+result.error.message);return}
-    inv=(result.data||[]).map(function(row){var item=normalize(row);item.discount=Number(row.discount_amount||0);return item});cache();render();renderLists();if(edit)paymentEditShortcut();document.dispatchEvent(new Event('bwc:invoices-loaded'));message('Online invoice records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');
+    inv=(result.data||[]).map(function(row){var item=normalize(row);item.discount=Number(row.discount_amount||0);return item});cache();refreshInvoiceRegister();render();renderLists();if(edit)paymentEditShortcut();document.dispatchEvent(new Event('bwc:invoices-loaded'));message('Online invoice records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');
   }
   function escapeHtml(value){return String(value||'').replace(/[&<>"']/g,function(character){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]})}
   function isAdmin(worker){return /\badmin(istrator)?\b/i.test(String(worker.position||''))}

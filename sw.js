@@ -7,7 +7,7 @@ const APP_SHELL = [
   '/auth.html',
   '/app-config.js',
   '/site.webmanifest',
-  '/invoice-online.js?v=20261112-edit-mode-fallback7',
+  '/invoice-online.js?v=20261112-edit-mode-fallback8',
   '/payroll-online.js?v=20261015-money-fix',
   '/invoice-discounts.js?v=20261112-line-editor-totals',
   '/invoice-payments-online.js?v=20260921-unremitted-closure-fix',
