@@ -40,6 +40,7 @@
     if(refreshChannel){try{refreshChannel.postMessage(payload);return}catch(error){refreshChannel=null;refreshUsesBroadcast=false}}
     try{localStorage.setItem(refreshKey,JSON.stringify(payload))}catch(error){}
   }
+  window.bwcPublishInvoiceRefresh=function(type,detail){if(online)publishCrossTabRefresh(type,detail)};
   function offlineQueueKey(){return '15m-offline-invoice-queue'}
   function readOfflineQueue(){try{var rows=JSON.parse(localStorage.getItem(offlineQueueKey())||'[]');return Array.isArray(rows)?rows:[]}catch(e){return []}}
   function writeOfflineQueue(rows){try{localStorage.setItem(offlineQueueKey(),JSON.stringify(rows||[]))}catch(e){}}
@@ -138,7 +139,7 @@
     paidField.readOnly=true;paidField.setAttribute('aria-readonly','true');
     var balance=Math.max(0,Number(item.total||0)-Number(item.paid||0)),box=document.createElement('div');
     box.id='invoicePaymentEditShortcut';box.className='notice';box.style.marginTop='12px';
-    box.innerHTML='<b>Payment update for '+escapeHtml(item.number)+'</b><br>This invoice has '+escapeHtml('PHP '+Number(item.paid||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2}))+' received and '+escapeHtml('PHP '+balance.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2}))+' remaining. Add the next payment as a dated record so the balance, CIB cash, dashboard, and payment history stay correct.<br><button type="button" class="primary" style="margin-top:9px" data-record-invoice-payment="'+escapeHtml(item.remoteId)+'">Record another payment</button>';
+     box.innerHTML='<b>Payment update for '+escapeHtml(item.number)+'</b><br>This invoice has '+escapeHtml('PHP '+Number(item.paid||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2}))+' received and '+escapeHtml('PHP '+balance.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2}))+' remaining. Add the next payment as a dated record so the balance, CIB cash, dashboard, and payment history stay correct.<br><button type="button" class="primary" style="margin-top:9px" data-record-invoice-payment="'+escapeHtml(item.remoteId)+'">Record another payment</button> <button type="button" class="secondary" style="margin-top:9px" data-correct-invoice-payment="'+escapeHtml(item.remoteId)+'">Correct amount paid</button>';
     if(summary)summary.insertAdjacentElement('afterend',box);
   }
   async function writeLines(remoteId,x){
