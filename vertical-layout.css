@@ -1,0 +1,139 @@
+/* The footer is deliberately outside #nav: tab rebuilds cannot move or remove it. */
+body.vertical-nav { --sidebar-width: 196px; }
+body.vertical-nav #bwcSidebar {
+  position: fixed;
+  z-index: 30;
+  left: 0;
+  top: var(--sidebar-top, 81px);
+  bottom: 0;
+  width: var(--sidebar-width);
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-right: 1px solid var(--l);
+}
+body.vertical-nav nav#nav {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 12px 9px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 0;
+  background: #fff;
+}
+body.vertical-nav nav#nav button,
+body.vertical-nav #navAccountFooter > .logout,
+body.vertical-nav #navAccountFooter .settings-button {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 38px;
+  margin: 0;
+  text-align: left;
+  border: 0;
+  border-radius: 7px;
+  padding: 9px 12px;
+  background: #fff;
+  color: #302823;
+  font: 600 12px Arial, sans-serif;
+  cursor: pointer;
+}
+body.vertical-nav nav#nav button:hover,
+body.vertical-nav nav#nav button.active,
+body.vertical-nav #navAccountFooter .settings-button:hover {
+  background: var(--o);
+  color: #fff;
+}
+body.vertical-nav #bwcSidebar button:focus-visible {
+  outline: 2px solid var(--o);
+  outline-offset: -2px;
+}
+body.vertical-nav nav#nav .nav-icon {
+  width: 18px;
+  flex: 0 0 18px;
+  text-align: center;
+  font-size: 16px;
+  line-height: 1;
+}
+body.vertical-nav #navAccountFooter {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--l);
+  background: #fff;
+}
+body.vertical-nav #navAccountFooter .settings-wrap { width: 100%; margin: 0; }
+body.vertical-nav #navAccountFooter .settings-button { justify-content: flex-start; }
+body.vertical-nav #navAccountFooter > .logout {
+  background: #503021;
+  color: #fff;
+  border: 1px solid #8f6b5d;
+}
+body.vertical-nav #navAccountFooter > .logout:hover { background: #68412e; }
+body.vertical-nav #navAccountFooter .settings-menu {
+  top: auto;
+  right: auto;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 100%;
+  max-height: calc(100vh - 170px);
+  max-height: calc(100dvh - 170px);
+  overflow-y: auto;
+}
+body.vertical-nav main {
+  max-width: none;
+  margin-left: var(--sidebar-width);
+  padding: 24px 26px 50px;
+}
+body.vertical-nav nav#nav button[hidden],
+body.vertical-nav nav#nav button[data-t="reports"],
+body.vertical-nav nav#nav button[data-t="inventory"],
+body.vertical-nav nav#nav button[data-restore-tab="reports"],
+body.vertical-nav nav#nav button[data-restore-tab="inventory"] { display: none !important; }
+@media (max-width: 760px) {
+  body.vertical-nav #bwcSidebar {
+    position: relative;
+    top: auto;
+    bottom: auto;
+    width: 100%;
+    border-right: 0;
+    border-bottom: 1px solid var(--l);
+  }
+  body.vertical-nav nav#nav {
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 10px;
+  }
+  body.vertical-nav nav#nav button { width: auto; min-height: 36px; }
+  body.vertical-nav #navAccountFooter {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  body.vertical-nav #navAccountFooter .settings-wrap,
+  body.vertical-nav #navAccountFooter .settings-button,
+  body.vertical-nav #navAccountFooter > .logout { width: auto; }
+  body.vertical-nav #navAccountFooter .settings-menu {
+    top: calc(100% + 8px);
+    bottom: auto;
+    left: auto;
+    right: 0;
+    width: 180px;
+  }
+  body.vertical-nav main { margin-left: 0; padding: 18px 12px 40px; }
+}
+@media print {
+  body.vertical-nav #bwcSidebar { display: none !important; }
+  body.vertical-nav main { margin-left: 0; }
+}
