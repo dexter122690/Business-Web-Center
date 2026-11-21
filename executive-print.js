@@ -1,5 +1,5 @@
-/* Print-only presentation of the shared Executive Excel report.
-   No database mutations, extra totals, truncation, or top-N row limits. */
+/* Print-only presentation of the shared Dashboard / Executive Excel report.
+   No database mutations, truncation, or top-N row limits. */
 (function (root, factory) {
   var api = factory(root);
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -55,12 +55,16 @@
       '</style></head><body><main class="report"><header class="report-header"><div class="brand">' + esc(name) + '</div><h1 class="report-title">Executive Financial Report</h1>' +
       '<div class="metadata"><div><span>BRANCH</span><b>' + esc(report.branch || 'Selected branch') + '</b></div><div><span>REPORTING PERIOD</span><b>' + esc(report.period) + '</b></div>' +
       '<div><span>GENERATED</span><b>' + esc(report.generatedAt || '') + '</b></div><div><span>CURRENCY</span><b>Philippine peso (PHP)</b></div></div></header>' +
-      table('SALES REVENUE', 'Service / revenue source', report.salesRows, 'No recorded payments for invoices dated in this period.', [['TOTAL SALES',report.sales,'total']]) +
-      table('COST OF SALES', 'Direct cost category', report.costRows, 'No cost of sales recorded in this period.', [['TOTAL COST OF SALES',report.cost,'total'],['GROSS PROFIT',report.gross,'profit']]) +
-      table('OPERATING EXPENSES', 'Operating expense category', report.opexRows, 'No operating expenses recorded in this period.', [['TOTAL OPERATING EXPENSES',report.opex,'total'],['NET INCOME',report.net,'net']]) +
-      '<footer class="report-notes"><p><b>Report basis:</b> Same data and calculations as Export Executive Excel. Sales use the recorded amount paid on invoices dated within this reporting period. Expenses use their expense dates and saved categories.</p>' +
-      '<p>Dashboard cash-received figures use payment dates, so they can differ from this invoice-date report. This print view does not change any financial record.</p>' +
-      '<p>Included: ' + report.salesRows.length + ' service / revenue group(s), ' + report.costRows.length + ' direct-cost category group(s), and ' + report.opexRows.length + ' operating-expense category group(s). All Executive report rows are shown; long descriptions wrap in full.</p></footer></main></body></html>';
+      '<p><b>Dashboard-aligned management report.</b> Receipts use payment dates; costs use expense dates. ' + esc(report.paymentCount) + ' dated payments and ' + esc(report.expenseCount) + ' expense entries.</p>' +
+      table('CASH RECEIVED', 'Invoice service list', report.salesRows, 'No dated payments received in this period.', [['TOTAL CASH RECEIVED',report.sales,'total']]) +
+      table('COST OF SALES', 'Direct cost category', report.costRows, 'No cost of sales recorded in this period.', [['TOTAL COST OF SALES',report.cost,'total'],['CASH RECEIVED LESS COST OF SALES',report.gross,'profit']]) +
+      table('OPERATING EXPENSES', 'Operating expense category', report.opexRows, 'No operating expenses recorded in this period.', [['TOTAL OPERATING EXPENSES',report.opex,'total'],['TOTAL RECORDED EXPENSES',report.totalExpenses,'total'],['CASH RECEIVED LESS RECORDED COSTS AND OPEX',report.net,'net']]) +
+      table('INVOICES, COLLECTIONS AND BALANCES', 'Reconciliation only - not added to the result', report.reconciliationRows, 'No reconciliation data.', []) +
+      '<footer class="report-notes"><p><b>Report basis:</b> Same refreshed data and calculations as the Dashboard and Export Executive Excel. Receipts include payments received in this period on invoices issued outside it. Undated collections are excluded from dated receipts.</p>' +
+      '<p>Expenses use expense dates and saved categories. This is a management report, not an accrual income statement or a complete cash flow statement. No financial records are changed.</p>' +
+      '<p>Receipts are grouped by the invoice service list, not allocated to individual services. Each payment is counted once, including any parts and discounts reflected in the invoice payment.</p>' +
+      '<p>Reconciliation covers ' + esc(report.invoiceCount) + ' invoices issued in this period. Collected to date includes all payment dates and is separate from receipts in this period.</p>' +
+      '<p>Included: ' + report.salesRows.length + ' receipt group(s), ' + report.costRows.length + ' direct-cost category group(s), and ' + report.opexRows.length + ' operating-expense category group(s). All Executive report rows are shown; long descriptions wrap in full.</p></footer></main></body></html>';
   }
   function installStyle() {
     if (root.document.getElementById('executivePrintStyle')) return;
