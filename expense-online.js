@@ -16,7 +16,44 @@
     var own=await db.from('businesses').select('id,name').eq('created_by',user.id).order('created_at',{ascending:true}).limit(2);if(own.data&&own.data.length===1){localStorage.setItem('bwc-active-business',own.data[0].id);localStorage.setItem('bwc-active-business-name',own.data[0].name);return own.data[0].id}
     return null;
   }
-  async function loadRemote(){var version=++loadVersion;setExpenseLoading(true);var query=db.from('expenses').select('*').eq('business_id',businessId),branchId=activeBranchId();if(branchId)query=query.eq('branch_id',branchId);try{var result=await query.order('expense_date',{ascending:false}).order('created_at',{ascending:false});if(version!==loadVersion)return;if(result.error){message('Online expenses could not load: '+result.error.message);return}cache((result.data||[]).map(map));/* Loading a screen must never create, change, or remove cash. Cash moves only after a deliberate user action. */if(version!==loadVersion)return;message('Online expense records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');document.dispatchEvent(new Event('bwc:expenses-loaded'));setTimeout(function(){if(version!==loadVersion)return;ensureFields();setupSkuPickers();enhanceTable();decorateExpenseTable();setExpenseLoading(false)},320)}catch(error){if(version===loadVersion)message('Online expenses could not load: '+(error&&error.message||'Please try again.'))}finally{if(version===loadVersion)setTimeout(function(){if(version===loadVersion)setExpenseLoading(false)},900)}}
+  function publishLoadState(status,error){window.__bwcExpenseLoadState={status:status,businessId:businessId||localStorage.getItem('bwc-active-business')||'',branchId:activeBranchId(),error:error||''};document.dispatchEvent(new Event('bwc:expense-load-state'))}
+  async function readExpenseRows(client,business,branch,isCurrent){
+    var rows=[],seen=new Set(),expected=null,pageSize=500,offset=0;
+    while(true){
+      if(!isCurrent())return null;
+      var result=await client.from('expenses').select('*',{count:'exact'}).eq('business_id',business).eq('branch_id',branch)
+        .order('expense_date',{ascending:false}).order('created_at',{ascending:false}).order('id',{ascending:false}).range(offset,offset+pageSize-1);
+      if(!isCurrent())return null;
+      if(result.error)throw result.error;
+      if(!Number.isInteger(result.count)||result.count<0)throw new Error('The complete expense count could not be verified. Please retry.');
+      if(expected===null)expected=result.count;
+      if(result.count!==expected)throw new Error('Expenses changed while loading. Please retry to get a complete list.');
+      var page=result.data||[];
+      page.forEach(function(row){if(!row.id||seen.has(row.id))throw new Error('Expenses changed while loading. Please retry.');seen.add(row.id);rows.push(row)});
+      if(rows.length===expected)return rows;
+      if(!page.length||rows.length>expected)throw new Error('The complete expense list could not be loaded. Please retry.');
+      // Advance by the actual response length, even if the server uses a lower page limit.
+      offset+=page.length;
+    }
+  }
+  async function loadRemote(){
+    var version=++loadVersion,branchId=activeBranchId(),requestedBusiness=businessId;
+    function current(){return version===loadVersion&&branchId===activeBranchId()&&requestedBusiness===(localStorage.getItem('bwc-active-business')||'')}
+    setExpenseLoading(true);publishLoadState('loading');
+    try{
+      if(!requestedBusiness||requestedBusiness!==(localStorage.getItem('bwc-active-business')||''))throw new Error('The business changed. Please reload the workspace.');
+      var rows=await readExpenseRows(db,requestedBusiness,branchId,current);
+      if(rows===null||!current())return;
+      cache(rows.map(map));
+      /* Loading or filtering must never create, change, or remove cash. */
+      publishLoadState('ready');
+      message('Online expense records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');
+      document.dispatchEvent(new Event('bwc:expenses-loaded'));
+      setTimeout(function(){if(!current())return;ensureFields();setupSkuPickers();enhanceTable();decorateExpenseTable();setExpenseLoading(false)},320);
+    }catch(error){
+      if(version===loadVersion){publishLoadState('error',error&&error.message||'Please retry.');message('Online expenses could not load: '+(error&&error.message||'Please retry.'));}
+    }finally{if(version===loadVersion)setTimeout(function(){if(version===loadVersion)setExpenseLoading(false)},900)}
+  }
   function value(id){var el=document.getElementById(id);return el?el.value.trim():''}
   function normalize(v){return String(v||'').trim().toLowerCase()}
   function setCategory(select,value){if(!select||!value)return;var found=Array.prototype.some.call(select.options,function(option){return option.value===value});if(!found){var option=document.createElement('option');option.value=value;option.textContent=value;select.appendChild(option)}select.value=value}
@@ -50,10 +87,28 @@
   function visibleExpenses(){var rows=Array.isArray(window.__bwcOnlineExpenses)?window.__bwcOnlineExpenses:[];if(!rows.length)try{rows=JSON.parse(localStorage.getItem(key)||'[]')}catch(e){}var month=(document.getElementById('exMonth')||{}).value||'',year=(document.getElementById('exYear')||{}).value||'';return rows.filter(function(item){var date=new Date(item.date+'T00:00:00');return(!month||date.getMonth()===Number(month))&&(!year||String(date.getFullYear())===String(year))})}
   function isLinked(item){var reference=String(item&&item.reference||''),receipt=String(item&&item.receiptNumber||''),payment=String(item&&item.payment||'');return /^(CIB expense|Petty Cash expense)$/i.test(reference)||/^PAYSLIP/i.test(reference)||/^PAYSLIP/i.test(receipt)||/^(CIB|Petty Cash)$/i.test(payment)}
   function refreshExpenseScreen(options){document.dispatchEvent(new CustomEvent('bwc:expense-records-changed',{detail:options||{}}));setTimeout(decorateExpenseTable,180)}
-  function decorateExpenseTable(){var table=document.querySelector('#expenseReceiptTable table,#exTable table');if(!table||table.dataset.onlineExpenseActions)return;var shown=visibleExpenses(),heading=table.querySelector('thead tr');if(!heading)return;var actionHead=document.createElement('th');actionHead.textContent='Action';heading.appendChild(actionHead);Array.prototype.forEach.call(table.querySelectorAll('tbody tr'),function(row,index){var item=shown[index]||{},cell=document.createElement('td');if(!item.remoteId){cell.textContent='-'}else if(item.invoiceWriteoffId){cell.innerHTML='<small>Protected audit record</small>'}else{cell.innerHTML='<div class="actions"><button type="button" class="secondary" data-edit-expense="'+item.remoteId+'">Edit</button><button type="button" class="secondary" data-delete-expense="'+item.remoteId+'">Void</button></div>'}row.appendChild(cell)});table.dataset.onlineExpenseActions='1'}
+  function decorateExpenseTable(){
+    var table=document.querySelector('#expenseReceiptTable table,#exTable table');if(!table||table.dataset.onlineExpenseActions)return;
+    var shown=visibleExpenses(),byId=new Map();allExpenses().forEach(function(item){byId.set(String(item.remoteId||item.id||''),item)});
+    var heading=table.querySelector('thead tr');if(!heading)return;
+    var actionHead=document.createElement('th');actionHead.textContent='Action';heading.appendChild(actionHead);
+    Array.prototype.forEach.call(table.querySelectorAll('tbody tr'),function(row,index){
+      // Filtered rows must use their stable record ID, never their new display position.
+      var recordId=row.getAttribute('data-expense-record-id'),item=recordId!==null?byId.get(recordId):(table.dataset.expenseCategoryView?null:shown[index]),cell=document.createElement('td');
+      if(!item||!item.remoteId){cell.textContent='-'}
+      else if(item.invoiceWriteoffId){cell.innerHTML='<small>Protected audit record</small>'}
+      else{
+        var actions=document.createElement('div');actions.className='actions';
+        ['Edit','Void'].forEach(function(label){var button=document.createElement('button');button.type='button';button.className='secondary';button.textContent=label;button.setAttribute(label==='Edit'?'data-edit-expense':'data-delete-expense',item.remoteId);actions.appendChild(button)});
+        cell.appendChild(actions);
+      }
+      row.appendChild(cell);
+    });
+    table.dataset.onlineExpenseActions='1';
+  }
   function editorInput(id,label,type){return '<label>'+label+'<input id="'+id+'" type="'+(type||'text')+'"></label>'}
   function renderEditor(item){var old=document.getElementById('expenseOnlineEditor');if(old)old.remove();var table=document.getElementById('expenseReceiptTable');if(!table)return;var categorySelect=document.getElementById('receiptItemCategory'),categories=categorySelect?categorySelect.innerHTML:'<option>Other</option>';var card=document.createElement('div');card.id='expenseOnlineEditor';card.className='card';card.style.marginBottom='14px';card.innerHTML='<div class="k">Edit expense</div><h2>Correct recorded expense</h2><p class="muted">Changes update this expense and Dashboard reporting for the selected branch.</p><div class="formgrid">'+editorInput('expenseEditDate','Date *','date')+editorInput('expenseEditSupplier','Supplier name')+editorInput('expenseEditReceipt','Receipt number')+editorInput('expenseEditDescription','Item / service *')+'<label>Category<select id="expenseEditCategory">'+categories+'</select></label>'+editorInput('expenseEditQuantity','Quantity *','number')+editorInput('expenseEditAmount','Unit amount (PHP) *','number')+'<label>Mode of payment<select id="expenseEditPayment"><option>Cash</option><option>CIB</option><option>Petty Cash</option><option>Authorized Manager</option><option>Bank transfer</option><option>GCash</option><option>Maya</option><option>Check</option></select></label></div><label style="display:block;margin-top:12px">Reference / note<input id="expenseEditReference"></label><div class="actions" style="margin-top:14px"><button type="button" class="primary" data-save-expense-edit="1">Save changes</button><button type="button" class="secondary" data-cancel-expense-edit="1">Cancel</button></div>';table.closest('.card').insertAdjacentElement('beforebegin',card);var set=function(id,val){var el=document.getElementById(id);if(el)el.value=val==null?'':val};set('expenseEditDate',item.date);set('expenseEditSupplier',item.supplier);set('expenseEditReceipt',item.receiptNumber);set('expenseEditDescription',item.description);set('expenseEditCategory',item.category||'Other');set('expenseEditQuantity',item.quantity||1);set('expenseEditAmount',item.amount||0);set('expenseEditPayment',item.payment||'Cash');set('expenseEditReference',item.reference);setupSkuPickers();card.scrollIntoView({behavior:'smooth',block:'nearest'})}
-  function allExpenses(){var saved=[];try{saved=JSON.parse(localStorage.getItem(key)||'[]')}catch(error){}return saved}
+  function allExpenses(){var rows=Array.isArray(window.__bwcOnlineExpenses)?window.__bwcOnlineExpenses:null;if(!rows)try{rows=JSON.parse(localStorage.getItem(key)||'[]')}catch(error){rows=[]}return (rows||[]).filter(function(row){return !row.branchId||row.branchId===activeBranchId()})}
   async function findExpense(id){
     var item=allExpenses().find(function(row){return String(row.remoteId)===String(id)});
     if(item)return item;
@@ -137,6 +192,9 @@ async function start(){var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!wi
   document.addEventListener('change',function(event){if(event.target&&['exMonth','exYear'].indexOf(event.target.id)>=0)setTimeout(decorateExpenseTable,120)});
   document.addEventListener('bwc:branch-ready',function(){if(online){closeEditor();setExpenseLoading(true);loadRemote()}});
   installLoadingStyle();
+  document.addEventListener('bwc:expense-table-rendered',decorateExpenseTable);
+  document.addEventListener('click',function(event){if(event.target.closest('[data-retry-expenses]')&&online)loadRemote()});
+  publishLoadState('loading');
   setExpenseLoading(true);
   setTimeout(start,650);
 })();

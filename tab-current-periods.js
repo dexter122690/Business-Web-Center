@@ -19,7 +19,7 @@
     year.dispatchEvent(new Event('change',{bubbles:true}));
   }
   function applyInvoice(){pair('invoice','im','iy')}
-  function applyExpense(){pair('expense','exMonth','exYear')}
+  function applyExpense(){if(window.BWCExpenseCategories){window.BWCExpenseCategories.restorePeriod();return;}pair('expense','exMonth','exYear')}
   function applyPayroll(){
     var month=document.querySelector('[data-pr-issued-filter="month"]');
     var year=document.querySelector('[data-pr-issued-filter="year"]');
