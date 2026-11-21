@@ -1,0 +1,55 @@
+INVENTORY TRACKER MATERIAL COSTING — deployment and operation
+
+Deployment order
+1. Back up the Supabase database using the normal project backup process.
+2. During a short quiet period, run 073_inventory_tracker_costing.sql in the correct
+   BWC Supabase project. The migration is transactional and rerunnable. It does not
+   set historical costs, change existing stock quantities, delete usage, or write Expenses.
+3. Deploy the matching inventory-costing.js, inventory-tracker.js,
+   inventory-material-history.js, index.html and sw.js together. Reload all BWC tabs.
+   Cache version is v21. Old stock-writing RPCs deliberately reject outdated clients
+   after the migration so they cannot bypass valuation. Viewing old records still works.
+4. Verify each branch with its permitted user: unknown costs must display as unknown.
+
+First use
+- General stock: use Set opening cost to value verified stock already on hand. Enter
+  the SAME quantity/measurement basis the tracker has been using (e.g. 1 means one
+  gallon, not one liter). This step does not increase stock. Do not silently convert
+  an existing material's units; use a distinct material for a different package size.
+- New delivery: Record purchase with quantity, actual unit purchase cost, supplier,
+  receipt/reference and purchase date. Stock and moving-average value update together.
+  Receipt date is documentary; costing is applied in entry order. Late entries never
+  retrospectively rewrite issued costs. Enter transactions in actual operating order.
+- Unit: Record material usage, including fractional quantities such as 0.25. The
+  server freezes the current weighted-average cost and deducts stock atomically.
+- Return/correction: choose the original costed issue; the original saved cost is
+  reversed, not the current stock price. Over-returns are rejected. Released units
+  cannot issue/return stock through this screen.
+- Verify past usage: a one-time, supported valuation per vehicle/material. Older
+  usage lines and plus/minus logs may overlap. Verify the total yourself; never sum
+  the two sources blindly. This does not change old records or current stock. A
+  missing historical cost keeps the unit's cost explicitly incomplete. The form
+  cannot overwrite a verified baseline; errors require a separately reviewed audit
+  correction, not editing/deleting historical records.
+- Correct count is ONLY for a genuine stock-count discrepancy. It applies the
+  existing average cost; it is not a purchase, expense, or vehicle usage.
+- Purchase/opening/count transactions are retained; the UI shows the latest 100.
+  Full costed unit history and server aggregates are not capped at 1,000 rows.
+
+Scope and safeguards
+- Direct materials only; no labor or automatic Expenses posting. Recording a receipt
+  here is not an additional expense and is not yet linked to an Expense receipt.
+- Existing catalogue/unit IDs, release state and usage records remain intact.
+- Stock and cost writes require inventory edit permission for the selected branch.
+- New valuation tables are read-only to client database users. Only checked RPCs
+  can write them. Duplicate request IDs safely return the existing result.
+- Unknown/failed loads do not display a complete zero-cost result.
+- Separate tabs refresh through a branch-scoped BroadcastChannel/storage signal.
+- Quantity totals remain grouped by measurement unit. Money totals add rounded
+  material-line totals; the database keeps six-decimal valuation precision.
+
+Verification
+The regression suites use synthetic data only. To run the PostgreSQL tests, install
+@electric-sql/pglite in a separate QA folder and set BWC_PGLITE_PATH to its absolute
+module directory, then run: node --test tests/*.test.cjs
+Without that environment variable the SQL suite explicitly reports skipped.

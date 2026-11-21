@@ -1,14 +1,15 @@
 /* Rotate this cache whenever app-shell JavaScript changes.  The previous
    worker ignored query strings, so a request for a newer versioned script
    could incorrectly receive an older cached file. */
-const CACHE_NAME = 'bwc-invoice-offline-v20';
+const CACHE_NAME = 'bwc-invoice-offline-v21';
 const APP_SHELL = [
   '/index.html',
   '/executive-print.js?v=20261121-payment-date-report',
   '/reporting-online.js?v=20261122-unpaid-details',
   '/dashboard-unpaid.js?v=20261122-unpaid-details',
-  '/inventory-tracker.js?v=20261122-released-materials',
-  '/inventory-material-history.js?v=20261122-released-materials',
+  '/inventory-costing.js?v=20261122-receipt-costing',
+  '/inventory-tracker.js?v=20261122-receipt-costing',
+  '/inventory-material-history.js?v=20261122-receipt-costing',
   '/expense-categories.js?v=20261121-category-register',
   '/expense-online.js?v=20261121-complete-category-register',
   '/tab-current-periods.js?v=20261121-expense-shared-period',
