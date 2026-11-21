@@ -175,7 +175,7 @@
     all.id = 'auditExportAll'; all.type = 'button'; all.className = 'secondary'; all.textContent = 'Export Audit Excel — All Records';
     selected.addEventListener('click', function () { exportAudit(false, selected); });
     all.addEventListener('click', function () { exportAudit(true, all); });
-    executive.insertAdjacentElement('afterend', selected);
+    (document.getElementById('printFinancialReport') || executive).insertAdjacentElement('afterend', selected);
     selected.insertAdjacentElement('afterend', all);
     ready = true;
   }
