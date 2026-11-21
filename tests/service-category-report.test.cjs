@@ -134,5 +134,5 @@ test('an interrupted edit cannot fall through into new-invoice creation',()=>{
 test('new report is read-only, scripts parse and versioned app shell includes it',()=>{
   const dir=path.join(__dirname,'..'),source=fs.readFileSync(path.join(dir,'service-category-report.js'),'utf8'),html=fs.readFileSync(path.join(dir,'index.html'),'utf8'),sw=fs.readFileSync(path.join(dir,'sw.js'),'utf8');
   new vm.Script(source);new vm.Script(fs.readFileSync(path.join(dir,'invoice-online.js'),'utf8'));assert.ok(!/\.(insert|update|delete|upsert|rpc)\s*\(/.test(source));
-  assert.ok(html.includes('service-category-report.js?v=20261122-service-categories'));assert.ok(sw.includes('service-category-report.js?v=20261122-service-categories'));assert.ok(sw.includes('bwc-invoice-offline-v19'));
+  assert.ok(html.includes('service-category-report.js?v=20261122-service-categories'));assert.ok(sw.includes('service-category-report.js?v=20261122-service-categories'));assert.ok(sw.includes('bwc-invoice-offline-v20'));
 });
