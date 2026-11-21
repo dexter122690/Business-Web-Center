@@ -31,12 +31,14 @@ function setup(source=data){
   const queries=[],alerts=[],button={},timers=[],events={};
   const db={auth:{async getSession(){return {data:{session:{user:{id:'test'}}}};}},from(table){
     const call={table,filters:[],bounds:[]};queries.push(call);
-    return {select(columns){call.columns=columns;return this;},eq(k,v){call.filters.push([k,v]);return this;},
+    return {select(columns,options){call.columns=columns;call.count=options&&options.count;return this;},eq(k,v){call.filters.push([k,v]);return this;},
       gte(k,v){call.bounds.push(['gte',k,v]);return this;},lte(k,v){call.bounds.push(['lte',k,v]);return this;},order(){return this;},
+      range(from,to){call.range=[from,to];return this;},
       then(ok,fail){
-        const defaultRows=(source[table]||[]).map(r=>Object.assign({business_id:'biz-test',branch_id:'branch-test'},r))
+        const allRows=(source[table]||[]).map((r,i)=>Object.assign({id:table+'-'+i,business_id:'biz-test',branch_id:'branch-test'},r))
           .filter(r=>call.filters.every(([k,v])=>r[k]===v)&&call.bounds.every(([op,k,v])=>r[k]&&(op==='gte'?r[k]>=v:r[k]<=v)));
-        return Promise.resolve(resolveRows?resolveRows(call,defaultRows):{data:json(defaultRows),error:null}).then(ok,fail);
+        const defaultRows=call.range?allRows.slice(call.range[0],call.range[1]+1):allRows;
+        return Promise.resolve(resolveRows?resolveRows(call,defaultRows):{data:json(defaultRows),error:null}).then(result=>Object.assign({count:allRows.length},result)).then(ok,fail);
       }};
   }};
   const sandbox={window:{supabase:{},BUSINESS_WEB_CENTER_SUPABASE:{url:'fixture',publishableKey:'fixture'},getBusinessSupabaseClient:()=>db},
@@ -196,5 +198,5 @@ test('invalid model amounts stop report preparation',()=>{
 test('print button follows export and updated modules are versioned',()=>{
   assert.match(current,/Export Executive Excel<\/button><button[^>]*id="printFinancialReport"/);
   assert.match(current,/executive-print\.js\?v=20261121-payment-date-report/);
-  assert.match(current,/reporting-online\.js\?v=20261121-shared-payment-report/);
+  assert.match(current,/reporting-online\.js\?v=20261122-unpaid-details/);
 });
