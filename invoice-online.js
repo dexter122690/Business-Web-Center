@@ -195,6 +195,9 @@
     if(!services.length&&!parts.length){alert('Add at least one service or auto part.');return}
     var rawSubtotal=services.reduce(function(sum,row){return sum+Number(row.a||0)},0)+parts.reduce(function(sum,row){return sum+Number(row.a||0)},0),discount=Math.max(0,Number((document.getElementById('discountAmount')||{}).value)||0);if(discount>rawSubtotal){alert('Discount cannot be higher than the services and parts total.');return}
     var existing=edit&&inv.find(function(i){return i.id===edit}),x={id:edit||Date.now(),remoteId:existing&&existing.remoteId,isNewInvoice:!edit,number:'',client:formValue('client'),contact:formValue('contact'),address:formValue('address'),email:formValue('email'),make:formValue('make'),yearModel:formValue('yearModel'),color:formValue('color'),plate:formValue('plate'),date:invoiceDate.value,release:releaseDate.value,paymentDate:formValue('paymentDate'),admin:admin.value,method:method.value,source:source.value,services:services.slice(),parts:parts.slice(),discount:discount,total:total(),paid:+paid.value||0};
+    /* An older invoice opened from a report may fall outside the register's
+       next refresh. Never turn that interrupted edit into a new invoice. */
+    if(edit&&(!existing||(online&&!existing.remoteId&&!existing.offlinePending))){alert('This saved invoice is no longer loaded. Reopen it from the report or register before saving changes.');return}
     x.total=Math.max(0,Number(x.total||0)-discount);
     if(x.total<=0){alert('Enter at least one service or auto part amount greater than ₱0 before creating the invoice.');return}
     if(x.paid>x.total){alert('Amount paid cannot be higher than the invoice total.');return}
@@ -288,11 +291,29 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
   }
   document.addEventListener('click',function(event){if(online&&event.target.closest('[data-t="invoices"]'))setTimeout(loadAdmins,80)});
   document.addEventListener('bwc:branch-ready',function(){if(online){loadAdmins();loadRemote()}});
-  document.addEventListener('bwc:open-invoice',function(event){
+  var openInvoiceVersion=0;
+  async function readInvoiceForOpen(client,business,branch,remoteId){
+    if(!business||!branch||!remoteId)throw new Error('Select a business and branch before opening an invoice.');
+    var result=await client.from('invoices').select('*,invoice_services(*),invoice_parts(*),invoice_payments(*),invoice_balance_writeoffs(*)').eq('id',remoteId).eq('business_id',business).eq('branch_id',branch).maybeSingle();
+    if(result.error)throw result.error;
+    if(!result.data)throw new Error('This invoice is no longer available in the selected branch. Refresh the report.');
+    if(result.data.id!==remoteId||result.data.business_id!==business||result.data.branch_id!==branch)throw new Error('Invoice scope could not be verified.');
+    var item=normalize(result.data);item.discount=Number(result.data.discount_amount||0);return item;
+  }
+  document.addEventListener('bwc:open-invoice',async function(event){
     var remoteId=event.detail&&event.detail.remoteId;
     if(!remoteId)return;
-    function openSelected(){var selected=inv.find(function(row){return row.remoteId===remoteId});if(selected&&window.editInvoice){window.editInvoice(selected.id);window.scrollTo({top:0,behavior:'smooth'})}}
-    if(online)loadRemote().then(openSelected);else openSelected();
+    var version=++openInvoiceVersion,requestedBusiness=localStorage.getItem('bwc-active-business'),requestedBranch=localStorage.getItem('bwc-active-branch');
+    try{
+      if(!online)throw new Error('Go online before opening this saved invoice.');
+      // Fetch the requested ID directly, including older invoices outside the
+      // legacy register's first response page. Opening never saves the record.
+      var item=await readInvoiceForOpen(db,requestedBusiness,requestedBranch,remoteId);
+      if(version!==openInvoiceVersion||requestedBusiness!==localStorage.getItem('bwc-active-business')||requestedBranch!==localStorage.getItem('bwc-active-branch'))return;
+      var index=inv.findIndex(function(row){return row.remoteId===remoteId});if(index<0)inv.push(item);else inv[index]=item;
+      if(typeof window.editInvoice!=='function')throw new Error('The invoice editor is not ready. Reload the page.');
+      window.editInvoice(item.id);setInvoiceFormMode(true);window.scrollTo({top:0,behavior:'smooth'});
+    }catch(error){if(version!==openInvoiceVersion||requestedBusiness!==localStorage.getItem('bwc-active-business')||requestedBranch!==localStorage.getItem('bwc-active-branch'))return;message('Invoice could not open: '+(error.message||'Please try again.'));alert(error.message||'Invoice could not open. Please try again.');}
   });
   document.addEventListener('bwc:workers-updated',function(){if(online)loadAdmins()});
   document.addEventListener('bwc:workers-loaded',function(){if(online)loadAdmins()});
