@@ -1,0 +1,65 @@
+15M PAYROLL - ONLINE HANDOFF
+Prepared 2026-11-23
+
+Deployment
+- Supabase update 077 has been applied and verified in the 15M project.
+- Push this repository commit using GitHub Desktop. The normal website deployment
+  publishes the new Payroll tab. Sign in with the existing BWC owner account.
+- Payroll uses the selected BWC branch and requires an internet connection.
+- The old Payroll module remains paused. No old payroll, expense, invoice,
+  inventory, or cash records were deleted or imported into the new payroll.
+
+Starting records
+- Only the standalone draft's employee profiles and settings were transferred.
+- No draft attendance, jobs, amounts, saved worksheets, or payslips were imported.
+- Profiles without a known branch remain in an owner-only assignment list.
+  Select the appropriate BWC branch and assign the profile when ready.
+- Removed employee profiles remain removed; assignment does not reactivate them.
+
+Access and privacy
+- Existing business owners have access. Staff have no new payroll access by default.
+- Use Payroll access to grant view-only or payroll-editor access per branch.
+- Only owners manage employee profiles, contact/account details, documents,
+  settings, access grants, and payslip corrections.
+- Invoice and PMS pickers read limited employee names/designations. Unmatched
+  legacy worker choices remain available so existing workflows are preserved.
+- Payslips and ID photos are private database files, not public website assets.
+- No personal employee records or account credentials are included in this repository.
+
+Workflow
+- Cutoff: Saturday through Friday. Default payday: following Saturday, editable.
+- Painters: edit the table, Save table, then Print, Save as PDF, or Release payslip.
+- Daily staff: record attendance and late/OT duration; review the calculation and
+  confirm release. Overtime is recorded only; no overtime-pay rule is configured.
+- A painter's previous amount is a recorded worksheet amount, not independent
+  confirmation of payment. Retention dates are references, not automatic payouts.
+- Release stores an original PDF and a fixed snapshot together. It does not
+  transfer money or create an Expense. Record actual expenditure separately.
+- Released Payslips contains employee folders and their released documents.
+- Owner correction uses Void / correct with a reason. The original PDF and audit
+  snapshot are retained; a replacement is issued instead of silently rewriting it.
+- Employee deletion means removal from the active list; history is preserved.
+- PDF page size is 8.5 x 5.5 inches (half short bond). Long records continue on
+  additional half sheets rather than truncating rows. Print uses the PDF viewer.
+
+Storage and limits
+- Branch saves use a revision check to prevent one browser overwriting another.
+- State and new files save atomically; failed saves are not confirmed as released.
+- PDF files use an optimized logo. Files and documents still consume database
+  space; monitor the Supabase quota and export owner backups regularly.
+- Current guardrails: 8 MB branch JSON state; 15 MB per inline file; 30 new files
+  per save. Revisit storage design/archival before these limits are approached.
+- The local draft remains separate and is not a backup of later BWC payroll edits.
+
+Verification
+- Original public-table row counts and content checksums matched before/after
+  the migration and employee import (excluding the new nullable PMS link column).
+- Tests cover scoped access, private documents, save conflicts, totals, fixed
+  PDF releases, owner corrections, daily locks, and legacy employee preservation.
+- Isolated browser tests used fictional employees, never live payroll entries.
+
+Safe rollback
+- Hide the new tab or set the new payroll_v2_settings enabled flag to false for
+  the 15M business. Preserve all payroll_v2 tables/files for later recovery.
+- Do not drop tables, reset other modules, or re-enable the old payroll as a
+  rollback shortcut. The old shared worker records are intentionally preserved.

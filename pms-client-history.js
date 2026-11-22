@@ -20,9 +20,11 @@
   }
   async function loadTechnicians(){
     var select=el('pmsTechnician'),activeBranch=branch();if(!select||!db||!businessId||!activeBranch)return;
-    var selected=select.value,result=await db.from('payroll_workers').select('id,full_name,position').eq('business_id',businessId).eq('branch_id',activeBranch).eq('is_active',true).order('full_name');
+    var selected=select.value,result;
+    if(businessId==='ce3d6ecf-239e-4b27-a1f6-0ce7ddd16875')result=await db.rpc('payroll_v2_employee_options',{b:businessId,r:activeBranch});
+    if(!result||result.error)result=await db.from('payroll_workers').select('id,full_name,position').eq('business_id',businessId).eq('branch_id',activeBranch).eq('is_active',true).order('full_name');
     if(result.error)return;
-    select.innerHTML='<option value="">Select technician</option>'+(result.data||[]).map(function(row){return '<option value="'+esc(row.id)+'" data-name="'+esc(row.full_name)+'">'+esc(row.full_name)+(row.position?' - '+esc(row.position):'')+'</option>'}).join('');
+    select.innerHTML='<option value="">Select technician</option>'+(result.data||[]).map(function(row){return '<option value="'+esc((row.source==='new'?'v2:':'')+row.id)+'" data-name="'+esc(row.full_name)+'">'+esc(row.full_name)+(row.position?' - '+esc(row.position):'')+'</option>'}).join('');
     if(selected)select.value=selected;
   }
   function blank(v){return v===undefined||v===null||String(v).trim()===''}
@@ -41,11 +43,12 @@
       vehicle_make:invoice.make||null,vehicle_year_model:invoice.yearModel||null,vehicle_color:invoice.color||null,plate_number:invoice.plate||null,
       service_date:invoice.date||old.service_date||new Date().toISOString().slice(0,10),
       odometer_km:retained('pmsOdometer','odometer_km'),
-      technician_worker_id:technicianId||old.technician_worker_id||null,
+      technician_worker_id:technicianId?(technicianId.indexOf('v2:')===0?null:technicianId):(old.technician_worker_id||null),
       technician_name:technicianId?(option&&option.dataset.name||option&&option.textContent||null):(old.technician_name||null),
       next_pms_date:retained('pmsNextDate','next_pms_date'),next_pms_odometer_km:retained('pmsNextOdometer','next_pms_odometer_km'),
       notes:retained('pmsNotes','notes'),created_by:userId
     };
+    if(businessId==='ce3d6ecf-239e-4b27-a1f6-0ce7ddd16875'&&(technicianId.indexOf('v2:')===0||old.technician_employee_id))payload.technician_employee_id=technicianId?(technicianId.indexOf('v2:')===0?technicianId.slice(3):null):old.technician_employee_id;
     var saved=await db.from('pms_service_records').upsert(payload,{onConflict:'invoice_id'});if(saved.error)throw new Error(saved.error.message);
     document.dispatchEvent(new Event('bwc:pms-updated'));
   }

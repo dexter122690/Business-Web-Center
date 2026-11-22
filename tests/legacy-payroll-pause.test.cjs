@@ -66,7 +66,7 @@ test('early pause guard and cache versions are wired without changing shared rea
   for(const html of [index,clock])assert.ok(html.indexOf('legacy-payroll-pause.js?v=20261123-pause')<html.indexOf('<body'));
   assert.match(sw,/legacy-payroll-pause\.js\?v=20261123-pause/);
   assert.match(sw,/payroll-online\.js\?v=20261123-pause/);
-  assert.match(sw,/bwc-invoice-offline-v24/);
+  assert.match(sw,/bwc-invoice-offline-v25/);
   assert.match(index,/payroll-online\.js\?v=20261123-pause/);
   assert.match(read('invoice-online.js'),/from\('payroll_workers'\)\.select/);
   assert.match(read('pms-client-history.js'),/from\('payroll_workers'\)\.select/);

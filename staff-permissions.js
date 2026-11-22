@@ -10,6 +10,7 @@
     return db;
   }
   function keyForButton(button){
+    if(button.dataset.t==='payrollV2')return ''; // Separate server-checked payroll v2 access.
     var text=(button.textContent||'').trim();
     return Object.keys(labels).filter(function(key){return labels[key]===text})[0]||'';
   }

@@ -2,8 +2,8 @@
    Feature modules may rebuild/reorder #nav; they must never own the account footer. */
 (function(){
   'use strict';
-  var order=['formsFolder','dashboard','invoices','expenses','inventoryTracker','repaintMonitoring','clients','purchaseorders','feedback','quotes','payroll','schedule','clientRequests'];
-  var icons={formsFolder:'•',dashboard:'▦',invoices:'▤',expenses:'▣',inventoryTracker:'◇',repaintMonitoring:'▱',clients:'♧',purchaseorders:'🛒',feedback:'▢',quotes:'＄',payroll:'♙',schedule:'▣',clientRequests:'▤'};
+  var order=['formsFolder','dashboard','invoices','expenses','inventoryTracker','repaintMonitoring','clients','purchaseorders','feedback','quotes','payrollV2','payroll','schedule','clientRequests'];
+  var icons={formsFolder:'•',dashboard:'▦',invoices:'▤',expenses:'▣',inventoryTracker:'◇',repaintMonitoring:'▱',clients:'♧',purchaseorders:'🛒',feedback:'▢',quotes:'＄',payrollV2:'♙',payroll:'♙',schedule:'▣',clientRequests:'▤'};
   function buttonId(button){
     return button.dataset.restoreTab||button.dataset.t||({
       formsFolderTab:'formsFolder',scheduleTab:'schedule',clientRequestsTab:'clientRequests'

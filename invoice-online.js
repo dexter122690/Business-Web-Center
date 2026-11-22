@@ -84,7 +84,9 @@
   }
   async function loadAdmins(){
     var branchId=localStorage.getItem('bwc-active-branch');if(!navigator.onLine){renderOfflineAdmins();return}if(!businessId||!branchId){renderAdmins([]);return}
-    var result=await db.from('payroll_workers').select('full_name,position,is_active').eq('business_id',businessId).eq('branch_id',branchId).eq('is_active',true).order('full_name');
+    var result;
+    if(businessId==='ce3d6ecf-239e-4b27-a1f6-0ce7ddd16875')result=await db.rpc('payroll_v2_employee_options',{b:businessId,r:branchId});
+    if(!result||result.error)result=await db.from('payroll_workers').select('full_name,position,is_active').eq('business_id',businessId).eq('branch_id',branchId).eq('is_active',true).order('full_name');
     if(result.error){renderOfflineAdmins();message('Admin list is unavailable online. You can use Owner / Admin while offline.');return}
     /* Team Access administrators are valid invoice assignees even when they
        are not paid through the Payroll employee roster. Read the approved
@@ -97,7 +99,7 @@
     }catch(teamError){console.warn('Team admin names were not available:',teamError)}
     var combined=(result.data||[]).concat(teamAdmins),seen={};combined=combined.filter(function(worker){var key=String(worker.full_name||'').trim().toLowerCase();if(!key||seen[key])return false;seen[key]=true;return true});
     var admins=combined.filter(isAdmin);renderAdmins(combined);
-    if(!admins.length){var branchName=(document.querySelector('#onlineBranchPicker option:checked')||{}).textContent||'this branch';message('No active employee with the designation Admin is saved online for '+branchName+'. Open Payroll > Workers, set the employee designation to Admin, and save the employee.');}
+    if(!admins.length){var branchName=(document.querySelector('#onlineBranchPicker option:checked')||{}).textContent||'this branch';message('No active employee with the designation Admin is saved online for '+branchName+'. Open Payroll > Manage employees, set the employee designation to Admin, and save the employee.');}
   }
   function paidFromHistory(item){return Math.max(Number(item&&item.paid||0),(item&&item.payments||[]).reduce(function(sum,payment){return sum+Number(payment.amount||0)},0))}
   function invoicePayload(x){var openingPayment=!!(x.isNewInvoice&&Number(x.paid||0)>0);return {business_id:businessId,branch_id:localStorage.getItem('bwc-active-branch'),client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,discount_amount:x.discount||0,total_amount:x.total,amount_paid:openingPayment?0:x.paid,status:openingPayment?'Pending':x.status,created_by:userId}}
