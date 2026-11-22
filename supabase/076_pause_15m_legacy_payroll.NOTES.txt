@@ -1,0 +1,57 @@
+076 - Pause old payroll, preserve shared records, replace only when ready
+
+Applied to Supabase project bcgrzfrxuccvmznafake on 2026-11-23.
+Business: 15M Autocare Services, ce3d6ecf-239e-4b27-a1f6-0ce7ddd16875.
+Scope: all branches, including STO. TOMAS and STA. ROSA.
+
+LIVE DATABASE
+- Payroll feature flag is false; every other feature flag is unchanged.
+- 27 restrictive policies block authenticated inserts/updates/deletes across the
+  nine legacy payroll tables. SELECT and existing permission helpers remain intact.
+- Existing worker IDs/names, attendance, jobs, payments, advances/loans, periods,
+  payslips and adjustments were preserved. This is not a purge or a migration.
+- Invoice Making and PMS still read payroll_workers. PMS technician foreign keys
+  and Repaint Monitoring's source_vehicle_job_id references remain intact.
+- Normal source-record foreign-key cleanup remains possible. For example, deleting
+  an invoice still clears its old job link; the pause does not block invoice work.
+- Public employee time-clock tables/functions were NOT installed in production.
+  They were left uninstalled. The migration also safely handles existing clocks in
+  an isolated test: disables only 15M links and blocks manual link creation/edits.
+- No shared table, audit trigger or employee record was deleted or disabled.
+- The earlier 075 hidden Inventory pause remains active. Current Tracker is unchanged.
+- New payroll at localhost:18810 was not edited, connected, or migrated.
+
+FRONTEND - READY FOR COMMIT/PUSH, NOT DEPLOYED BY THIS TASK
+- legacy-payroll-pause.js is loaded before legacy handlers. It hides both current
+  and old sidebar button formats for 15M, prevents legacy payroll/clock actions,
+  and keeps other modules/businesses usable. It never erases browser data.
+- payroll-online.js skips legacy background loading and clock-link setup while
+  paused. Invoice Making/PMS keep their own existing employee-name reads.
+- index.html and attendance.html load the guard; sw.js cache version is v24.
+- Database enforcement is already live even in a stale browser. The clean sidebar
+  and background-loading changes take effect after the frontend is pushed/deployed.
+
+VERIFICATION
+- Compared record counts AND full-row fingerprints before/after across 25 tables:
+  all nine payroll tables; Expenses/invoices/PMS; Repaint jobs/days/tasks; old stock;
+  current Tracker materials, units, usage, adjustments, costs and reference prices.
+  All matched. Only 15M business_management.enabled_features.payroll and its normal
+  updated_at timestamp changed. Other businesses' settings did not change.
+- Isolated PostgreSQL tests cover both branches, every blocked payroll table,
+  preserved shared reads/references, ordinary invoice cleanup, other-business
+  access, optional public-clock blocking, idempotence and unreviewed-writer refusal.
+- Frontend checks cover both sidebar formats, event blocking, scope switches,
+  unchanged browser data, background-sync suppression and matching cache versions.
+- Full automated suite: 192 passed, 0 failed, 0 skipped.
+
+FUTURE REPLACEMENT
+- Do not automatically copy old records into the draft or delete them.
+- Plan real owner/staff accounts, branch scope and stable employee-ID mappings.
+- Switch Invoice Making/PMS to the new employee reference only after validation.
+- Keep old payroll historical unless the owner explicitly requests resuming it.
+- Do not run old payroll/public-clock migrations (especially 033) without reviewing
+  this pause: newly installed SECURITY DEFINER functions may bypass table RLS.
+- To resume deliberately, review data first, remove only payroll_15m_paused_* write
+  policies from legacy tables, restore the payroll feature flag, and remove/update
+  the early frontend guard. Clock links should only be enabled explicitly.
+- Pausing prevents new legacy payroll storage; it does not free existing space.

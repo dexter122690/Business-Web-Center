@@ -1,0 +1,44 @@
+075 - Pause the old/hidden Inventory for 15M Autocare Services
+
+Scope
+- Business ce3d6ecf-239e-4b27-a1f6-0ce7ddd16875 only, all branches (STO. TOMAS / STA. ROSA).
+- Expense inserts/updates no longer run the old stock copy for this business.
+- Authenticated app users cannot insert/update/delete old stock movements or old
+  opening counts/cutovers, including from a previously opened browser.
+- Existing SELECT permissions remain; existing rows are not changed or deleted.
+- Other businesses' automatic stock sync and manual access rules remain unchanged.
+- No changes to current inventory_tracker_* tables/RPCs, Expenses, invoices,
+  Dashboard calculations, payroll, employee-name pickers, or the payroll draft.
+
+Storage and behavior
+- This stops NEW legacy stock entries; it does not reclaim existing storage.
+- The hidden screen may still read old history. Reads do not add stock records.
+- The old stock balance is now historical, not a current balance.
+- Ordinary source-record cleanup remains: deleting an Expense later still uses
+  its existing foreign-key cascade. This pause does not change Expense behavior.
+- This is a database-only update. No frontend push or refresh is needed to enforce
+  it, and no shared inventory permission helper was disabled.
+- Do not rerun 022_inventory.sql: it re-enables the original trigger and backfills.
+
+Validation
+- Applied to Supabase project bcgrzfrxuccvmznafake on 2026-11-23.
+- Read-back confirmed the business-scoped trigger condition and all nine
+  restrictive write policies. Other Expense triggers remained enabled.
+- Before/after counts and full-row fingerprints matched for 16 tables: legacy
+  stock/counts, Expenses, invoices, payroll workers/jobs, and current Tracker
+  materials/vehicles/usage/adjustments/costs/reference prices and their history.
+- 678 stock movements, 1,019 Expenses and 156 invoices were preserved (these
+  verification counts cover the whole project, not only 15M).
+- Full local regression suite: 179 passed, 0 failed, 0 skipped.
+- The isolated PostgreSQL tests verify both branches, repeated application,
+  unchanged existing rows/functions, expense insert/update, stale-browser writes,
+  current Tracker material costs/usage, other-business behavior, and source cleanup.
+- Run tests/legacy-inventory-pause.test.cjs with BWC_PGLITE_PATH pointing to a local
+  @electric-sql/pglite installation. Tests never connect to a remote database.
+
+If the owner later requests resuming
+- Reconcile the old stock first; paused-period expenses will not be backfilled.
+- Restore only expenses_sync_inventory_stock_in to its original definition in 022.
+- Remove only inventory_15m_paused_insert/update/delete policies from the three
+  legacy tables listed in 075. Preserve every other policy/trigger.
+- Review any requested backfill separately to avoid duplicate stock counts.

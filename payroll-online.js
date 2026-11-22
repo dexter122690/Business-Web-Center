@@ -18,6 +18,7 @@
   }
   var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};
   var online=false,db=null;
+  function payrollPaused(){return !!(window.bwcLegacyPayrollPaused&&window.bwcLegacyPayrollPaused())}
   function connect(){
     config=window.BUSINESS_WEB_CENTER_SUPABASE||{};
     if(!window.supabase||!config.url||!config.publishableKey||config.url.indexOf('YOUR_')>=0||config.publishableKey.indexOf('YOUR_')>=0)return false;
@@ -29,9 +30,9 @@
   function businessId(){return localStorage.getItem('bwc-active-business')||''}
   function branchId(){return localStorage.getItem('bwc-active-branch')||''}
   function activeScope(){return businessId()+'::'+branchId()}
-  function scopeIsActive(scope){return !!businessId()&&!!branchId()&&scope===activeScope()}
+  function scopeIsActive(scope){return !payrollPaused()&&!!businessId()&&!!branchId()&&scope===activeScope()}
   function read(){try{var data=JSON.parse(localStorage.getItem(payrollKey)||'{}');return data&&typeof data==='object'?data:{}}catch(e){return {}}}
-  function write(data){localStorage.setItem(payrollKey,JSON.stringify(data))}
+  function write(data){if(!payrollPaused())localStorage.setItem(payrollKey,JSON.stringify(data))}
   function value(id){var input=document.getElementById(id);return input?input.value.trim():''}
   function localWorker(row){return {id:row.id,code:row.employee_code,name:row.full_name,position:row.position||'',type:row.pay_type==='per_vehicle'?'Per Vehicle':'Daily Rate',rate:Number(row.daily_rate||0),retention:Number(row.retention_percent||0),online:true}}
   function showStatus(text,kind){var section=document.getElementById('payroll');if(!section)return;var form=document.getElementById('prWorkerCode');if(!form)return;var note=document.getElementById('prOnlineWorkerStatus');if(!note){note=document.createElement('div');note.id='prOnlineWorkerStatus';note.className='notice';note.style.marginTop='12px';form.closest('.formgrid').insertAdjacentElement('afterend',note)}note.textContent=text;note.style.borderLeftColor=kind==='error'?'#b63d25':''}
@@ -403,6 +404,7 @@
     });
   }
   async function ensureEmployeeClockLink(){
+    if(payrollPaused())return;
     if(!online||!db||!businessId()||!branchId()||!document.getElementById('clockLink')||employeeClockLinkBusy)return;
     employeeClockLinkBusy=true;
     try{
@@ -420,6 +422,7 @@
     }finally{employeeClockLinkBusy=false;}
   }
   function beginOnlineSync(){
+    if(payrollPaused()){online=false;return;}
     if(!connect()){setTimeout(beginOnlineSync,250);return;}
     replaceLegacyIssueButtons();syncWorkers();syncAttendance();syncJobs();syncObligations();syncAdjustments();syncPayrollArchive();
     setTimeout(ensureEmployeeClockLink,100);
