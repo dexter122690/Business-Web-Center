@@ -7,11 +7,21 @@ Deployment order
    set historical costs, change existing stock quantities, delete usage, or write Expenses.
 3. Deploy the matching inventory-costing.js, inventory-tracker.js,
    inventory-material-history.js, index.html and sw.js together. Reload all BWC tabs.
-   Cache version is v21. Old stock-writing RPCs deliberately reject outdated clients
+   Cache version is v22. Old stock-writing RPCs deliberately reject outdated clients
    after the migration so they cannot bypass valuation. Viewing old records still works.
 4. Verify each branch with its permitted user: unknown costs must display as unknown.
 
 First use
+- The original Materials Used list and +/- buttons are retained. + records one
+  measurement unit through the atomic costing writer; no form is needed once the
+  material has verified stock and cost. - reverses the newest costed use (up to one
+  measurement unit), at its original cost. It does not rewrite pre-costing history.
+- Material pricing & purchases and Unit material cost details are separate,
+  collapsed sections. The Material prices shortcut opens the pricing section.
+  No additional SQL migration is required for this restored layout.
+- If a quick save loses its response, Retry same save reuses the same request ID.
+  Pending requests are kept in this tab's session storage across reloads and are
+  never automatically replayed. Resolve that request before entering another item.
 - General stock: use Set opening cost to value verified stock already on hand. Enter
   the SAME quantity/measurement basis the tracker has been using (e.g. 1 means one
   gallon, not one liter). This step does not increase stock. Do not silently convert

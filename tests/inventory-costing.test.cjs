@@ -50,7 +50,65 @@ test('new purchases require actual receipt information',()=>{
 test('new feature is versioned and no client directly changes stock tables',()=>{
  const root=path.join(__dirname,'..'),code=fs.readFileSync(path.join(root,'inventory-costing.js'),'utf8'),index=fs.readFileSync(path.join(root,'index.html'),'utf8'),sw=fs.readFileSync(path.join(root,'sw.js'),'utf8');new vm.Script(code);
  assert.doesNotMatch(code,/\.(insert|update|delete|upsert)\s*\(/);assert.match(code,/inventory_tracker_cost_action/);assert.match(code,/state\.retryPayload/);assert.match(code,/BroadcastChannel/);
- assert.ok(index.indexOf('inventory-costing.js?v=')<index.indexOf('inventory-tracker.js?v='));assert.match(sw,/inventory-costing.js\?v=20261122-receipt-costing/);
+ assert.ok(index.indexOf('inventory-costing.js?v=')<index.indexOf('inventory-tracker.js?v='));assert.match(sw,/inventory-costing.js\?v=20261122-quick-material-buttons/);
+});
+
+test('quick + records exactly one item with the same atomic costing writer',()=>{
+ const report=api.model(snapshot()),p=api.quickPayload(report,{vehicle:'car'},'sand',1);
+ assert.equal(p.action,'use');assert.equal(p.quantity,1);assert.equal(p.vehicle_id,'car');assert.equal(p.material_id,'sand');assert.equal(p.expected_updated_at,material().updated_at);
+ assert.equal(p.unit_cost,undefined);assert.match(p.note,/Quick \+/);
+});
+
+test('quick buttons reject missing prices, insufficient stock, released units and view-only access',()=>{
+ assert.throws(()=>api.quickPayload(api.model(snapshot([material({cost_initialized:false})])),{vehicle:'car'},'sand',1),/opening cost/);
+ assert.throws(()=>api.quickPayload(api.model(snapshot([material({quantity:0.5})])),{vehicle:'car'},'sand',1),/Not enough stock/);
+ for(const extra of [{can_edit:false},{vehicle:{id:'car',released_at:'2026-11-22'}},{vehicle:null}])assert.throws(()=>api.quickPayload(api.model(snapshot(undefined,extra)),{vehicle:'car'},'sand',1));
+ assert.throws(()=>api.quickPayload(api.model(snapshot()),{vehicle:'other'},'sand',1));
+ assert.throws(()=>api.quickPayload(api.model(snapshot()),{vehicle:'car'},'other',1));
+ assert.throws(()=>api.quickPayload(api.model(snapshot()),{vehicle:'car'},'sand',2));
+});
+
+test('quick minus reverses the newest original usage, not current stock price or legacy history',()=>{
+ const original=snapshot().history[0],history=[original,{...original,id:'new',delta:1,unit_cost:20,cost_amount:20,recorded_at:'2026-11-23T01:00:00Z'}];
+ let report=api.model(snapshot(undefined,{history})),p=api.quickPayload(report,{vehicle:'car'},'sand',-1);
+ assert.equal(p.action,'return');assert.equal(p.return_of,'new');assert.equal(p.quantity,1);assert.equal(p.unit_cost,undefined);
+ history.push({...original,id:'return',delta:-0.75,return_of:'new',recorded_at:'2026-11-24T01:00:00Z'});
+ report=api.model(snapshot(undefined,{history}));assert.equal(api.quickPayload(report,{vehicle:'car'},'sand',-1).quantity,0.25);
+ history.push({...original,id:'return2',delta:-0.25,return_of:'new',recorded_at:'2026-11-24T02:00:00Z'});
+ assert.equal(api.quickPayload(api.model(snapshot(undefined,{history})),{vehicle:'car'},'sand',-1).return_of,'entry');
+ assert.throws(()=>api.quickPayload(api.model(snapshot([material({old_adjustment_count:1,old_adjustment_qty:3})],{history:[]})),{vehicle:'car'},'sand',-1),/Older usage records are preserved/);
+});
+
+test('original rows and general inventory remain; pricing and unit costs are separate collapsed sections',()=>{
+ const code=fs.readFileSync(path.join(__dirname,'../inventory-costing.js'),'utf8');
+ assert.doesNotMatch(code,/old\.replaceWith\(mount\)|general\.replaceWith|card\.textContent=report\.used/);
+ assert.match(code,/mount\.className='ic-unit ic-cost-panel'/);assert.match(code,/stock\.className='ic-stock ic-pricing'/);
+ assert.match(code,/quickStep\(step\.dataset\.itUnitPlus/);assert.match(code,/root\.sessionStorage\.setItem\(quickStorageKey/);
+});
+
+function quickHarness(){
+ const code=fs.readFileSync(path.join(__dirname,'../inventory-costing.js'),'utf8'),start=code.indexOf('  function selectedContext()'),end=code.indexOf('  function showPricing()',start);
+ const context={business:'business',branch:'branch',vehicle:'car'},storage=new Map(),calls=[];
+ const box={quickPending:null,quickMessage:null,saving:false,quickStorageKey:'test',current:null,Math,JSON,Number,Error,Promise,
+  num:Number,qty:String,button:()=>'',esc:String,payloadFrom:api.payloadFrom,same:(a,b)=>JSON.stringify(a)===JSON.stringify(b),scope:()=>box.context,
+  context,read:async()=>api.model(snapshot()),changed:()=>{box.refreshed=(box.refreshed||0)+1},client:()=>({rpc:async(name,args)=>{calls.push(args);return box.response(args)}}),response:async()=>({data:{ok:true}}),
+  root:{document:{getElementById:()=>null},BWCInventoryTracker:{context:()=>box.context},sessionStorage:{setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},crypto:{randomUUID:()=> 'fixed-id'}}};
+ vm.runInNewContext(code.slice(start,end),box);return {box,storage,calls};
+}
+
+test('lost quick-save response retries the exact payload/key and blocks additional clicks',async()=>{
+ const {box,storage,calls}=quickHarness();box.response=async()=>{throw Error('Network lost')};await box.quickStep('sand',1,false);
+ assert.ok(box.quickPending);assert.equal(storage.size,1);assert.equal(calls.length,1);
+ await box.quickStep('sand',1,false);assert.equal(calls.length,1);
+ box.response=async()=>({data:{ok:true,duplicate:true}});await box.quickStep(null,0,true);
+ assert.deepEqual(calls[1],calls[0]);assert.equal(box.quickPending,null);assert.equal(storage.size,0);assert.equal(box.refreshed,1);
+});
+
+test('rapid quick clicks serialize, server rejections clear pending state, branch changes before reading abort',async()=>{
+ const {box,calls}=quickHarness();let release;box.response=()=>new Promise(r=>release=r);
+ const first=box.quickStep('sand',1,false);await new Promise(r=>setImmediate(r));await box.quickStep('sand',1,false);assert.equal(calls.length,1);
+ release({error:{code:'P0001',message:'Stock changed'}});await first;assert.equal(box.quickPending,null);assert.equal(box.refreshed,undefined);
+ box.read=async()=>{box.context={...box.context,vehicle:'other'};return api.model(snapshot())};await box.quickStep('sand',1,false);assert.equal(calls.length,1);assert.match(box.quickMessage.text,/selected unit changed/);
 });
 test('tracker reads every page, including a server cap smaller than the requested page',async()=>{
  const source=fs.readFileSync(path.join(__dirname,'../inventory-tracker.js'),'utf8'),start=source.indexOf('  async function readTrackerRows('),end=source.indexOf('  async function load(){',start);

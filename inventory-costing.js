@@ -6,6 +6,8 @@
 }(typeof window!=='undefined'?window:null,function(root){
   'use strict';
   var epoch=0,formEpoch=0,current=null,dialog=null,formState=null,saving=false,opener=null,channel=null;
+  var quickPending=null,quickMessage=null,costExpanded=false,pricingExpanded=false;
+  var quickStorageKey='bwc-inventory-quick-pending-v1';
   function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   function num(v){var n=Number(v);if(v==null||v===''||!Number.isFinite(n)||Math.abs(n)>9000000000)throw new Error('A cost or quantity is missing or outside the supported range. Please review the saved record.');return n}
   function qty(v){return num(v).toLocaleString('en-PH',{maximumFractionDigits:2})}
@@ -63,19 +65,90 @@
     var can=report.data.can_edit;
     return '<div class="ic-heading"><div><span class="ic-kicker">RECEIPT-BASED PRICING</span><h3>Stock &amp; purchase costs</h3></div>'+(can?button('purchase','Record purchase')+button('create','Add material'):'')+'</div><p class="ic-help">A purchase increases stock and updates its weighted-average cost. Opening valuation prices existing stock without adding it again. These actions do not create an expense entry in Expenses.</p><div class="ic-scroll"><table class="ic-table"><thead><tr><th>Material</th><th>Available</th><th>Current average cost</th><th>Stock value</th><th>Actions</th></tr></thead><tbody>'+report.rows.map(function(r){var m=r.material;return '<tr><th scope="row">'+esc(r.name)+'</th><td>'+qty(m.quantity)+' '+esc(m.measure_unit||'unit unspecified')+'</td><td>'+(m.cost_initialized?(m.stock_unit_cost==null?'No stock':money(m.stock_unit_cost,4)):'Cost not recorded')+'</td><td>'+(m.cost_initialized?money(m.cost_value):'Unknown')+'</td><td class="ic-row-actions">'+(can?(!m.cost_initialized?button('opening','Set opening cost',m.id):'')+button('purchase','Purchase',m.id)+(m.cost_initialized?button('count','Correct count',m.id):''):'')+'</td></tr>'}).join('')+'</tbody></table></div><details class="ic-history"><summary>Latest stock transactions (up to 100)</summary><div class="ic-scroll"><table class="ic-table"><thead><tr><th>Recorded / purchase date</th><th>Material / action</th><th>Qty change*</th><th>Value</th><th>Supplier / receipt / reason</th></tr></thead><tbody>'+(report.data.purchases||[]).map(function(e){var m=report.rows.find(function(r){return r.id===e.material_id});return '<tr><td>'+esc(date(e.recorded_at))+'<small>'+esc(e.purchase_date||'')+'</small></td><td>'+esc(m?m.name:'Material')+'<small>'+esc(e.action)+'</small></td><td>'+qty(e.quantity)+'</td><td>'+money(e.amount)+'</td><td>'+esc([e.supplier,e.receipt,e.note].filter(Boolean).join(' · '))+'</td></tr>'}).join('')+'</tbody></table></div><p class="ic-help">*Opening valuation shows the existing quantity valued, not an increase. Purchase dates are receipt references; costing is applied in the order transactions are recorded, without rewriting earlier usage.</p></details>';
   }
+  function selectedContext(){return root.BWCInventoryTracker?root.BWCInventoryTracker.context():scope(null)}
+  function quickPayload(report,context,materialId,delta){
+    if(!report.data.can_edit)throw new Error('Inventory edit access is required for this branch.');
+    if(!report.data.vehicle||report.data.vehicle.id!==context.vehicle||report.data.vehicle.released_at)throw new Error('Choose an active unit before recording materials.');
+    var row=report.rows.find(function(r){return r.id===materialId});if(!row)throw new Error('This material is unavailable in the selected branch.');
+    var m=row.material,values={material_id:materialId,quantity:1,note:delta===1?'Quick +: materials used on unit':'Quick −: reverse latest material usage'},action;
+    if(delta===1){
+      if(!m.cost_initialized)throw new Error('Set the opening cost for '+row.name+' in Material pricing & purchases first. This is a one-time setup for existing stock.');
+      if(num(m.quantity)<1)throw new Error('Not enough stock for +1 '+(m.measure_unit||'unit')+'. Record a purchase, or use a fractional quantity in the cost section.');
+      action='use';
+    }else if(delta===-1){
+      var entries=report.data.history.filter(function(h){return h.material_id===materialId&&num(h.delta)>0}).map(function(h){
+        var returned=report.data.history.filter(function(x){return x.return_of===h.id}).reduce(function(s,x){return s+num(x.delta)},0);
+        return {entry:h,remaining:Math.round((num(h.delta)+returned)*100)/100};
+      }).filter(function(x){return x.remaining>0}).sort(function(a,b){return String(b.entry.recorded_at).localeCompare(String(a.entry.recorded_at))||String(b.entry.id).localeCompare(String(a.entry.id))});
+      if(!entries.length)throw new Error('There is no new costed usage to reverse. Older usage records are preserved; they cannot be changed with this minus button.');
+      action='return';values.quantity=Math.min(1,entries[0].remaining);values.return_of=entries[0].entry.id;
+    }else throw new Error('Unsupported quick quantity change.');
+    return payloadFrom({action:action,context:context,report:report},values);
+  }
+  function quickStatus(){
+    var page=root.document.getElementById('inventoryTracker'),box=page&&page.querySelector('[data-ic-quick-status]');if(!box)return;
+    var context=selectedContext(),pending=quickPending&&same(quickPending.context,context),message=quickMessage&&same(quickMessage.context,context)?quickMessage.text:'';
+    if(quickPending&&!pending)message='A material save in another unit is awaiting confirmation. Return to that branch and unit to retry the same save safely.';
+    box.innerHTML=(message?'<span>'+esc(message)+'</span>':'')+(pending&&!saving?button('retry-quick','Retry same save'):'');box.hidden=!message&&!pending;
+    page.querySelectorAll('[data-it-unit-plus],[data-it-unit-minus]').forEach(function(b){b.disabled=saving||!!quickPending||!current||!current.report.data.can_edit||!!(current.report.data.vehicle&&current.report.data.vehicle.released_at)});
+  }
+  function persistQuick(state){
+    // Keep the exact request across a reload after a lost response. Never replay automatically.
+    if(state)root.sessionStorage.setItem(quickStorageKey,JSON.stringify(state));else root.sessionStorage.removeItem(quickStorageKey);
+    quickPending=state;
+  }
+  async function runQuick(state){
+    if(!same(state.context,selectedContext()))throw new Error('Return to the original branch and unit before retrying this save.');
+    var r=await client().rpc('inventory_tracker_cost_action',{p_business_id:state.context.business,p_branch_id:state.context.branch,p_request_id:state.requestId,p_payload:state.payload});
+    if(r.error){if(r.error.code)persistQuick(null);throw new Error(r.error.message);}
+    if(!r.data||!r.data.ok)throw new Error('The save result could not be confirmed.');
+    persistQuick(null);
+    quickMessage={context:state.context,text:'Saved '+(state.payload.action==='use'?'+':'−')+qty(state.payload.quantity)+' '+state.unit+' · '+state.name+'. Quantity and cost were saved together.'};
+    changed(state.context);
+  }
+  async function quickStep(materialId,delta,retry){
+    if(saving)return;
+    var context=selectedContext();if(quickPending&&!retry){quickStatus();return;}
+    saving=true;quickMessage={context:context,text:retry?'Checking the same saved request…':'Saving material usage…'};quickStatus();
+    try{
+      var state=quickPending;
+      if(!retry){
+        var report=await read(context);if(!same(context,selectedContext()))throw new Error('The selected unit changed. No material was recorded.');
+        var payload=quickPayload(report,context,materialId,delta),row=report.rows.find(function(r){return r.id===materialId});
+        state={context:context,requestId:root.crypto.randomUUID(),payload:payload,name:row.name,unit:row.material.measure_unit||'unit'};
+        persistQuick(state);
+      }
+      if(!state)throw new Error('There is no pending save to retry.');
+      await runQuick(state);
+    }catch(e){quickMessage={context:context,text:(e.message||'The material could not be saved.')+(quickPending?' Do not add it again. Use Retry same save to confirm this exact request without duplicating it.':'')};}
+    finally{saving=false;quickStatus();}
+  }
+  function showPricing(){
+    var box=root.document.getElementById('inventoryMaterialPricing');if(!box)return;box.open=true;pricingExpanded=true;box.scrollIntoView({behavior:'smooth',block:'start'});box.querySelector('summary').focus();
+  }
   async function render(context){
     var page=root.document.getElementById('inventoryTracker');if(!page)return;
     var version=++epoch;current=null;
-    var old=page.querySelector('.it-unit-materials'),general=page.querySelector('.it-general'),mount;
+    var old=page.querySelector('.it-unit-materials'),mount;
     var legacy=page.querySelector('.it-history');if(legacy){var audit=root.document.createElement('details');audit.className='ic-history';audit.innerHTML='<summary>Quantity audit trail (separate source records)</summary>';legacy.replaceWith(audit);audit.appendChild(legacy);}
-    if(old){mount=root.document.createElement('div');mount.className='ic-unit';old.replaceWith(mount);var hint=mount.previousElementSibling;if(hint&&hint.tagName==='P')hint.textContent='Record quantities and receipt-based costs together. Old unpriced records remain visible for review.';}
-    var stock=root.document.createElement('section');stock.className='ic-stock';if(general)general.replaceWith(stock);else page.appendChild(stock);
-    if(mount)mount.innerHTML='<p role="status">Loading complete material costs…</p>';stock.innerHTML='<p role="status">Loading stock valuation…</p>';
+    if(old){
+      // Keep the original material rows, ordering, hide/add-row controls and +/- look.
+      old.querySelectorAll('[data-it-unit-plus],[data-it-unit-minus]').forEach(function(b){b.disabled=true});
+      var toolbar=root.document.createElement('div');toolbar.className='ic-quick-help';toolbar.innerHTML='<span>+ uses 1 item · − reverses the latest use (up to 1). Prices are saved in the background.</span>'+button('pricing','Material prices');old.before(toolbar);
+      var status=root.document.createElement('p');status.className='ic-quick-status';status.dataset.icQuickStatus='';status.setAttribute('role','status');status.setAttribute('aria-live','polite');status.hidden=true;old.before(status);
+      mount=root.document.createElement('details');mount.className='ic-unit ic-cost-panel';mount.open=costExpanded;old.after(mount);
+      mount.addEventListener('toggle',function(){costExpanded=mount.open});
+    }
+    var stock=root.document.createElement('details');stock.id='inventoryMaterialPricing';stock.className='ic-stock ic-pricing';stock.open=pricingExpanded;page.appendChild(stock);
+    stock.addEventListener('toggle',function(){pricingExpanded=stock.open});
+    if(mount)mount.innerHTML='<summary>Unit material cost details</summary><p role="status">Loading complete material costs…</p>';
+    stock.innerHTML='<summary>Material pricing &amp; purchases</summary><p role="status">Loading stock valuation…</p>';quickStatus();
     try{
       var report=await read(context);if(version!==epoch||!same(context,scope(context.vehicle)))return;
-      current={context:context,report:report};if(mount)mount.innerHTML=reportHTML(report,false);stock.innerHTML=stockHTML(report);
-      var card=page.querySelector('[data-it-unit="'+context.vehicle+'"] .it-count');if(card)card.textContent=report.used.length+' materials · '+(report.unknown?'known cost ':'')+money(report.total)+(report.unknown?' · incomplete':'');
-    }catch(error){if(version!==epoch)return;var msg='<p class="ic-notice" role="alert">'+esc(error.message||'Costs could not load. No totals are shown.')+'</p>'+button('refresh','Try again');if(mount)mount.innerHTML=msg;stock.innerHTML=msg;}
+      current={context:context,report:report};if(mount)mount.innerHTML='<summary>Unit material cost details <span>'+(report.unknown?'Known cost ':'')+money(report.total)+(report.unknown?' · incomplete':'')+'</span></summary>'+reportHTML(report,false);
+      stock.innerHTML='<summary>Material pricing &amp; purchases <span>Set prices · record receipts</span></summary>'+stockHTML(report);
+      page.querySelectorAll('[data-it-plus],[data-it-minus],[data-it-edit-stock],[data-it-toggle-manage]').forEach(function(b){b.disabled=!report.data.can_edit});quickStatus();
+    }catch(error){if(version!==epoch)return;var msg='<p class="ic-notice" role="alert">'+esc(error.message||'Costs could not load. No totals are shown.')+'</p>'+button('refresh','Try again');if(mount)mount.innerHTML='<summary>Unit material cost details — unavailable</summary>'+msg;stock.innerHTML='<summary>Material pricing &amp; purchases — unavailable</summary>'+msg;quickMessage={context:context,text:'Material buttons are paused because current stock and costs could not be verified. Refresh to try again.'};quickStatus();}
   }
   async function renderArchive(container,context){
     var mount=root.document.createElement('section');mount.className='ic-unit';container.prepend(mount);mount.innerHTML='<p role="status">Loading material costs…</p>';
@@ -93,7 +166,7 @@
     dialog.addEventListener('input',function(){if(formState&&!saving){formState.requestId=null;formState.retryPayload=null}preview()});
   }
   async function open(action,material,record,trigger){
-    if(saving)return;var version=++formEpoch;opener=trigger;ensureDialog();dialog.innerHTML='<p role="status">Checking current stock and prices…</p>';dialog.showModal();
+    if(saving)return;if(quickPending){quickStatus();return;}var version=++formEpoch;opener=trigger;ensureDialog();dialog.innerHTML='<p role="status">Checking current stock and prices…</p>';dialog.showModal();
     var captured=record?record.context:scope(root.BWCInventoryTracker&&root.BWCInventoryTracker.context().vehicle);
     try{
       var report=await read(captured);if(version!==formEpoch||!dialog.open||!same(captured,scope(captured.vehicle)))return;
@@ -158,18 +231,25 @@
       state.uncertain=true;
       var r=await client().rpc('inventory_tracker_cost_action',{p_business_id:state.context.business,p_branch_id:state.context.branch,p_request_id:state.requestId,p_payload:payload});
       if(r.error){state.uncertain=!r.error.code;throw new Error(r.error.message);}if(!r.data||!r.data.ok)throw new Error('The save result is uncertain. Retry this unchanged form to check the same request safely.');
-      saving=false;dialog.close();changed(state.context);var archived=root.document.getElementById('inventoryMaterialHistory');if(archived&&archived.open){var refresh=archived.querySelector('[data-imh-refresh]');if(refresh)refresh.click();}
+      saving=false;quickMessage=null;dialog.close();changed(state.context);var archived=root.document.getElementById('inventoryMaterialHistory');if(archived&&archived.open){var refresh=archived.querySelector('[data-imh-refresh]');if(refresh)refresh.click();}
     }catch(e){errorBox.textContent=(e.message||'The save could not be confirmed.')+' No automatic retry was made. Retry the unchanged form to safely reuse the same request; close and reopen if the stock changed.';}
     finally{saving=false;if(dialog.open)dialog.querySelectorAll('button,input,select').forEach(function(el){el.disabled=!!state.uncertain&&el.tagName!=='BUTTON'});}
   }
   function refresh(){if(root.BWCInventoryTracker)root.BWCInventoryTracker.refresh();}
   function changed(context){refresh();var message={business:context.business,branch:context.branch,nonce:Date.now()};if(channel)channel.postMessage(message);try{root.localStorage.setItem('bwc-inventory-cost-changed',JSON.stringify(message))}catch(e){}root.document.dispatchEvent(new CustomEvent('bwc:inventory-cost-changed',{detail:message}));}
   function install(){
-    if(!root)return;var s=root.document.createElement('style');s.id='inventoryCostStyle';s.textContent=
+    if(!root)return;
+    try{var pending=JSON.parse(root.sessionStorage.getItem(quickStorageKey)||'null');if(pending&&pending.context&&pending.requestId&&pending.payload){quickPending=pending;quickMessage={context:pending.context,text:'A previous material save needs confirmation. Retry the same save before recording another item.'};}}catch(e){}
+    var s=root.document.createElement('style');s.id='inventoryCostStyle';s.textContent=
       '.ic-unit,.ic-stock{font:16px/1.5 Arial,sans-serif;color:#252222}.ic-stock{margin-top:22px;padding:22px;border:1px solid #e9dcd5;border-radius:14px;background:#fff}.ic-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0}.ic-heading h3,.ic-heading h2{margin:2px 0!important;font-size:20px!important}.ic-kicker{font-size:12px;letter-spacing:1.4px;color:#a33a13}.ic-summary{display:grid;grid-template-columns:1.1fr 1fr;gap:12px;margin:18px 0}.ic-summary>div{border:1px solid #eed9cb;background:#fff6ef;border-radius:12px;padding:18px}.ic-summary span,.ic-summary small{display:block;font-size:14px;color:#685449}.ic-summary strong{display:block;font-size:29px;color:#bd410c;margin:5px 0;font-variant-numeric:tabular-nums}.ic-scroll{overflow:auto;border:1px solid #e8ddd7;border-radius:10px}.ic-table{width:100%;min-width:720px;border-collapse:collapse}.ic-table th,.ic-table td{font-size:14px;padding:12px;text-align:left;vertical-align:top;border-bottom:1px solid #eaded8}.ic-table thead th{background:#f7f4f2;color:#685449}.ic-table td{font-variant-numeric:tabular-nums}.ic-table small{display:block;font-size:12px;font-weight:400;margin-top:5px;max-width:330px}.ic-table tbody tr:last-child>*{border-bottom:0}.ic-row-actions{min-width:130px}.ic-button{border:1px solid #cbb8ad!important;background:#fff!important;border-radius:8px!important;color:#65351d!important;font:600 14px Arial!important;padding:9px 12px!important;cursor:pointer}.ic-row-actions .ic-button{display:block;margin:0 0 7px}.ic-primary{background:#d84b12!important;color:white!important;border-color:#d84b12!important}.ic-button:disabled{opacity:.5;cursor:not-allowed}.ic-button:focus-visible{outline:3px solid #205ec8;outline-offset:2px}.ic-help{font-size:14px;color:#685449}.ic-notice{background:#fff8e8;border:1px solid #e1b966;border-radius:9px;padding:13px;font-size:14px;color:#754400}.ic-warning-text{color:#875200}.ic-history{margin:18px 0}.ic-history summary{cursor:pointer;font-weight:bold;margin:10px 0}.ic-history .ic-table{min-width:680px}#inventoryCostForm{width:min(680px,calc(100vw - 24px));max-width:none;max-height:90vh;border:1px solid #d6c4b9;border-radius:14px;padding:24px;color:#252222;font:16px/1.5 Arial;background:#fff}#inventoryCostForm::backdrop{background:#20181099}.ic-fields{display:grid;grid-template-columns:1fr 1fr;gap:14px}.ic-fields label{display:flex;flex-direction:column;gap:5px;font-size:14px;font-weight:600}.ic-fields input,.ic-fields select{width:100%;box-sizing:border-box;font:16px Arial;padding:10px;border:1px solid #cdbfb6;border-radius:7px;background:#fff;color:#252222}.ic-fields input[readonly]{background:#f2eeeb}.ic-form-stock,.ic-fields .ic-notice{grid-column:1/-1;font-size:14px;background:#f7f3ef;padding:12px;border-radius:8px}.ic-fields .ic-check{grid-column:1/-1;flex-direction:row;align-items:start}.ic-check input{width:auto;margin:4px 8px 0 0}.ic-form-footer{display:flex;justify-content:flex-end;gap:10px;padding-top:16px;border-top:1px solid #e8ddd7}[data-ic-error]{font-size:14px;color:#a32412;white-space:pre-wrap}@media(max-width:650px){.ic-summary,.ic-fields{grid-template-columns:1fr}.ic-stock{padding:14px}.ic-summary strong{font-size:25px}.ic-heading{align-items:flex-start}}';root.document.head.appendChild(s);
     s.textContent+='.ic-table tbody th{text-transform:none!important;background:#fff;font-weight:600}.ic-table tbody th small{text-transform:none!important}.ic-table td{background:#fff}.ic-unit,.ic-stock,.inventory-tracker .it-panel{min-width:0}';
+    s.textContent+='.ic-quick-help{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 12px;font-size:12px;color:#75645d}.ic-quick-help .ic-button{font-size:12px!important;padding:7px 10px!important;white-space:nowrap}.ic-quick-status{padding:10px 12px;background:#fff7ed;border:1px solid #f0d1b4;border-radius:8px;font-size:13px;color:#713e17}.ic-quick-status .ic-button{margin:6px}.ic-cost-panel{margin:16px 0;border:1px solid #eaded8;border-radius:10px;padding:12px}.ic-cost-panel>summary,.ic-pricing>summary{cursor:pointer;font-size:14px;font-weight:700}.ic-cost-panel>summary span,.ic-pricing>summary span{font-weight:400;color:#75645d;margin-left:10px;font-size:12px}.ic-pricing{font-size:14px}.it-material-actions button:disabled{opacity:.45;cursor:not-allowed}@media(max-width:520px){.ic-quick-help{align-items:flex-start;flex-wrap:wrap}.ic-cost-panel>summary span{display:block;margin:4px 0}}';
     root.document.addEventListener('click',function(e){
-      var b=e.target.closest('[data-ic-action]');if(b){e.preventDefault();e.stopImmediatePropagation();var a=b.dataset.icAction;if(a==='refresh'){var history=b.closest('#inventoryMaterialHistory');if(history)history.querySelector('[data-imh-refresh]').click();else refresh();return;}var archive=b.closest('.ic-unit');open(a,b.dataset.icMaterial,archive&&archive._costReport||current,b);return;}
+      var b=e.target.closest('[data-ic-action]');if(b){e.preventDefault();e.stopImmediatePropagation();var a=b.dataset.icAction;if(a==='pricing'){showPricing();return;}if(a==='retry-quick'){quickStep(null,0,true);return;}if(a==='refresh'){var history=b.closest('#inventoryMaterialHistory');if(history)history.querySelector('[data-imh-refresh]').click();else refresh();return;}var archive=b.closest('.ic-unit');open(a,b.dataset.icMaterial,archive&&archive._costReport||current,b);return;}
+      var step=e.target.closest('#inventoryTracker [data-it-unit-plus],#inventoryTracker [data-it-unit-minus]');
+      if(step){e.preventDefault();e.stopImmediatePropagation();quickStep(step.dataset.itUnitPlus||step.dataset.itUnitMinus,step.hasAttribute('data-it-unit-plus')?1:-1,false);return;}
+      var stockButton=e.target.closest('#inventoryTracker [data-it-plus],#inventoryTracker [data-it-minus],#inventoryTracker [data-it-edit-stock],#inventoryTracker [data-it-toggle-manage]');
+      if(stockButton){e.preventDefault();e.stopImmediatePropagation();var id=stockButton.dataset.itPlus||stockButton.dataset.itMinus||stockButton.dataset.itEditStock,r=current&&current.report.rows.find(function(x){return x.id===id});open(stockButton.hasAttribute('data-it-toggle-manage')?'create':stockButton.hasAttribute('data-it-plus')?'purchase':r&&!r.material.cost_initialized?'opening':'count',id,current,stockButton);return;}
       // Suppress cached/legacy stock buttons: new transactions must own all writes.
       var old=e.target.closest('#inventoryTracker [data-it-unit-plus],#inventoryTracker [data-it-unit-minus],#inventoryTracker [data-it-plus],#inventoryTracker [data-it-minus],#inventoryTracker [data-it-save-material],#inventoryTracker [data-it-record],#inventoryTracker [data-it-stepper]');
       if(old){e.preventDefault();e.stopImmediatePropagation();refresh();}
@@ -181,5 +261,5 @@
     root.addEventListener('storage',function(e){if(e.key==='bwc-active-business'||e.key==='bwc-active-branch'){invalidate();refresh();}if(e.key==='bwc-inventory-cost-changed'){try{receive(JSON.parse(e.newValue))}catch(err){}}});
     root.document.addEventListener('visibilitychange',function(){if(!root.document.hidden){var p=root.document.getElementById('inventoryTracker');if(p&&p.classList.contains('active'))refresh();}});
   }
-  return {install:install,render:render,renderArchive:renderArchive,model:model,reportHTML:reportHTML,stockHTML:stockHTML,payloadFrom:payloadFrom};
+  return {install:install,render:render,renderArchive:renderArchive,model:model,reportHTML:reportHTML,stockHTML:stockHTML,payloadFrom:payloadFrom,quickPayload:quickPayload};
 }));
