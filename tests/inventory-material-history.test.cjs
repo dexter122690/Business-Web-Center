@@ -78,5 +78,5 @@ test('released cards have separate view and delete buttons; only summary toggles
 test('history code is read-only and versioned with the app shell',()=>{
  const code=fs.readFileSync(path.join(root,'inventory-material-history.js'),'utf8'),index=fs.readFileSync(path.join(root,'index.html'),'utf8'),sw=fs.readFileSync(path.join(root,'sw.js'),'utf8');new vm.Script(code);new vm.Script(fs.readFileSync(path.join(root,'inventory-tracker.js'),'utf8'));
  assert.doesNotMatch(code,/\.(insert|update|delete|upsert|rpc)\s*\(/);assert.match(code,/event.stopPropagation\(\)/);assert.match(code,/dialog.showModal\(\)/);assert.match(code,/bwc:branch-ready/);
- for(const name of ['inventory-costing','inventory-tracker','inventory-material-history']){const version=name==='inventory-costing'?'20261122-quick-material-buttons':'20261122-receipt-costing';assert.ok(index.includes(name+'.js?v='+version));assert.ok(sw.includes(name+'.js?v='+version))}
+ for(const name of ['inventory-costing','inventory-tracker','inventory-material-history']){const version=name==='inventory-costing'?'20261122-reference-prices':'20261122-receipt-costing';assert.ok(index.includes(name+'.js?v='+version));assert.ok(sw.includes(name+'.js?v='+version))}
 });

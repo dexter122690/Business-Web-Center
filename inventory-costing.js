@@ -1,5 +1,5 @@
-/* Receipt-based inventory costing. Quantities, average valuation and usage cost
-   are saved together by the checked server transaction in migration 073. */
+/* Receipt-based inventory costing (073). Reference prices (074) are a separate
+   price list and never replace stock valuation or historical usage costs. */
 (function(root,factory){
   var api=factory(root);if(typeof module==='object'&&module.exports)module.exports=api;
   else{root.BWCInventoryCosting=api;api.install()}
@@ -40,7 +40,33 @@
     var r=await c.rpc('inventory_tracker_cost_snapshot',{p_business_id:context.business,p_branch_id:context.branch,p_vehicle_id:context.vehicle});
     if(r.error)throw new Error(/PGRST202|42883/.test(r.error.code||'')?'Costing setup is required: run Supabase migration 073, then refresh BWC.':r.error.message);
     if(!r.data||r.data.business_id!==context.business||r.data.branch_id!==context.branch||((r.data.vehicle&&r.data.vehicle.id)||null)!==context.vehicle)throw new Error('The costing response does not match the selected branch and unit.');
-    return model(r.data);
+    var report=model(r.data),prices;
+    try{prices=await c.rpc('inventory_tracker_reference_price_snapshot',{p_business_id:context.business,p_branch_id:context.branch});}
+    catch(e){prices={error:e};}
+    return attachReferences(report,prices);
+  }
+  function attachReferences(report,result){
+    report.referencePrices={};report.referenceHistory=[];report.referenceError='';
+    try{
+      if(!result||result.error)throw new Error(result&&result.error&&/PGRST202|42883/.test(result.error.code||'')?'Reference-price setup is required: apply database update 074. Existing stock costing is still available.':'Reference prices could not be loaded. Refresh before editing prices; existing stock costing is still available.');
+      var d=result.data;
+      if(!d||d.version!==1||d.business_id!==report.data.business_id||d.branch_id!==report.data.branch_id||!Array.isArray(d.prices)||!Array.isArray(d.history))throw new Error('The reference-price response does not match this branch. Refresh to try again.');
+      var prices={},ids=new Set(report.rows.map(function(r){return r.id}));
+      d.prices.forEach(function(p){
+        if(!ids.has(p.material_id)||prices[p.material_id]||p.business_id!==d.business_id||p.branch_id!==d.branch_id||!p.revision||typeof p.price_unit!=='string'||!p.price_unit.trim()||num(p.price)<0)throw new Error('A reference price could not be verified. Refresh before editing.');
+        prices[p.material_id]=p;
+      });
+      report.referencePrices=prices;report.referenceHistory=d.history;
+    }catch(e){report.referenceError=e.message;}
+    return report;
+  }
+  function referenceHTML(report){
+    var head='<div class="ic-heading"><div><span class="ic-kicker">SAVED PRICE LIST</span><h3>Reference prices</h3></div></div><p class="ic-help">Your price per stated unit or package, even when stock is zero. Reference prices do not change quantities, receipt-based stock values, Expenses, or past unit costs. Actual purchases and usage keep their own recorded costs.</p>';
+    if(report.referenceError)return head+'<p class="ic-notice" role="alert">'+esc(report.referenceError)+'</p>'+button('refresh','Retry price list');
+    var prices=report.referencePrices||{};
+    var rows=report.rows.map(function(r){var p=prices[r.id];return '<tr><th scope="row">'+esc(r.name)+'</th><td>'+(p?money(p.price,4):'Not set')+'</td><td>'+esc(p?p.price_unit:'—')+'</td><td>'+(p?esc(date(p.updated_at))+'<small>'+esc(p.note)+'</small>':'—')+'</td><td>'+(report.data.can_edit?button('reference',p?'Edit reference price':'Set reference price',r.id):'')+'</td></tr>';}).join('');
+    var history=(report.referenceHistory||[]).map(function(e){var row=report.rows.find(function(r){return r.id===e.material_id}),before=e.previous_price,after=e.saved_price;return '<tr><td>'+esc(date(e.recorded_at))+'</td><td>'+esc(row?row.name:'Material')+'</td><td>'+(before?money(before.price,4)+' / '+esc(before.price_unit):'Not set')+'</td><td>'+money(after.price,4)+' / '+esc(after.price_unit)+'<small>'+esc(after.note)+'</small></td></tr>';}).join('');
+    return head+'<div class="ic-scroll"><table class="ic-table" aria-label="Reference price list"><thead><tr><th>Material</th><th>Reference price</th><th>Per unit / package</th><th>Updated / source</th><th>Action</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+(history?'<details class="ic-history"><summary>Reference-price history (latest 100)</summary><div class="ic-scroll"><table class="ic-table"><thead><tr><th>Date</th><th>Material</th><th>Previous price</th><th>Saved price / reason</th></tr></thead><tbody>'+history+'</tbody></table></div></details>':'');
   }
   function button(action,label,material,extra){return '<button type="button" class="ic-button" data-ic-action="'+action+'"'+(material?' data-ic-material="'+esc(material)+'"':'')+(extra||'')+'>'+esc(label)+'</button>'}
   function reportHTML(report,archive){
@@ -146,7 +172,7 @@
     try{
       var report=await read(context);if(version!==epoch||!same(context,scope(context.vehicle)))return;
       current={context:context,report:report};if(mount)mount.innerHTML='<summary>Unit material cost details <span>'+(report.unknown?'Known cost ':'')+money(report.total)+(report.unknown?' · incomplete':'')+'</span></summary>'+reportHTML(report,false);
-      stock.innerHTML='<summary>Material pricing &amp; purchases <span>Set prices · record receipts</span></summary>'+stockHTML(report);
+      stock.innerHTML='<summary>Material pricing &amp; purchases <span>Reference prices · actual stock costs</span></summary>'+referenceHTML(report)+stockHTML(report);
       page.querySelectorAll('[data-it-plus],[data-it-minus],[data-it-edit-stock],[data-it-toggle-manage]').forEach(function(b){b.disabled=!report.data.can_edit});quickStatus();
     }catch(error){if(version!==epoch)return;var msg='<p class="ic-notice" role="alert">'+esc(error.message||'Costs could not load. No totals are shown.')+'</p>'+button('refresh','Try again');if(mount)mount.innerHTML='<summary>Unit material cost details — unavailable</summary>'+msg;stock.innerHTML='<summary>Material pricing &amp; purchases — unavailable</summary>'+msg;quickMessage={context:context,text:'Material buttons are paused because current stock and costs could not be verified. Refresh to try again.'};quickStatus();}
   }
@@ -171,6 +197,7 @@
     try{
       var report=await read(captured);if(version!==formEpoch||!dialog.open||!same(captured,scope(captured.vehicle)))return;
       if(!report.data.can_edit)throw new Error('Inventory edit access is required to change costs.');
+      if(action==='reference'&&report.referenceError)throw new Error(report.referenceError);
       formState={context:captured,report:report,action:action,material:material||'',requestId:null,retryPayload:null};fillForm();
     }catch(e){if(version===formEpoch&&dialog.open)dialog.innerHTML='<p class="ic-notice" role="alert">'+esc(e.message)+'</p><button type="button" data-ic-cancel>Close</button>';}
   }
@@ -178,9 +205,16 @@
     var state=formState,a=state.action,r=state.report,m=r.rows.find(function(x){return x.id===state.material}),data=m&&m.material;
     var titles={purchase:'Record material purchase',opening:'Value existing stock',count:'Correct stock count',use:'Record material usage',return:'Return unused material / correct usage',baseline:'Verify past usage cost',create:'Add a material'};
     var description={purchase:'Enter the actual receipt cost per measurement unit. This adds stock, not another expense entry.',opening:'Enter a supported average cost for the stock already on hand. Quantity does not increase.',count:'For a verified count discrepancy only—not a purchase or vehicle usage. Stock value changes at the current average cost.',use:'Stock and this unit’s material cost will be saved together at the current average cost.',return:'Select the original usage. The quantity and its original saved cost are reversed together; today’s price is not substituted.',baseline:'Review older records for overlap. Enter the verified TOTAL quantity and average historical cost for this material on this unit. This is a one-time historical valuation, does not move stock, and cannot be overwritten here.',create:'Create a separate material for each brand, grade and package/measurement size. It starts with zero stock; record a purchase next.'};
+    titles.reference='Set reference price';description.reference='Save a price-list amount per stated unit or package. This is not a purchase, expense, stock revaluation, or a change to earlier vehicle costs.';
     var selector=a==='create'?'': '<label>Material<select name="material_id" required><option value="">Choose a material</option>'+r.rows.map(function(x){return '<option value="'+esc(x.id)+'"'+(x.id===state.material?' selected':'')+'>'+esc(x.name)+'</option>'}).join('')+'</select></label>';
     var body=selector;
     if(a==='create')body+=field('name','Material name / brand / grade','text','','maxlength="150"')+field('note','Reason','text','New material','maxlength="1000"');
+    else if(data&&a==='reference'){
+      var ref=(r.referencePrices||{})[data.id];
+      body+=field('price','Reference price (PHP)','number',ref?ref.price:'','min="0" step="0.0001" max="999999999"')+
+        field('unit','Price unit / package size','text',ref?ref.price_unit:data.measure_unit||'','maxlength="50"')+
+        field('note','Reason / price source','text','','minlength="3" maxlength="1000"');
+    }
     else if(data){
       body+='<div class="ic-form-stock">Available: <b>'+qty(data.quantity)+' '+esc(data.measure_unit||'unit unspecified')+'</b> · Average cost: <b>'+(data.stock_unit_cost==null?'Not available':money(data.stock_unit_cost,4))+'</b></div>';
       if(['purchase','opening','baseline'].includes(a))body+=field('unit','Measurement unit (e.g. sheet, piece, liter, gallon)','text',data.measure_unit||'',data.measure_unit?'readonly':'maxlength="30"');
@@ -202,6 +236,7 @@
   function preview(){
     if(!dialog||!formState)return;var f=dialog.querySelector('form'),el=dialog.querySelector('[data-ic-preview]');if(!f||!el)return;
     var d=new root.FormData(f),q=Number(d.get('quantity')),price=d.get('unit_cost'),m=formState.report.rows.find(function(r){return r.id===d.get('material_id')});
+    if(formState.action==='reference'){el.textContent='Reference only — stock quantity and actual costs will not change.';return;}
     if(price!==null&&price!==''&&Number.isFinite(q*Number(price)))el.textContent='Recorded value: '+money(q*Number(price));
     else if(formState.action==='use'&&m&&m.material.stock_unit_cost!=null)el.textContent='Estimated usage cost: '+money(q*Number(m.material.stock_unit_cost))+' · confirmed by the server when saved';
     else el.textContent='';
@@ -212,6 +247,14 @@
     if(p.note.length<3)throw new Error('Enter a reason or supporting reference.');
     if(a==='create'){p.name=String(values.name||'').trim();if(!p.name)throw new Error('Enter the material name.');return p;}
     if(!m)throw new Error('Choose a material from this branch.');
+    if(a==='reference'){
+      if(state.report.referenceError)throw new Error(state.report.referenceError);
+      var ref=(state.report.referencePrices||{})[m.id],value=num(values.price),unit=String(values.unit||'').trim();
+      if(value<0||value>999999999||Math.abs(value*10000-Math.round(value*10000))>0.001)throw new Error('Enter a non-negative reference price with at most four decimal places.');
+      if(!unit||unit.length>50)throw new Error('Specify the price unit or package size (up to 50 characters).');
+      if(p.note.length>1000)throw new Error('The reason must be no longer than 1000 characters.');
+      return {material_id:m.id,price:value,unit:unit,note:p.note,expected_revision:ref?ref.revision:null};
+    }
     p.material_id=m.id;p.quantity=num(values.quantity);p.expected_updated_at=m.material.updated_at;
     if(p.quantity<0||Math.abs(p.quantity*100-Math.round(p.quantity*100))>0.00001||(['use','purchase','return'].includes(a)&&p.quantity===0))throw new Error('Enter a valid quantity with at most two decimal places.');
     if(['use','return','baseline'].includes(a)){if(!state.context.vehicle)throw new Error('Choose a unit first.');p.vehicle_id=state.context.vehicle;}
@@ -227,9 +270,9 @@
       if(!same(state.context,scope(state.context.vehicle)))throw new Error('The branch changed. Close this form and reopen it in the correct branch.');
       var payload=state.retryPayload||payloadFrom(state,Object.fromEntries(new root.FormData(event.target)));
       if(!state.requestId)state.requestId=root.crypto.randomUUID();state.retryPayload=payload;saving=true;
-      dialog.querySelectorAll('button,input,select').forEach(function(el){el.disabled=true});errorBox.textContent='Saving quantity and cost together…';
+      dialog.querySelectorAll('button,input,select').forEach(function(el){el.disabled=true});errorBox.textContent=state.action==='reference'?'Saving reference price only…':'Saving quantity and cost together…';
       state.uncertain=true;
-      var r=await client().rpc('inventory_tracker_cost_action',{p_business_id:state.context.business,p_branch_id:state.context.branch,p_request_id:state.requestId,p_payload:payload});
+      var r=await client().rpc(state.action==='reference'?'inventory_tracker_reference_price_save':'inventory_tracker_cost_action',{p_business_id:state.context.business,p_branch_id:state.context.branch,p_request_id:state.requestId,p_payload:payload});
       if(r.error){state.uncertain=!r.error.code;throw new Error(r.error.message);}if(!r.data||!r.data.ok)throw new Error('The save result is uncertain. Retry this unchanged form to check the same request safely.');
       saving=false;quickMessage=null;dialog.close();changed(state.context);var archived=root.document.getElementById('inventoryMaterialHistory');if(archived&&archived.open){var refresh=archived.querySelector('[data-imh-refresh]');if(refresh)refresh.click();}
     }catch(e){errorBox.textContent=(e.message||'The save could not be confirmed.')+' No automatic retry was made. Retry the unchanged form to safely reuse the same request; close and reopen if the stock changed.';}
@@ -261,5 +304,5 @@
     root.addEventListener('storage',function(e){if(e.key==='bwc-active-business'||e.key==='bwc-active-branch'){invalidate();refresh();}if(e.key==='bwc-inventory-cost-changed'){try{receive(JSON.parse(e.newValue))}catch(err){}}});
     root.document.addEventListener('visibilitychange',function(){if(!root.document.hidden){var p=root.document.getElementById('inventoryTracker');if(p&&p.classList.contains('active'))refresh();}});
   }
-  return {install:install,render:render,renderArchive:renderArchive,model:model,reportHTML:reportHTML,stockHTML:stockHTML,payloadFrom:payloadFrom,quickPayload:quickPayload};
+  return {install:install,render:render,renderArchive:renderArchive,model:model,reportHTML:reportHTML,stockHTML:stockHTML,referenceHTML:referenceHTML,attachReferences:attachReferences,payloadFrom:payloadFrom,quickPayload:quickPayload};
 }));

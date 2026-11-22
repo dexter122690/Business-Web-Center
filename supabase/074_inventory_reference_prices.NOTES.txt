@@ -1,0 +1,30 @@
+INVENTORY REFERENCE PRICES
+
+Deployment
+1. Run 074_inventory_reference_prices.sql after 073 in the BWC Supabase project.
+   Transactional and rerunnable. It creates separate price-list and audit tables.
+   No existing material, stock, expense, or unit usage record is changed.
+2. Deploy inventory-costing.js, index.html and sw.js together (cache v23).
+3. In Inventory Tracker, click Material prices. Reference prices appear ABOVE
+   the existing receipt-based Stock & purchase costs section.
+
+Behavior
+- Prices remain visible even at zero stock and are branch-specific.
+- Edit reference price changes only the reference and its append-only history.
+- A price unit is an explicit package label, e.g. 500 mL container or 1 gallon.
+  It is NOT silently converted to the stock measurement unit.
+- No automatic purchase, expense, opening valuation or historical repricing.
+- The original + / - material controls and their atomic stock costing remain.
+  Zero stock still needs a real purchase before use. Unvalued existing stock
+  still needs a supported opening valuation; a reference is not proof of cost.
+- Existing inventory branch permissions also protect price reads and writes.
+- Stale edits fail rather than overwrite another session. Retries reuse a request
+  identifier to avoid duplicate price-history entries. Existing cross-tab refresh
+  applies to reference-price changes too.
+- Missing migration or price-read failure shows a clear notice but does not
+  suppress the working stock-cost section or substitute reference amounts.
+- Initial business-specific imports are separate from this generic migration.
+
+Verification
+Set BWC_PGLITE_PATH to an isolated @electric-sql/pglite installation, then run
+node --test tests/*.test.cjs. Tests never connect to the live database.
