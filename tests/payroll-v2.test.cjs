@@ -25,6 +25,33 @@ test('PDF uses half short bond, peso glyph, all unit rows and prior balance',()=
  const PDF=require('../payroll-v2/pdf.js');let n=0,s=S.save(seed(),'painter',[{unit:'Test unit',contract:15000,weekly:3000,work:'Panel repaint'}],500,()=>`test-${++n}`),record=S.savedFor(s,'painter');
  const def=PDF.definition(record),json=JSON.stringify(def);assert.deepEqual(def.pageSize,{width:612,height:396});assert.match(json,/₱3,000.00/);assert.match(json,/₱2,500.00/);assert.match(json,/PREV. RECORDED/);assert.match(json,/BALANCE \/ RETAINED/);assert.match(json,/Test unit/);
 });
+test('both payslip layouts reserve handwriting space without changing saved data',()=>{
+ const vm=require('node:vm'),PDF=require('../payroll-v2/pdf.js');let n=0;
+ const state=S.save(seed(),'painter',[{unit:'Signature layout test',contract:15000,weekly:3000}],500,()=>`sign-${++n}`),record=S.savedFor(state,'painter'),before=structuredClone(record);
+ const def=PDF.definition(record),footer=def.content.at(-1),signing=footer.stack.at(-1);
+ assert.equal(footer.unbreakable,true);assert.match(JSON.stringify(footer.stack[0]),/TOTAL SALARY/);
+ assert.equal(signing.unbreakable,true);assert.equal(signing.columnGap,36);assert.equal(signing.columns.length,2);
+ for(const column of signing.columns){
+  assert.equal(column.width,270);assert.deepEqual(column.stack.filter(n=>n.canvas).map(n=>n.canvas[0].y1),[22,14]);
+  assert.match(JSON.stringify(column),/Signature/);assert.match(JSON.stringify(column),/Printed name/);assert.match(JSON.stringify(column),/Date:/);
+ }
+ const window={};vm.runInNewContext(fs.readFileSync(path.join(ROOT,'payroll-v2/half-slips.js'),'utf8'),{window});
+ const final=window.PayrollSlips.cardHtml(record,[],1,1,true),continued=window.PayrollSlips.cardHtml(record,[],1,2,false);
+ assert.equal((final.match(/class="signature-space"/g)||[]).length,2);assert.equal((final.match(/class="printed-name-space"/g)||[]).length,2);
+ assert.match(final,/Prepared by/);assert.match(final,/Received by/);assert.doesNotMatch(continued,/class="slip-signatures"/);
+ assert.deepEqual(record,before);
+ const css=fs.readFileSync(path.join(ROOT,'payroll-v2/half-payslip.css'),'utf8'),index=fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8');
+ assert.match(css,/\.signature-space\{height:22pt/);assert.match(css,/\.printed-name-space\{height:14pt/);
+ for(const asset of ['half-payslip.css','half-slips.js','pdf.js'])assert.ok(index.includes(asset+'?v=20261123-signature-space'));
+});
+test('compact PDF summary retains every nonzero adjustment and the original net pay',()=>{
+ const PDF=require('../payroll-v2/pdf.js'),snapshot=W.createPayslip(seed(),'daily');
+ Object.assign(snapshot,{basic:3300,late:68.75,held:125,retentionReleased:250,cashAdvance:300,net:3056.25});
+ const record={id:'summary-test',snapshot},before=structuredClone(record);
+ const rows=PDF.definition(record).content.at(-1).stack[0].table.body.map(row=>row.map(cell=>cell.text));
+ assert.deepEqual(rows,[['SUMMARY','AMOUNT'],['GROSS EARNINGS','₱3,300.00'],['LATE DEDUCTION','₱-68.75'],['RETENTION HELD','₱-125.00'],['RETENTION PAID','₱250.00'],['LESS CASH ADVANCE','₱-300.00'],['TOTAL SALARY','₱3,056.25']]);
+ assert.deepEqual(record,before);
+});
 test('new navigation opens only its own frame and clears it on branch/access changes',async()=>{
  const vm=require('node:vm'),events={},timers=[],nodes={};let access='owner',requests=0;
  const data={'bwc-active-business':b,'bwc-active-branch':r};
