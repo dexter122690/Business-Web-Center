@@ -8,6 +8,19 @@ test('new app has no offline payroll write path and old pause stays enabled',()=
  assert.doesNotMatch(app,/localStorage\.(setItem|getItem)|openCleanWorkspace/);assert.match(app,/await O.save\(next\)/);assert.match(online,/expected_revision:revision/);assert.doesNotMatch(online,/from\(['"](?:expenses|invoices|payroll_workers)/);
  assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2-online.js'),'utf8'),/section.id='payrollV2'/);
 });
+test('retired branch-assignment panel stays absent without changing employee records',async()=>{
+ const vm=require('node:vm'),calls=[],label={textContent:''};
+ const loaded={revision:4,access:'owner',branchName:'STA. ROSA',state:seed(),pendingEmployees:[{id:'old-draft',name:'Former test employee',archived:true}]};
+ const before=structuredClone(loaded),client={auth:{getSession:async()=>({data:{session:{user:{id:owner}}}})},rpc:async(name,args)=>{calls.push({name,args});return {data:loaded,error:null}}};
+ const window={},parent={location:{origin:'https://example.invalid'},getBusinessSupabaseClient:()=>client,localStorage:{getItem:key=>key==='bwc-active-business'?b:r}};
+ const document={body:{dataset:{}},querySelectorAll:()=>[],getElementById:id=>{assert.equal(id,'payrollBranchLabel');return label},querySelector:()=>({after(){assert.fail('Assignment panel must not be inserted')}}),createElement(){assert.fail('No assignment box or action should be created')}};
+ const source=fs.readFileSync(path.join(ROOT,'payroll-v2/online.js'),'utf8');
+ vm.runInNewContext(source,{window,parent,document,location:{origin:parent.location.origin},console});
+ const state=await window.PayrollOnline.ready;window.PayrollOnline.permissions();window.PayrollOnline.permissions();
+ assert.strictEqual(state,loaded.state);assert.deepEqual(loaded,before);assert.equal(label.textContent,'STA. ROSA · Owner');assert.deepEqual(calls.map(c=>c.name),['payroll_v2_load']);
+ assert.doesNotMatch(source,/Employee profiles awaiting branch assignment|data-assign-employee|payroll_v2_assign_employee/);
+ assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261123-remove-assignment-panel/);
+});
 test('PDF uses half short bond, peso glyph, all unit rows and prior balance',()=>{
  const PDF=require('../payroll-v2/pdf.js');let n=0,s=S.save(seed(),'painter',[{unit:'Test unit',contract:15000,weekly:3000,work:'Panel repaint'}],500,()=>`test-${++n}`),record=S.savedFor(s,'painter');
  const def=PDF.definition(record),json=JSON.stringify(def);assert.deepEqual(def.pageSize,{width:612,height:396});assert.match(json,/₱3,000.00/);assert.match(json,/₱2,500.00/);assert.match(json,/PREV. RECORDED/);assert.match(json,/BALANCE \/ RETAINED/);assert.match(json,/Test unit/);

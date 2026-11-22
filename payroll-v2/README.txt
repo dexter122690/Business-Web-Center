@@ -12,9 +12,10 @@ Deployment
 Starting records
 - Only the standalone draft's employee profiles and settings were transferred.
 - No draft attendance, jobs, amounts, saved worksheets, or payslips were imported.
-- Profiles without a known branch remain in an owner-only assignment list.
-  Select the appropriate BWC branch and assign the profile when ready.
-- Removed employee profiles remain removed; assignment does not reactivate them.
+- The one-time branch-assignment panel has been removed after owner setup.
+  Any remaining legacy draft profiles stay preserved privately in the database;
+  removing this panel does not delete profiles or change assigned branches.
+- Removed employee profiles remain removed.
 
 Access and privacy
 - Existing business owners have access. Staff have no new payroll access by default.

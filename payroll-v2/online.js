@@ -2,7 +2,7 @@
 (function(){
   'use strict';
   const pending=new Map(),cache=new Map(),committedPdfs=new Set();
-  let client,b,r,user,revision=0,access='none',branchName='',busy=false,pendingEmployees=[];
+  let client,b,r,user,revision=0,access='none',branchName='',busy=false;
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   async function context(){
     if(parent===window||parent.location.origin!==location.origin||!parent.getBusinessSupabaseClient)throw Error('Open Payroll inside BWC after signing in.');
@@ -14,7 +14,7 @@
     b=nextB;r=nextR;user=nextUser;
   }
   async function rpc(name,args={}){await context();const result=await client.rpc(name,{b,r,...args});if(result.error)throw Error(result.error.message||'Payroll request failed.');return result.data}
-  function accept(result){revision=Number(result.revision);access=result.access;branchName=result.branchName;pendingEmployees=result.pendingEmployees||[];committedPdfs.clear();for(const s of result.state.releasedPainterSlips||[])committedPdfs.add(s.id);for(const s of result.state.slipReleases||[])committedPdfs.add(s.slipId);return result.state}
+  function accept(result){revision=Number(result.revision);access=result.access;branchName=result.branchName;committedPdfs.clear();for(const s of result.state.releasedPainterSlips||[])committedPdfs.add(s.id);for(const s of result.state.slipReleases||[])committedPdfs.add(s.slipId);return result.state}
   const ready=(async()=>{await context();return accept(await rpc('payroll_v2_load'))})();
   // A save is atomic: both state and newly generated PDF/photo files succeed or fail.
   async function save(state){
@@ -47,11 +47,6 @@
       document.querySelectorAll('[data-attendance],[data-overtime-toggle],button[form="painterWorksheet"],[data-action$="-new"],[data-action$="-edit"],[data-action="simple-release"],[data-action="simple-empty"],[data-action="slip-save"],[data-action="confirm-slip"],[data-action="remove"]').forEach(el=>el.disabled=true);
     }
     document.getElementById('payrollBranchLabel').textContent=branchName+' · '+(access==='owner'?'Owner':access==='edit'?'Payroll editor':'View only');
-    if(access==='owner'&&pendingEmployees.length&&document.querySelector('.board-intro')){
-      const box=document.createElement('details');box.className='online-pending';box.open=pendingEmployees.some(e=>!e.archived);
-      box.innerHTML='<summary>Employee profiles awaiting branch assignment ('+pendingEmployees.length+')</summary><p>These profiles were kept from the draft. Choose their branch in BWC, then assign them here. No payroll records were imported.</p>'+pendingEmployees.map(e=>'<div><span>'+esc(e.name)+(e.archived?' · Removed employee':'')+'</span><button type="button" data-assign-employee="'+esc(e.id)+'">Assign to '+esc(branchName)+'</button></div>').join('');document.querySelector('.board-intro').after(box);
-      box.onclick=async event=>{const button=event.target.closest('[data-assign-employee]');if(!button)return;if(!confirm('Assign this employee profile to '+branchName+'?'))return;button.disabled=true;try{await rpc('payroll_v2_assign_employee',{local_id:button.dataset.assignEmployee});location.reload()}catch(e){alert(e.message);button.disabled=false}};
-    }
   }
   async function accessDialog(){
     const people=await rpc('payroll_v2_team'),dialog=document.createElement('dialog');dialog.className='editor-dialog';
