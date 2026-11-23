@@ -21,7 +21,7 @@ test('retired branch-assignment panel stays absent without changing employee rec
  const state=await window.PayrollOnline.ready;window.PayrollOnline.permissions();window.PayrollOnline.permissions();
  assert.strictEqual(state,loaded.state);assert.deepEqual(loaded,before);assert.equal(label.textContent,'STA. ROSA · Owner');assert.deepEqual(calls.map(c=>c.name),['payroll_v2_load']);
  assert.doesNotMatch(source,/Employee profiles awaiting branch assignment|data-assign-employee|payroll_v2_assign_employee/);
- assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261123-team-names/);
+ assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261123-employee-management/);
 });
 test('PDF uses half short bond, peso glyph, all unit rows and prior balance',()=>{
  const PDF=require('../payroll-v2/pdf.js');let n=0,s=S.save(seed(),'painter',[{unit:'Test unit',contract:15000,weekly:3000,work:'Panel repaint'}],500,()=>`test-${++n}`),record=S.savedFor(s,'painter');
@@ -68,7 +68,7 @@ test('new navigation opens only its own frame and clears it on branch/access cha
  const document={createElement:element,getElementById:id=>nodes[id],querySelector:()=>dash,querySelectorAll:s=>s==='.view'?[nodes.dashboard,nodes.payroll,nodes.payrollV2].filter(Boolean):nodes.nav.children,addEventListener:listen};
  const window={addEventListener:listen,scrollTo(){},getBusinessSupabaseClient:()=>({rpc:async name=>{assert.equal(name,'payroll_v2_role');requests++;return {data:access,error:null}}})};
  vm.runInNewContext(fs.readFileSync(path.join(ROOT,'payroll-v2-online.js'),'utf8'),{window,document,localStorage:{getItem:k=>data[k]},setTimeout:fn=>timers.push(fn),MutationObserver:class{observe(){}},console});
- await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261123-working-sheet');assert.ok(!nodes.dashboard.classList.contains('active'));
+ await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261123-employee-management');assert.ok(!nodes.dashboard.classList.contains('active'));
  data['bwc-active-branch']=other;access='none';await events['bwc:branch-ready'][0]();assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);assert.ok(nodes.dashboard.classList.contains('active'));
  access='owner';await events.focus[0]();assert.equal(button.hidden,false);button.click();assert.equal(nodes.payrollV2.children.length,1);
  data['bwc-active-business']='another-business';const previous=requests;await events.storage[0]({key:'bwc-active-business'});assert.equal(requests,previous);assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);
@@ -191,6 +191,73 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
   await assert.rejects(auth(owner,()=>save(state,loaded.revision)),/Another user/);
   const after=(await db.query('select * from payroll_v2_workspaces')).rows,events=(await db.query('select * from payroll_v2_events')).rows;
   await db.exec(worksheetMigration);assert.deepEqual((await db.query('select * from payroll_v2_workspaces')).rows,after);assert.deepEqual((await db.query('select * from payroll_v2_events')).rows,events);
+ });
+ await t.test('employee-management migration preserves existing state and grants nobody by default',async()=>{
+  const protectedTables=['payroll_v2_workspaces','payroll_v2_files','payroll_v2_directory','payroll_v2_events','payroll_workers','profiles','business_memberships','business_member_branch_access'];
+  const snapshot=async()=>Object.fromEntries(await Promise.all(protectedTables.map(async table=>[table,(await db.query('select * from '+table)).rows])));
+  const before=await snapshot(),grants=(await db.query('select to_jsonb(a) as value from payroll_v2_access a')).rows;
+  const sql=fs.readFileSync(path.join(ROOT,'supabase/082_payroll_employee_management.sql'),'utf8');
+  await db.exec(sql);await db.exec(sql);
+  assert.deepEqual(await snapshot(),before);
+  assert.deepEqual((await db.query("select to_jsonb(a)-'manage_employees' as value from payroll_v2_access a")).rows,grants);
+  const loaded=await auth(staff,()=>call('payroll_v2_load',[b,r]));assert.equal(loaded.canManageEmployees,false);assert.equal(loaded.access,'edit');assert.equal(loaded.state.employees[0].accountNumber,undefined);
+  assert.equal((await auth(owner,()=>call('payroll_v2_load',[b,r]))).canManageEmployees,true);
+  assert.equal((await auth(owner,()=>call('payroll_v2_team',[b,r])))[0].manageEmployees,false);
+ });
+ await t.test('employee management needs an owner grant for an existing editor in that branch',async()=>{
+  await assert.rejects(auth(staff,()=>call('payroll_v2_grant_employee_management',[b,r,staff,true])),/Owner access/);
+  await assert.rejects(auth(owner,()=>call('payroll_v2_grant_employee_management',[b,other,staff,true])),/active payroll editor/);
+  await assert.rejects(auth(owner,()=>call('payroll_v2_grant_employee_management',[b,r,staff,null])),/Choose whether/);
+  await assert.rejects(auth(staff,()=>db.query('update payroll_v2_access set manage_employees=true')),/permission denied/);
+  const stale=await auth(staff,()=>call('payroll_v2_load',[b,r])),before=(await db.query('select state from payroll_v2_workspaces where business_id=$1 and branch_id=$2',[b,r])).rows[0].state;
+  await auth(owner,()=>call('payroll_v2_grant_employee_management',[b,r,staff,true]));
+  const loaded=await auth(staff,()=>call('payroll_v2_load',[b,r]));assert.equal(loaded.canManageEmployees,true);assert.equal(loaded.access,'edit');assert.equal(loaded.revision,stale.revision+1);assert.equal(loaded.state.employees[0].accountNumber,'PRIVATE-TEST');
+  assert.deepEqual(loaded.state,before);await assert.rejects(auth(staff,()=>save(stale.state,stale.revision)),/Another user/);
+  await assert.rejects(auth(staff,()=>call('payroll_v2_load',[b,other])),/access/);
+  await assert.rejects(auth(staff,()=>call('payroll_v2_get_files',[b,other,['photo-private-12345678']])),/access denied/);
+  const member=(await auth(owner,()=>call('payroll_v2_team',[b,r])))[0];assert.equal(member.manageEmployees,true);
+  const snapshot=(await db.query('select * from payroll_v2_access')).rows;
+  await db.exec(fs.readFileSync(path.join(ROOT,'supabase/082_payroll_employee_management.sql'),'utf8'));assert.deepEqual((await db.query('select * from payroll_v2_access')).rows,snapshot);
+  await auth(owner,()=>call('payroll_v2_grant_employee_management',[b,r,staff,true]));assert.equal((await auth(staff,()=>call('payroll_v2_load',[b,r]))).revision,loaded.revision);
+ });
+ await t.test('approved employee manager can add, edit, archive, restore and upload documents',async()=>{
+  let loaded=await auth(staff,()=>call('payroll_v2_load',[b,r])),s=loaded.state;
+  const protectedHistory=JSON.stringify([s.painterTestSheets,s.releasedPainterSlips,s.payslips,s.slipReleases]);
+  s.employees.push({id:'new-test-employee',name:'Fictional New Employee',position:'Admin',type:'daily',rate:600,accountNumber:'000123',photos:[{id:'manager-upload',name:'Test.png',type:'image/png',size:8}]});
+  loaded=await auth(staff,()=>save(s,loaded.revision,[{id:'manager-upload',kind:'photo',dataUrl:'data:image/png;base64,iVBORw0KGgo='}]));
+  assert.equal(loaded.state.employees.at(-1).accountNumber,'000123');
+  assert.equal((await auth(staff,()=>call('payroll_v2_get_files',[b,r,['manager-upload','photo-private-12345678']]))).length,2);
+  s=loaded.state;s.employees.at(-1).name='Fictional Updated Employee';s.employees.at(-1).archived=true;s.employees.at(-1).removalReason='Test archive';
+  loaded=await auth(staff,()=>save(s,loaded.revision));assert.equal(loaded.state.employees.at(-1).archived,true);
+  s=loaded.state;s.employees.at(-1).archived=false;loaded=await auth(staff,()=>save(s,loaded.revision));
+  assert.equal(loaded.state.employees.at(-1).archived,false);assert.equal(JSON.stringify([s.painterTestSheets,s.releasedPainterSlips,s.payslips,s.slipReleases]),protectedHistory);
+  const hardDelete=structuredClone(loaded.state);hardDelete.employees.pop();await assert.rejects(auth(staff,()=>save(hardDelete,loaded.revision)),/Archive an employee/);
+  assert.equal((await db.query("select full_name from payroll_v2_directory where local_id='new-test-employee'")).rows[0].full_name,'Fictional Updated Employee');
+ });
+ await t.test('employee manager does not gain owner powers or permission to rewrite released history',async()=>{
+  const loaded=await auth(staff,()=>call('payroll_v2_load',[b,r])),bad=structuredClone(loaded.state);bad.rules.hoursPerDay=7;
+  await assert.rejects(auth(staff,()=>save(bad,loaded.revision)),/Only the owner can manage payroll rules/);
+  await assert.rejects(auth(staff,()=>call('payroll_v2_team',[b,r])),/Owner access/);
+  await assert.rejects(auth(staff,()=>call('payroll_v2_grant',[b,r,staff,'edit'])),/Owner access/);
+  await assert.rejects(auth(staff,()=>call('payroll_v2_void',[b,r,'protected-release','Test correction'])),/Only the owner/);
+  const history=structuredClone(loaded.state);history.releasedPainterSlips=[];await assert.rejects(auth(staff,()=>save(history,loaded.revision)),/read-only/);
+  const overwrite={id:'manager-upload',kind:'photo',dataUrl:'data:image/png;base64,dGVzdA=='};await assert.rejects(auth(staff,()=>save(loaded.state,loaded.revision,[overwrite])),/cannot be overwritten/);
+ });
+ await t.test('revocation and downgrade redact profiles, block documents and invalidate stale saves',async()=>{
+  const old=await auth(staff,()=>call('payroll_v2_load',[b,r]));await auth(owner,()=>call('payroll_v2_grant_employee_management',[b,r,staff,false]));
+  let loaded=await auth(staff,()=>call('payroll_v2_load',[b,r]));assert.equal(loaded.canManageEmployees,false);assert.equal(loaded.state.employees[0].accountNumber,undefined);assert.equal(loaded.revision,old.revision+1);
+  assert.equal((await auth(staff,()=>call('payroll_v2_get_files',[b,r,['manager-upload','photo-private-12345678']]))).length,0);
+  await assert.rejects(auth(staff,()=>save(old.state,old.revision)),/Another user/);
+  const bad=structuredClone(loaded.state);bad.employees[0].name='Forbidden edit';await assert.rejects(auth(staff,()=>save(bad,loaded.revision)),/Employee management access/);
+  // Ordinary payroll saves retain hidden private values after management is revoked.
+  await auth(staff,()=>save(loaded.state,loaded.revision));assert.equal((await auth(owner,()=>call('payroll_v2_load',[b,r]))).state.employees[0].accountNumber,'PRIVATE-TEST');
+  await auth(owner,()=>call('payroll_v2_grant_employee_management',[b,r,staff,true]));await auth(owner,()=>call('payroll_v2_grant',[b,r,staff,'view']));
+  loaded=await auth(staff,()=>call('payroll_v2_load',[b,r]));assert.equal(loaded.canManageEmployees,false);
+  await assert.rejects(auth(owner,()=>call('payroll_v2_grant_employee_management',[b,r,staff,true])),/active payroll editor/);
+  await auth(owner,()=>call('payroll_v2_grant',[b,r,staff,'edit']));assert.equal((await auth(staff,()=>call('payroll_v2_load',[b,r]))).canManageEmployees,false);
+  assert.ok((await db.query("select count(*)::int n from payroll_v2_events where action='employee_management_access'")).rows[0].n>=3);
+  await db.exec('set role anon');try{await assert.rejects(call('payroll_v2_grant_employee_management',[b,r,staff,true]),/permission denied/)}finally{await db.exec('reset role')}
+  await db.query("update business_memberships set status='inactive' where user_id=$1",[staff]);await assert.rejects(auth(staff,()=>call('payroll_v2_load',[b,r])),/access/);
  });
  await db.close();
 });

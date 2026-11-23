@@ -20,8 +20,12 @@ Starting records
 Access and privacy
 - Existing business owners have access. Staff have no new payroll access by default.
 - Use Payroll access to grant view-only or payroll-editor access per branch.
-- Only owners manage employee profiles, contact/account details, documents,
-  settings, access grants, and payslip corrections.
+- Owners may separately grant Add & manage employees to selected payroll editors
+  per branch. This includes private profiles, contact/account details, documents,
+  and reversible employee archival/restoration. It is off by default.
+- Payroll rules, access grants, full-backup buttons and released-payslip
+  corrections remain owner-only. Downgrading payroll access revokes employee
+  management. Reopen Payroll after a grant/revocation to reload current details.
 - Invoice and PMS pickers read limited employee names/designations. Unmatched
   legacy worker choices remain available so existing workflows are preserved.
 - Payslips and ID photos are private database files, not public website assets.

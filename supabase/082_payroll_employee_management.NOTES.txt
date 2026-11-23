@@ -1,0 +1,26 @@
+082 - Branch-scoped employee management
+
+Applied to the BWC database on 2026-11-23.
+
+The migration creates a separate employee-management permission for an existing
+payroll editor. It does not grant anyone access automatically or change any other
+BWC module. The exact owner-approved account grant was applied separately and
+recorded in payroll_v2_events. Account-specific maintenance SQL is kept outside
+the website repository.
+
+Employee managers can add/edit/archive/restore branch employee profiles and
+access their private details and supporting photos. Payroll rules, permission
+settings, released-payslip corrections and the full-backup UI remain owner-only.
+Removing or downgrading payroll access also removes employee-management access.
+Changes force already-open payroll worksheets to reload before saving, so a
+previously redacted profile cannot overwrite private details.
+
+Deployment: push the accompanying website commit. The database update and
+approved grant are already applied. Users must refresh/reopen Payroll after
+the website deployment to see the new buttons. Owners can later revoke this
+permission in Payroll access using Add & manage employees.
+
+Verification: full automated suite passed (270 tests), including SQL permission,
+private-file, stale-save, branch-isolation and released-history checks. Live
+verification confirmed the exact grant, no other management grants, and matching
+checksums for payroll state, profiles, files, roles and other permissions.

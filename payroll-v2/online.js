@@ -2,7 +2,7 @@
 (function(){
   'use strict';
   const pending=new Map(),cache=new Map(),committedPdfs=new Set();
-  let client,b,r,user,revision=0,access='none',branchName='',busy=false;
+  let client,b,r,user,revision=0,access='none',canManageEmployees=false,branchName='',busy=false;
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   async function context(){
     if(parent===window||parent.location.origin!==location.origin||!parent.getBusinessSupabaseClient)throw Error('Open Payroll inside BWC after signing in.');
@@ -14,7 +14,7 @@
     b=nextB;r=nextR;user=nextUser;
   }
   async function rpc(name,args={}){await context();const result=await client.rpc(name,{b,r,...args});if(result.error)throw Error(result.error.message||'Payroll request failed.');return result.data}
-  function accept(result){revision=Number(result.revision);access=result.access;branchName=result.branchName;committedPdfs.clear();for(const s of result.state.releasedPainterSlips||[])committedPdfs.add(s.id);for(const s of result.state.slipReleases||[])committedPdfs.add(s.slipId);return result.state}
+  function accept(result){revision=Number(result.revision);access=result.access;canManageEmployees=access==='owner'||(access==='edit'&&result.canManageEmployees===true);branchName=result.branchName;if(!canManageEmployees){for(const [id,file] of cache)if(file.kind==='photo')cache.delete(id);for(const [id,file] of pending)if(file.kind==='photo')pending.delete(id)}committedPdfs.clear();for(const s of result.state.releasedPainterSlips||[])committedPdfs.add(s.id);for(const s of result.state.slipReleases||[])committedPdfs.add(s.slipId);return result.state}
   const ready=(async()=>{await context();return accept(await rpc('payroll_v2_load'))})();
   // A save is atomic: both state and newly generated PDF/photo files succeed or fail.
   async function save(state){
@@ -35,23 +35,35 @@
     }finally{busy=false;document.body.classList.remove('online-saving')}
   }
   async function getFiles(ids){const missing=ids.filter(id=>!pending.has(id)&&!cache.has(id));if(missing.length){const files=await rpc('payroll_v2_get_files',{ids:missing});files.forEach(f=>cache.set(f.id,f))}return ids.map(id=>pending.get(id)||cache.get(id))}
-  function stagePhotos(records){if(access!=='owner')throw Error('Only the owner can upload employee documents.');for(const record of records)pending.set(record.id,{...record,kind:'photo'});return records.map(r=>r.id)}
+  function stagePhotos(records){if(!canManageEmployees)throw Error('Employee management access is required to upload documents.');for(const record of records)pending.set(record.id,{...record,kind:'photo'});return records.map(r=>r.id)}
   function discardFiles(ids){ids.forEach(id=>pending.delete(id))} // Never deletes committed files.
   function permissions(){
     document.body.dataset.access=access;
-    const ownerActions=['directory-open','employee-new','employee-edit','employee-remove','employee-restore','rules'];
-    document.querySelectorAll('[data-action]').forEach(el=>{if(ownerActions.includes(el.dataset.action)&&access!=='owner')el.hidden=true});
+    const employeeActions=['directory-open','employee-new','employee-edit','employee-remove','employee-restore'];
+    document.querySelectorAll('[data-action]').forEach(el=>{if(employeeActions.includes(el.dataset.action))el.hidden=!canManageEmployees;if(el.dataset.action==='rules')el.hidden=access!=='owner'});
     document.querySelectorAll('#exportBackup').forEach(el=>el.hidden=access!=='owner');
     if(access==='view'){
       document.querySelectorAll('#app input,#app textarea,#app select,#editorForm input,#editorForm select,#editorForm textarea').forEach(el=>{if(!['painterWeek'].includes(el.id)&&!el.closest('#periodForm'))el.disabled=true});
       document.querySelectorAll('[data-attendance],[data-overtime-toggle],button[form="painterWorksheet"],[data-action$="-new"],[data-action$="-edit"],[data-action="simple-release"],[data-action="simple-empty"],[data-action="slip-save"],[data-action="confirm-slip"],[data-action="remove"]').forEach(el=>el.disabled=true);
     }
-    document.getElementById('payrollBranchLabel').textContent=branchName+' · '+(access==='owner'?'Owner':access==='edit'?'Payroll editor':'View only');
+    document.getElementById('payrollBranchLabel').textContent=branchName+' · '+(access==='owner'?'Owner':access==='edit'?'Payroll editor'+(canManageEmployees?' · Employee management':''):'View only');
   }
   async function accessDialog(){
     const people=await rpc('payroll_v2_team'),dialog=document.createElement('dialog');dialog.className='editor-dialog payroll-access-dialog';
-    dialog.innerHTML='<h2>Payroll access · '+esc(branchName)+'</h2><p>Only you can manage employee profiles and documents. Approved editors can enter payroll and release payslips. Other BWC permissions are unchanged.</p><p class="payroll-access-hint">Names follow Settings → Team access for this branch. Check the sign-in email before changing access.</p>'+people.map(p=>'<label class="field payroll-access-member"><span class="payroll-access-name">'+esc(p.name||p.email)+'</span><small class="payroll-access-email">'+esc(p.email||'')+'</small><select data-member="'+esc(p.id)+'">'+['none','view','edit'].map(level=>'<option value="'+level+'" '+(p.level===level?'selected':'')+'>'+({none:'No access',view:'View payroll',edit:'Enter and release payroll'}[level])+'</option>').join('')+'</select></label>').join('')+'<p class="form-error" role="status"></p><button type="button">Close</button>';
-    dialog.querySelector('button').onclick=()=>dialog.close();dialog.onclose=()=>dialog.remove();dialog.onchange=async event=>{const select=event.target.closest('[data-member]');if(!select)return;select.disabled=true;try{await rpc('payroll_v2_grant',{member:select.dataset.member,level:select.value});dialog.querySelector('[role=status]').textContent='Access saved.'}catch(e){dialog.querySelector('[role=status]').textContent=e.message}finally{select.disabled=false}};document.body.append(dialog);dialog.showModal();
+    dialog.innerHTML='<h2>Payroll access · '+esc(branchName)+'</h2><p>Editors can enter payroll and release payslips. Employee management is a separate permission for profiles, payout-account details and supporting documents. Payroll rules, access settings and released-payslip corrections remain owner-only.</p><p class="payroll-access-hint">Names follow Settings → Team access for this branch. Check the sign-in email before changing access. Other BWC permissions are unchanged.</p>'+people.map(p=>'<div class="field payroll-access-member"><span class="payroll-access-name">'+esc(p.name||p.email)+'</span><small class="payroll-access-email">'+esc(p.email||'')+'</small><select aria-label="Payroll access for '+esc(p.email||p.name)+'" data-member="'+esc(p.id)+'">'+['none','view','edit'].map(level=>'<option value="'+level+'" '+(p.level===level?'selected':'')+'>'+({none:'No access',view:'View payroll',edit:'Enter and release payroll'}[level])+'</option>').join('')+'</select><label class="employee-management-option"><input type="checkbox" data-employee-manager="'+esc(p.id)+'" '+(p.manageEmployees?'checked ':'')+(p.level!=='edit'?'disabled':'')+'> Add &amp; manage employees</label></div>').join('')+'<p class="form-error" role="status"></p><button type="button">Close</button>';
+    dialog.querySelector('button').onclick=()=>dialog.close();dialog.onclose=()=>dialog.remove();
+    dialog.onchange=async event=>{
+      const control=event.target.closest('[data-member],[data-employee-manager]');if(!control)return;
+      const isEmployee=Boolean(control.dataset.employeeManager),member=control.dataset.employeeManager||control.dataset.member,p=people.find(p=>p.id===member);if(!p)return;
+      if(isEmployee&&control.checked&&!confirm('Allow '+(p.name||p.email)+' ('+p.email+') to add and manage employees in '+branchName+'? This includes personal details, payout-account details and uploaded IDs/clearances.')){control.checked=Boolean(p.manageEmployees);return}
+      const controls=dialog.querySelectorAll('[data-member],[data-employee-manager]');controls.forEach(el=>el.disabled=true);
+      try{
+        if(isEmployee){await rpc('payroll_v2_grant_employee_management',{member,allowed:control.checked});p.manageEmployees=control.checked}
+        else{await rpc('payroll_v2_grant',{member,level:control.value});p.level=control.value;if(p.level!=='edit')p.manageEmployees=false}
+        dialog.querySelector('[role=status]').textContent='Access saved. Reopen Payroll to load the updated permissions.';
+      }catch(e){if(isEmployee)control.checked=Boolean(p.manageEmployees);else control.value=p.level;dialog.querySelector('[role=status]').textContent=e.message}
+      finally{controls.forEach(el=>{const person=people.find(p=>p.id===(el.dataset.employeeManager||el.dataset.member));el.disabled=Boolean(el.dataset.employeeManager)&&person.level!=='edit';if(el.dataset.employeeManager)el.checked=Boolean(person.manageEmployees)})}
+    };document.body.append(dialog);dialog.showModal();
   }
   async function fileFor(record){const existing=(await getFiles([record.id]))[0];return existing?.dataUrl||PayrollPDF.dataUrl(record)}
   async function output(record,intent){
@@ -60,5 +72,5 @@
     if(win){win.opener=null;win.document.body.textContent='Preparing the original payslip PDF…'}
     try{await context();const data=await fileFor(record);if(intent==='pdf'){const a=document.createElement('a');a.href=data;a.download='15M-payslip-'+(record.snapshot.employee.name+'-'+record.snapshot.period.start).replace(/[^a-z0-9-]/gi,'-')+'.pdf';a.click()}else{const blob=await (await fetch(data)).blob(),url=URL.createObjectURL(blob);win.location.href=url;setTimeout(()=>URL.revokeObjectURL(url),60000)}}catch(error){if(win)win.close();throw error}
   }
-  window.PayrollOnline={ready,save,getFiles,stagePhotos,discardFiles,permissions,accessDialog,output,rpc,accept,get access(){return access},get branchName(){return branchName},get busy(){return busy}};
+  window.PayrollOnline={ready,save,getFiles,stagePhotos,discardFiles,permissions,accessDialog,output,rpc,accept,get access(){return access},get canManageEmployees(){return canManageEmployees},get branchName(){return branchName},get busy(){return busy}};
 })();
