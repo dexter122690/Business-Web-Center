@@ -56,6 +56,7 @@
     document.dispatchEvent(new Event('bwc:cash-updated'));
   }
   async function save(){
+    if(navigator.onLine===false)throw new Error('Payments on existing invoices require internet. Nothing has been queued or saved.');
     var row=selected(),amount=Number((document.getElementById('paymentAmount')||{}).value||0),date=(document.getElementById('paymentRecordDate')||{}).value,method=(document.getElementById('paymentMethod')||{}).value,reference=(document.getElementById('paymentReference')||{}).value.trim(),notes=(document.getElementById('paymentNotes')||{}).value.trim();
     if(!row||!amount||amount<=0){alert('Enter a payment amount greater than zero.');return}
     if(!date){alert('Enter the actual payment date before saving this payment.');return}
@@ -67,6 +68,7 @@
     await syncCash(row,payments);selectedId=row.id;document.dispatchEvent(new Event('bwc:invoice-payments-updated'));await load();alert(reconciling?'Historic payment date confirmed. Remaining balance: '+money(Math.max(0,Number(row.total_amount||0)-correctedPaid))+'.':'Payment saved. Remaining balance: '+money(Math.max(0,Number(row.total_amount||0)-correctedPaid))+'.');
   }
   async function correctPayment(){
+    if(navigator.onLine===false)throw new Error('Payment corrections require internet. Nothing has been queued or saved.');
     var row=selected(),target=(document.getElementById('paymentCorrectionTarget')||{}).value||null,amount=Number((document.getElementById('paymentCorrectionAmount')||{}).value),date=(document.getElementById('paymentCorrectionDate')||{}).value,method=(document.getElementById('paymentCorrectionMethod')||{}).value,reference=((document.getElementById('paymentCorrectionReference')||{}).value||'').trim(),notes=((document.getElementById('paymentCorrectionNotes')||{}).value||'').trim(),reason=((document.getElementById('paymentCorrectionReason')||{}).value||'').trim();
     if(!row||!isManager){alert('Only an authorized manager or owner can correct an invoice payment.');return}
     if(!Number.isFinite(amount)||amount<0){alert('Enter a valid corrected amount.');return}
@@ -80,6 +82,7 @@
     correctionMode=false;correctionTarget='';selectedId=row.id;document.dispatchEvent(new Event('bwc:invoice-payments-updated'));document.dispatchEvent(new Event('bwc:cash-updated'));document.dispatchEvent(new Event('bwc:invoices-loaded'));if(window.bwcPublishInvoiceRefresh)window.bwcPublishInvoiceRefresh('invoice-payment-corrected',{remoteId:row.id,invoiceNumber:row.invoice_number});await load();var saved=result.data||{};alert('Payment correction saved. Amount paid is now '+money(saved.amount_paid||0)+'. The invoice balance and CIB were refreshed.');
   }
   async function closeAsUnremittedCollection(){
+    if(navigator.onLine===false)throw new Error('Closing an existing invoice requires internet. Nothing has been queued or saved.');
     var row=selected(),date=(document.getElementById('unremittedDate')||{}).value,notes=((document.getElementById('unremittedNotes')||{}).value||'').trim();
     if(!row||!isOwner){alert('Only the business owner can use this closure.');return}
     if(!notes){alert('Enter the owner note explaining this unremitted collection.');return}

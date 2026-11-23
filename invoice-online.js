@@ -8,7 +8,9 @@
     try{console.info('[BWC workspace]',stage,Object.assign({workspaceId:businessId||null,cachedWorkspaceId:localStorage.getItem('bwc-active-business')||null,branchId:localStorage.getItem('bwc-active-branch')||null,online:online},details||{}))}catch(logError){}
   }
   function localKey(){return '15m-replica-invoices'}
-  function cache(){try{localStorage.setItem(localKey(),JSON.stringify(inv))}catch(e){}}
+  function scopedCacheKey(){return 'bwc-invoice-cache:'+userId+':'+(businessId||localStorage.getItem('bwc-active-business')||'')+':'+(localStorage.getItem('bwc-active-branch')||'')}
+  function cache(){try{var text=JSON.stringify(inv);localStorage.setItem(localKey(),text);if(userId&&businessId)localStorage.setItem(scopedCacheKey(),text)}catch(e){}}
+  function restoreScopedCache(){try{var rows=JSON.parse(localStorage.getItem(scopedCacheKey())||'[]');inv=Array.isArray(rows)?rows:[]}catch(e){inv=[]}refreshInvoiceRegister();render()}
   /* The live dashboard reporter wraps the legacy window.render function once
      it has loaded.  That wrapper intentionally skips the legacy dashboard
      renderer, but the Invoice Register is still owned by the legacy page.
@@ -41,9 +43,9 @@
     try{localStorage.setItem(refreshKey,JSON.stringify(payload))}catch(error){}
   }
   window.bwcPublishInvoiceRefresh=function(type,detail){if(online)publishCrossTabRefresh(type,detail)};
-  function offlineQueueKey(){return '15m-offline-invoice-queue'}
-  function readOfflineQueue(){try{var rows=JSON.parse(localStorage.getItem(offlineQueueKey())||'[]');return Array.isArray(rows)?rows:[]}catch(e){return []}}
-  function writeOfflineQueue(rows){try{localStorage.setItem(offlineQueueKey(),JSON.stringify(rows||[]))}catch(e){}}
+  var invoiceSaving=false,remoteLoadVersion=0;
+  function invoiceScope(){return {businessId:businessId||localStorage.getItem('bwc-active-business')||'',branchId:localStorage.getItem('bwc-active-branch')||'',userId:userId,branchName:(document.querySelector('#onlineBranchPicker option:checked')||{}).textContent||''}}
+  function configureOffline(){if(window.BwcInvoiceOffline)window.BwcInvoiceOffline.configure({db:function(){return db},scope:invoiceScope,refresh:loadRemote,saved:function(receipt){document.dispatchEvent(new Event('bwc:cash-updated'));document.dispatchEvent(new Event('bwc:pms-updated'));var detail={remoteId:receipt.invoice_id,invoiceNumber:receipt.invoice_number,edited:false};document.dispatchEvent(new CustomEvent('bwc:invoice-saved',{detail:detail}));publishCrossTabRefresh('invoice-saved',detail)}})}
   function message(text){var box=document.getElementById('invoiceOnlineStatus');if(!box){box=document.createElement('div');box.id='invoiceOnlineStatus';box.className='notice';var view=document.getElementById('invoices');if(view)view.insertBefore(box,view.firstChild)}if(box)box.textContent=text}
   function normalize(row){var services=(row.invoice_services||[]).map(function(s){return {n:s.service_name,d:s.service_detail||'',a:Number(s.amount||0)}}),parts=(row.invoice_parts||[]).map(function(p){var q=Number(p.quantity||0),price=Number(p.unit_price||0);return {n:p.part_name,q:q,p:price,a:q*price}}),payments=(row.invoice_payments||[]).map(function(p){return {date:p.payment_date,amount:Number(p.amount||0),method:p.payment_method||'',reference:p.reference_number||'',notes:p.notes||'',createdAt:p.created_at||''}}),rawWriteoffs=row.invoice_balance_writeoffs,writeoffs=Array.isArray(rawWriteoffs)?rawWriteoffs:(rawWriteoffs?[rawWriteoffs]:[]),writtenOff=writeoffs.reduce(function(sum,item){return sum+Number(item.amount||0)},0);return {id:row.invoice_number,remoteId:row.id,number:'INV-'+String(row.invoice_number).padStart(5,'0'),client:row.client_name,contact:row.contact_number,address:row.client_address,email:row.client_email||'',make:row.vehicle_make,yearModel:row.vehicle_year_model,color:row.vehicle_color,plate:row.plate_number,date:row.invoice_date,release:row.release_date||'',admin:row.assigned_admin,method:row.payment_method,source:row.client_source,services:services,parts:parts,payments:payments,total:Number(row.total_amount||0),paid:Number(row.amount_paid||0),writtenOff:writtenOff,balance:Math.max(0,Number(row.total_amount||0)-Number(row.amount_paid||0)-writtenOff),status:row.status}}
   async function resolveBusiness(){
@@ -63,8 +65,11 @@
     return null;
   }
   async function loadRemote(){
+    if(!db||!businessId||navigator.onLine===false)return;
+    var version=++remoteLoadVersion,requestedScope=refreshScope();
     var query=db.from('invoices').select('*,invoice_services(*),invoice_parts(*),invoice_payments(*),invoice_balance_writeoffs(*)').eq('business_id',businessId),branchId=localStorage.getItem('bwc-active-branch');if(branchId)query=query.eq('branch_id',branchId);
     var result=await query.order('invoice_date',{ascending:false}).order('invoice_number',{ascending:false});
+    if(version!==remoteLoadVersion||requestedScope!==refreshScope())return;
     if(result.error){message('Online invoices could not load: '+result.error.message);return}
     inv=(result.data||[]).map(function(row){var item=normalize(row);item.discount=Number(row.discount_amount||0);return item});cache();refreshInvoiceRegister();render();renderLists();if(edit)paymentEditShortcut();document.dispatchEvent(new Event('bwc:invoices-loaded'));message('Online invoice records are active for '+(localStorage.getItem('bwc-active-business-name')||'this business')+'.');
   }
@@ -144,11 +149,6 @@
      box.innerHTML='<b>Payment update for '+escapeHtml(item.number)+'</b><br>This invoice has '+escapeHtml('PHP '+Number(item.paid||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2}))+' received and '+escapeHtml('PHP '+balance.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2}))+' remaining. Add the next payment as a dated record so the balance, CIB cash, dashboard, and payment history stay correct.<br><button type="button" class="primary" style="margin-top:9px" data-record-invoice-payment="'+escapeHtml(item.remoteId)+'">Record another payment</button> <button type="button" class="secondary" style="margin-top:9px" data-correct-invoice-payment="'+escapeHtml(item.remoteId)+'">Correct amount paid</button>';
     if(summary)summary.insertAdjacentElement('afterend',box);
   }
-  async function writeLines(remoteId,x){
-    var servicesRows=x.services.map(function(s){return {invoice_id:remoteId,service_name:s.n,service_detail:s.d||null,amount:Number(s.a||0)}}),partsRows=x.parts.map(function(p){return {invoice_id:remoteId,part_name:p.n,quantity:Number(p.q||0),unit_price:Number(p.p||0)}});
-    if(servicesRows.length){var s=await db.from('invoice_services').insert(servicesRows);if(s.error)throw new Error(s.error.message)}
-    if(partsRows.length){var p=await db.from('invoice_parts').insert(partsRows);if(p.error)throw new Error(p.error.message)}
-  }
   function invoiceEditPayload(x){
     var payload=invoicePayload(x);
     /* The edit RPC ignores client totals, payment totals, status, and creator;
@@ -156,51 +156,23 @@
     delete payload.total_amount;delete payload.amount_paid;delete payload.status;delete payload.created_by;
     return payload;
   }
-  /* Cash received from an invoice belongs in CIB.  Installments are the
-     source of truth: each real cash payment gets one CIB entry. */
-  async function syncInvoiceCashIn(remoteId,invoiceNumber,x){
-    var branchId=localStorage.getItem('bwc-active-branch');
-    if(!branchId)return;
-    var history=await db.from('invoice_payments').select('id').eq('invoice_id',remoteId);
-    if(history.error)throw new Error('CIB payment history could not be checked: '+history.error.message);
-    /* A paid invoice created today starts with a dated payment record.  This
-       prevents the old invoice-total CIB record from ever being created. */
-    if(x.isNewInvoice&&!(history.data||[]).length&&Number(x.paid||0)>0){
-      var opening=await db.from('invoice_payments').insert({invoice_id:remoteId,business_id:businessId,branch_id:branchId,payment_date:x.paymentDate,amount:Number(x.paid||0),payment_method:x.method||'Cash',reference_number:'Initial recorded payment',notes:'Initial payment recorded when the invoice was created.',received_by:null,created_by:userId});
-      if(opening.error)throw new Error('Opening payment could not be recorded: '+opening.error.message);
-      var openingStatus=Number(x.paid||0)>=Number(x.total||0)?'Paid':'Partially paid',header=await db.from('invoices').update({amount_paid:Number(x.paid||0),status:openingStatus,payment_method:x.method||'Cash'}).eq('id',remoteId).eq('business_id',businessId).eq('branch_id',branchId);
-      if(header.error)throw new Error('Opening payment was saved, but the invoice total could not be updated: '+header.error.message);
-    }
-    var savedCash=await db.rpc('sync_invoice_payment_cash',{p_invoice_id:remoteId,p_branch_id:branchId});
-    if(savedCash.error)throw new Error('CIB update failed: '+savedCash.error.message);
-    document.dispatchEvent(new Event('bwc:cash-updated'));
-  }
   async function syncOfflineQueue(){
-    if(!online||!businessId||!localStorage.getItem('bwc-active-branch'))return;
-    var queue=readOfflineQueue();if(!queue.length)return;
-    message('Syncing '+queue.length+' invoice'+(queue.length===1?'':'s')+' saved offline…');
-    var remaining=[];
-    for(var i=0;i<queue.length;i++){
-      var item=queue[i];
-      try{
-        var inserted=await db.from('invoices').insert(invoicePayload(item)).select('id,invoice_number').single();
-        if(inserted.error)throw new Error(inserted.error.message);
-        await writeLines(inserted.data.id,item);
-        await syncInvoiceCashIn(inserted.data.id,inserted.data.invoice_number,item);
-      }catch(error){remaining.push(item);console.warn('Offline invoice remains queued:',error)}
-    }
-    writeOfflineQueue(remaining);await loadRemote();
-    message(remaining.length?remaining.length+' offline invoice'+(remaining.length===1?'':'s')+' still waiting to sync. We will retry automatically.':'All offline invoices synced securely online.');
+    if(window.BwcInvoiceOffline)return window.BwcInvoiceOffline.sync();
   }
   window.createInvoice=async function(){
+    if(invoiceSaving)return;invoiceSaving=true;
+    try{
     var req=['client','contact','address','make','yearModel','color','plate','invoiceDate','admin','source'];if(req.some(function(x){return !formValue(x)})){alert('Please complete every required field.');return}
     if(!services.length&&!parts.length){alert('Add at least one service or auto part.');return}
-    var rawSubtotal=services.reduce(function(sum,row){return sum+Number(row.a||0)},0)+parts.reduce(function(sum,row){return sum+Number(row.a||0)},0),discount=Math.max(0,Number((document.getElementById('discountAmount')||{}).value)||0);if(discount>rawSubtotal){alert('Discount cannot be higher than the services and parts total.');return}
+    function cents(value){return Math.round((Number(value)+Number.EPSILON)*100)/100}
+    var rawSubtotal=services.reduce(function(sum,row){return sum+cents(row.a)},0)+parts.reduce(function(sum,row){return sum+cents(Number(row.q)*Number(row.p))},0),discount=Math.max(0,cents((document.getElementById('discountAmount')||{}).value||0));if(discount>rawSubtotal){alert('Discount cannot be higher than the services and parts total.');return}
     var existing=edit&&inv.find(function(i){return i.id===edit}),x={id:edit||Date.now(),remoteId:existing&&existing.remoteId,isNewInvoice:!edit,number:'',client:formValue('client'),contact:formValue('contact'),address:formValue('address'),email:formValue('email'),make:formValue('make'),yearModel:formValue('yearModel'),color:formValue('color'),plate:formValue('plate'),date:invoiceDate.value,release:releaseDate.value,paymentDate:formValue('paymentDate'),admin:admin.value,method:method.value,source:source.value,services:services.slice(),parts:parts.slice(),discount:discount,total:total(),paid:+paid.value||0};
     /* An older invoice opened from a report may fall outside the register's
        next refresh. Never turn that interrupted edit into a new invoice. */
     if(edit&&(!existing||(online&&!existing.remoteId&&!existing.offlinePending))){alert('This saved invoice is no longer loaded. Reopen it from the report or register before saving changes.');return}
-    x.total=Math.max(0,Number(x.total||0)-discount);
+    if(edit&&(!online||navigator.onLine===false||existing.offlinePending)){alert('Existing and pending invoices cannot be edited offline. Reconnect and open the saved online invoice.');return}
+    x.total=Math.round((rawSubtotal-discount)*100)/100;
+    if(!Number.isFinite(x.total)||!Number.isFinite(x.paid)||x.paid<0||x.services.some(function(s){return !s.n||!Number.isFinite(Number(s.a))||Number(s.a)<0})||x.parts.some(function(p){return !p.n||!Number.isFinite(Number(p.q))||!Number.isFinite(Number(p.p))||Number(p.q)<=0||Number(p.p)<0})){alert('Enter valid nonnegative prices and payment amounts, and positive part quantities.');return}
     if(x.total<=0){alert('Enter at least one service or auto part amount greater than ₱0 before creating the invoice.');return}
     if(x.paid>x.total){alert('Amount paid cannot be higher than the invoice total.');return}
     if(x.isNewInvoice&&x.paid>0&&!x.paymentDate){alert('Enter the actual payment received date before saving an initial payment.');return}
@@ -208,7 +180,13 @@
        New money is recorded only through the installment history. */
     if(existing){x.paid=paidFromHistory(existing);x.status=existing.writtenOff>0?existing.status:(x.paid>=x.total?'Paid':x.paid?'Partially paid':'Pending')}
     x.balance=Math.max(0,x.total-x.paid);x.status=x.paid>=x.total?'Paid':x.paid?'Partially paid':x.status||'Pending';
-    if(!online||navigator.onLine===false){var position=inv.findIndex(function(i){return i.id===x.id});x.number=edit?(inv[position]||{}).number:'OFF-'+String(Date.now()).slice(-8);x.offlinePending=true;var pending=readOfflineQueue();pending.push(x);writeOfflineQueue(pending);position<0?inv.unshift(x):inv[position]=x;cache();resetInvoice();setInvoiceFormMode(false);render();show('invoices');message('Invoice saved offline on this device. It will sync automatically when internet returns.');return}
+    if(x.isNewInvoice){
+      if(!window.BwcInvoiceOffline){alert('Safe invoice saving is not ready. Reload BWC while online; your form has not been cleared.');return}
+      function pmsValue(id){var field=document.getElementById(id);return field?String(field.value||'').trim():''}
+      var technician=pmsValue('pmsTechnician'),techField=document.getElementById('pmsTechnician'),techOption=techField&&techField.options[techField.selectedIndex];
+      x.pms={odometer_km:pmsValue('pmsOdometer'),technician_worker_id:technician.indexOf('v2:')===0?'':technician,technician_employee_id:technician.indexOf('v2:')===0?technician.slice(3):'',technician_name:techOption&&(techOption.dataset.name||techOption.textContent)||'',next_pms_date:pmsValue('pmsNextDate'),next_pms_odometer_km:pmsValue('pmsNextOdometer'),notes:pmsValue('pmsNotes')};
+      try{var queued=await window.BwcInvoiceOffline.saveNew(x);resetInvoice();setInvoiceFormMode(false);show('invoices');message(queued.invoice.number+' saved on this device. See the upload status above; its permanent invoice number is assigned after upload.');syncOfflineQueue()}catch(error){message(error.message);alert(error.message)}return;
+    }
     if(!businessId||!localStorage.getItem('bwc-active-branch')){alert('The selected branch is still loading. Please wait a few seconds, then create the invoice again.');return}
     var branchAccess=await confirmInvoiceBranchAccess();if(branchAccess.corrected){alert('Your saved branch was corrected to your assigned branch. The page will now refresh; create the invoice again after it reloads.');location.reload();return}if(branchAccess.error){alert(branchAccess.error);return}
 message('Saving invoice securely…');var savedInvoiceNumber=null;try{
@@ -219,14 +197,9 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
         var updated=await db.rpc('update_invoice_with_lines',{p_invoice_id:x.remoteId,p_branch_id:localStorage.getItem('bwc-active-branch'),p_payload:invoiceEditPayload(x),p_services:x.services.map(function(s){return {service_name:s.n,service_detail:s.d||null,amount:Number(s.a||0)}}),p_parts:x.parts.map(function(p){return {part_name:p.n,quantity:Number(p.q||0),unit_price:Number(p.p||0)}})});
         if(updated.error)throw new Error(updated.error.message);
         var result=updated.data||{};saved={id:x.remoteId,invoice_number:result.invoice_number};
-      }else{
-        var inserted=await db.from('invoices').insert(invoicePayload(x)).select('id,invoice_number').single();
-        if(inserted.error)throw new Error(inserted.error.message);
-        saved=inserted.data;
-      }
+      }else{throw new Error('Reopen the existing online invoice before saving changes.')}
       savedInvoiceNumber=saved.invoice_number;
-      if(!x.remoteId){saveStep='the service and parts lines';await writeLines(saved.id,x)}
-      var pmsWarning='';if(window.bwcSyncPmsRecord){try{await window.bwcSyncPmsRecord(saved.id,x)}catch(pmsError){console.warn('PMS history was not saved:',pmsError);pmsWarning=' The invoice is saved; PMS history will be available after the database update.'}}var cashWarning='';if(x.isNewInvoice){try{saveStep='the CIB cash record';await syncInvoiceCashIn(saved.id,saved.invoice_number,x)}catch(cashError){console.warn('Invoice CIB update was not saved:',cashError);cashWarning=' The invoice is saved; its CIB cash record could not be updated automatically.'}}saveStep='refreshing the saved invoice screen';await loadRemote();
+      var pmsWarning='';if(window.bwcSyncPmsRecord){try{await window.bwcSyncPmsRecord(saved.id,x)}catch(pmsError){console.warn('PMS history was not saved:',pmsError);pmsWarning=' The invoice is saved; PMS history could not be updated.'}}saveStep='refreshing the saved invoice screen';await loadRemote();
       /* loadRemote refreshes the invoice register and emits
          bwc:invoices-loaded.  These follow-up signals fan the completed save
          out to cash/reporting cards and client/PDF views.  They are refresh-
@@ -234,11 +207,14 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
       document.dispatchEvent(new Event('bwc:cash-updated'));
       document.dispatchEvent(new CustomEvent('bwc:invoice-saved',{detail:{remoteId:saved.id,invoiceNumber:saved.invoice_number,edited:!x.isNewInvoice}}));
       publishCrossTabRefresh('invoice-saved',{remoteId:saved.id,invoiceNumber:saved.invoice_number,edited:!x.isNewInvoice});
-      resetInvoice();setInvoiceFormMode(false);show('invoices');message('Invoice '+('INV-'+String(saved.invoice_number).padStart(5,'0'))+' saved securely online.'+pmsWarning+cashWarning);
-    }catch(error){var detail=String((error&&error.message)||'Unknown database error');if(savedInvoiceNumber!==null){console.error('Invoice was saved but the page could not finish updating:',error);message('Invoice INV-'+String(savedInvoiceNumber).padStart(5,'0')+' was saved, but the page could not finish refreshing.');alert('Invoice INV-'+String(savedInvoiceNumber).padStart(5,'0')+' was saved. Please reload the page before creating another invoice. Reason: '+detail);return}message('Invoice was not saved during '+saveStep+': '+detail);alert('The invoice could not be saved during '+saveStep+'. Reason: '+detail)}};
+      resetInvoice();setInvoiceFormMode(false);show('invoices');message('Invoice '+('INV-'+String(saved.invoice_number).padStart(5,'0'))+' saved securely online.'+pmsWarning);
+    }catch(error){var detail=String((error&&error.message)||'Unknown database error');if(savedInvoiceNumber!==null){console.error('Invoice was saved but the page could not finish updating:',error);message('Invoice INV-'+String(savedInvoiceNumber).padStart(5,'0')+' was saved, but the page could not finish refreshing.');alert('Invoice INV-'+String(savedInvoiceNumber).padStart(5,'0')+' was saved. Please reload the page before creating another invoice. Reason: '+detail);return}message('Invoice was not saved during '+saveStep+': '+detail);alert('The invoice could not be saved during '+saveStep+'. Reason: '+detail)}
+    }finally{invoiceSaving=false}
+  };
   window.deleteInvoice=async function(id){
     var item=inv.find(function(x){return x.id===id});
     if(!item)return;
+    if(!online||navigator.onLine===false||!item.remoteId){alert('Connect online before deleting a saved invoice. Pending or older local records are kept for review.');return}
     if(!confirm('Delete '+String(item.number||'this invoice')+'? This also removes its services, parts, payment history, cash collection, linked CIB cash records, and any linked repair order in the current branch. Invoices with remitted cash cannot be deleted.'))return;
     if(online&&item.remoteId){
       var branchId=localStorage.getItem('bwc-active-branch');
@@ -277,22 +253,27 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
   }
   window.setInvoiceFormMode=setInvoiceFormMode;
   var originalEditInvoice=window.editInvoice,originalResetInvoice=window.resetInvoice;
-  if(originalEditInvoice)window.editInvoice=function(id){originalEditInvoice(id);setInvoiceFormMode(true);setTimeout(function(){var amount=document.getElementById('paid'),amountLabel=amount&&amount.closest('label');if(amount){amount.disabled=true;amount.title='Use Payment records to add or correct money received.'}if(amountLabel){amountLabel.firstChild.nodeValue='Amount received to date (managed in Payment records)'}paymentEditShortcut()},0)};
+  if(originalEditInvoice)window.editInvoice=function(id){if(!online||navigator.onLine===false){alert('Connect online before editing an existing invoice.');return}originalEditInvoice(id);setInvoiceFormMode(true);setTimeout(function(){var amount=document.getElementById('paid'),amountLabel=amount&&amount.closest('label');if(amount){amount.disabled=true;amount.title='Use Payment records to add or correct money received.'}if(amountLabel){amountLabel.firstChild.nodeValue='Amount received to date (managed in Payment records)'}paymentEditShortcut()},0)};
   if(originalResetInvoice)window.resetInvoice=function(){originalResetInvoice();setInvoiceFormMode(false);setTimeout(function(){var paymentDate=document.getElementById('paymentDate'),amount=document.getElementById('paid'),amountLabel=amount&&amount.closest('label');if(paymentDate)paymentDate.value='';if(amount){amount.disabled=false;amount.title=''}if(amountLabel)amountLabel.firstChild.nodeValue='Initial payment received (PHP)';paymentEditShortcut()},0)};
   /* The legacy page keeps editInvoice/resetInvoice as global lexical
      functions, so they are not always available on window for wrapping.
      Catch their existing buttons as a fallback and update the mode after
      the inline handler has populated or cleared the form. */
   document.addEventListener('click',function(event){
-    if(event.target.closest('#invoices [onclick*="editInvoice"]'))setInvoiceFormMode(true);
+    if(event.target.closest('#invoices [onclick*="editInvoice"]')){if(!online||navigator.onLine===false){event.preventDefault();event.stopImmediatePropagation();alert('Connect online before editing an existing invoice.');return}setInvoiceFormMode(true)}
     if(event.target.closest('#invoices [onclick*="resetInvoice"]'))setInvoiceFormMode(false);
-  });
+  },true);
   async function start(){
     var config=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!config.url||!config.publishableKey){setTimeout(start,300);return}
-    db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db){setTimeout(start,300);return}workspaceLog('invoice-start:initializing');businessId=await resolveBusiness();if(!businessId){workspaceLog('invoice-start:no-workspace');message('Offline invoice mode is ready on this device. Existing local drafts can still be used.');return}workspaceLog('invoice-start:workspace-ready',{workspaceId:businessId});inv=[];cache();render();renderLists();online=true;setupCrossTabRefresh();await loadAdmins();await loadRemote();syncOfflineQueue();
+    db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db){setTimeout(start,300);return}
+    configureOffline();
+    try{businessId=await resolveBusiness()}catch(error){businessId=''}
+    if(!businessId){online=false;restoreScopedCache();message('Online access could not be checked. Offline entry requires a previously verified account and branch. Existing invoices cannot be edited.');if(window.BwcInvoiceOffline)window.BwcInvoiceOffline.render();renderOfflineAdmins();return}
+    restoreScopedCache();
+    online=true;setupCrossTabRefresh();await loadAdmins();await loadRemote();if(window.BwcInvoiceOffline)await window.BwcInvoiceOffline.verify();syncOfflineQueue();
   }
   document.addEventListener('click',function(event){if(online&&event.target.closest('[data-t="invoices"]'))setTimeout(loadAdmins,80)});
-  document.addEventListener('bwc:branch-ready',function(){if(online){loadAdmins();loadRemote()}});
+  document.addEventListener('bwc:branch-ready',function(){restoreScopedCache();if(online){loadAdmins();loadRemote()}if(window.BwcInvoiceOffline){window.BwcInvoiceOffline.verify();window.BwcInvoiceOffline.render()}});
   var openInvoiceVersion=0;
   async function readInvoiceForOpen(client,business,branch,remoteId){
     if(!business||!branch||!remoteId)throw new Error('Select a business and branch before opening an invoice.');
@@ -321,7 +302,7 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
   document.addEventListener('bwc:workers-loaded',function(){if(online)loadAdmins()});
   document.addEventListener('bwc:invoice-deleted',function(){if(online)loadRemote()});
   document.addEventListener('bwc:invoice-payments-updated',function(){if(online)loadRemote()});
-  window.addEventListener('offline',function(){message('Offline mode: new invoices will be saved on this device until internet returns.')});
+  window.addEventListener('offline',function(){message('Offline: new invoices only. Check the protected upload queue; existing invoices cannot be edited.')});
   window.addEventListener('online',function(){if(online)syncOfflineQueue();else start()});
   function safe(value){return String(value||'').replace(/[&<>'"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]})}
   function money(value){return 'PHP '+Number(value||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}
