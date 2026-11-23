@@ -1,8 +1,17 @@
-/* Rule-free painter testing. Saved test sheets never rewrite the original ledger. */
+/* One working painter worksheet per employee/week; released snapshots stay fixed. */
 (function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./workflow.js'));else root.SimplePainter=factory(root.PayrollWorkflow)})(typeof window!=='undefined'?window:this,function(W){
   'use strict';
   const copy=v=>JSON.parse(JSON.stringify(v)),same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
   const key=p=>p.start+':'+p.end;
+  const sheetKey=s=>s.employeeId+':'+key(s.period);
+  // Keep the same last-in-array winner used by the original weekly calculations.
+  // Retain any older source referenced by a released PDF, without displaying it.
+  function compact(state){
+    const next=copy(state),groups=new Map(),sources=new Set((state.releasedPainterSlips||[]).map(r=>r.sourceId));
+    for(const s of state.painterTestSheets||[]){const k=sheetKey(s);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(s)}
+    next.painterTestSheets=[...groups.values()].flatMap(rows=>rows.filter((s,i)=>i===rows.length-1||sources.has(s.id))).map(copy);
+    return next;
+  }
   function number(value,label){const n=value===''||value==null?0:Number(value);if(!Number.isFinite(n)||n<0||n>999999999)throw Error(label+' must be a valid non-negative number.');return W.money(n)}
   function latest(state,employeeId){const weeks=new Map();for(const s of state.painterTestSheets||[])if(s.employeeId===employeeId)weeks.set(key(s.period),s);return [...weeks.values()]}
   function savedFor(state,employeeId){return latest(state,employeeId).find(s=>key(s.period)===key(state.period))||null}
@@ -47,22 +56,23 @@
   }
   function save(state,employeeId,inputs,cashAdvance,makeId,savedAt=new Date().toISOString()){
     if((state.releasedPainterSlips||[]).some(r=>r.employeeId===employeeId&&key(r.period)===key(state.period)))throw Error('This week has a released payslip. It is locked except through the owner correction action.');
-    const next=copy(state),record=snapshot(state,employeeId,[],0),data=draft(state,employeeId,inputs,cashAdvance,makeId),old=savedFor(state,employeeId);
+    const next=compact(state),record=snapshot(state,employeeId,[],0),data=draft(state,employeeId,inputs,cashAdvance,makeId),old=savedFor(state,employeeId);
     if(old&&same(old.snapshot,data))return next;
     next.painterTestSheets=next.painterTestSheets||[];
-    next.painterTestSheets.push({id:makeId(),employeeId,period:record.period,savedAt,snapshot:data});
+    const sheet={id:old?.id||makeId(),employeeId,period:record.period,savedAt,snapshot:data};
+    const index=next.painterTestSheets.findIndex(s=>s.id===sheet.id);
+    if(index<0)next.painterTestSheets.push(sheet);else next.painterTestSheets[index]=sheet;
     const errors=validate(next,state);if(errors.length)throw Error(errors[0]);return next;
   }
-  // Clear only the selected worksheet by appending a blank revision. Never erase
-  // the original job ledger, previous versions, or released payslip snapshots.
+  // Explicitly clear only this working week; original ledgers and releases remain.
   function emptyTable(state,employeeId,makeId,savedAt=new Date().toISOString()){
     if((state.releasedPainterSlips||[]).some(r=>r.employeeId===employeeId&&key(r.period)===key(state.period)))throw Error('This week has a released payslip. It is locked except through the owner correction action.');
-    const current=view(state,employeeId),next=copy(state);
+    const current=view(state,employeeId),next=compact(state);
     if(!current.snapshot.rows.length&&!current.snapshot.cashAdvance)return next;
     next.painterTestSheets=next.painterTestSheets||[];
-    if(!current.saved)next.painterTestSheets.push({id:makeId(),employeeId,period:copy(current.snapshot.period),savedAt,snapshot:copy(current.snapshot)});
     const data=snapshot({...state,period:current.snapshot.period},employeeId,[],0);
-    next.painterTestSheets.push({id:makeId(),employeeId,period:copy(data.period),savedAt,snapshot:data});
+    const sheet={id:current.saved?.id||makeId(),employeeId,period:copy(data.period),savedAt,snapshot:data},index=next.painterTestSheets.findIndex(s=>s.id===sheet.id);
+    if(index<0)next.painterTestSheets.push(sheet);else next.painterTestSheets[index]=sheet;
     const errors=validate(next,state);if(errors.length)throw Error(errors[0]);return next;
   }
   function validate(state,previous){
@@ -77,12 +87,20 @@
       for(const r of c.rows)if((r.job.retentionStatus!==undefined&&!['ongoing','retained'].includes(r.job.retentionStatus))||['unitReleasedOn','retentionDue'].some(k=>r.job[k]&&!W.validDate(r.job[k])))errors.push('Invalid retention reference.');
       if(![c.basic,c.cashAdvance,c.net].every(Number.isFinite)||c.cashAdvance<0||W.cents(c.basic)!==W.cents(W.sum(c.rows,'weekly'))||W.cents(c.net)!==W.cents(c.basic-c.cashAdvance))errors.push('Saved test totals do not match.');
     }
-    for(const old of previous?.painterTestSheets||[])if(!same(old,state.painterTestSheets.find(s=>s.id===old.id)))errors.push('Earlier saved worksheet copies must be preserved.');
+    for(const old of previous?.painterTestSheets||[]){
+      const replacement=state.painterTestSheets.find(s=>s.id===old.id);
+      if(replacement&&sheetKey(replacement)!==sheetKey(old))errors.push('A worksheet cannot be moved to another employee or week.');
+      if(!state.painterTestSheets.some(s=>sheetKey(s)===sheetKey(old)))errors.push('Keep one working worksheet for every saved week.');
+      const released=(previous.releasedPainterSlips||[]).some(r=>sheetKey(r)===sheetKey(old));
+      if(released&&replacement&&!same(old,replacement))errors.push('Released weeks are locked. Use the owner correction action.');
+      if((previous.releasedPainterSlips||[]).some(r=>r.sourceId===old.id)&&!same(old,replacement))errors.push('Released worksheet sources must be preserved.');
+    }
+    const oldLatest=new Map((previous?.painterTestSheets||[]).map(s=>[sheetKey(s),s])),newLatest=new Map(state.painterTestSheets.map(s=>[sheetKey(s),s]));
+    for(const [k,old] of oldLatest){const replacement=newLatest.get(k);if(replacement&&replacement.id!==old.id&&previous.painterTestSheets.some(s=>s.id===replacement.id))errors.push('Keep the latest working worksheet, not an older copy.')}
     return [...new Set(errors)];
   }
   function merge(previous,incoming){const n=copy(incoming);if(previous.painterTestSheets?.length||n.painterTestSheets?.length){n.painterTestSheets=n.painterTestSheets||[];for(const old of previous.painterTestSheets||[]){const found=n.painterTestSheets.find(s=>s.id===old.id);if(found&&!same(found,old))throw Error('Backup conflicts with a saved test sheet.');if(!found)n.painterTestSheets.push(copy(old))}n.painterTestSheets.sort((a,b)=>a.savedAt.localeCompare(b.savedAt))}return n}
   function balances(x,c,editable=false){const {esc,peso}=x;return `<table class="painter-balances"><caption>Balance / retained units · dates are reference only</caption><thead><tr><th>Unit / job order</th><th class="num">Balance after this week</th><th>Status</th><th>Unit released</th><th>Retention payout date</th></tr></thead><tbody>${c.rows.map(r=>{const j=r.job,status=j.retentionStatus||(j.closed?'retained':'ongoing'),released=j.unitReleasedOn??j.releasedOn??'',due=j.retentionDue??j.retentionEligibleOn??j.due??'',label=j.unit+' '+j.plate;return `<tr data-reference-row="${esc(j.id)}"><td>${esc(j.unit)} · ${esc(j.plate)}<small>${esc(j.work)}</small></td><td class="num" data-reference-balance>${peso(r.remaining)}</td><td>${editable?`<select form="painterWorksheet" data-ref-field="retentionStatus" aria-label="Balance status — ${esc(label)}"><option value="ongoing" ${status==='ongoing'?'selected':''}>Ongoing</option><option value="retained" ${status==='retained'?'selected':''}>Retained</option></select>`:esc(status)}</td>${[['unitReleasedOn',released,'Unit released date'],['retentionDue',due,'Retention payout date']].map(([field,value,title])=>`<td>${editable?`<input form="painterWorksheet" type="date" data-ref-field="${field}" aria-label="${title} — ${esc(label)}" value="${esc(value)}">`:esc(value||'Not set')}</td>`).join('')}</tr>`}).join('')||'<tr><td colspan="5">No units yet.</td></tr>'}</tbody></table>`}
-  function history(x,employeeId){const {state,button,esc,peso,range}=x,records=(state.painterTestSheets||[]).filter(s=>!employeeId||s.employeeId===employeeId).slice().reverse();return `<details class="painter-histories"><summary>Saved worksheet copies (${records.length})</summary><p class="sheet-footnote">Worksheet copies — saving does not confirm a payment.</p><table><tbody>${records.map(s=>`<tr><td>${esc(s.snapshot.employee.name)}<small>${range(s.period)} · ${esc(new Date(s.savedAt).toLocaleString())}</small></td><td class="num">${peso(s.snapshot.net)}</td><td>${button('Print / PDF','simple-history-open',`data-id="${esc(s.id)}"`,'secondary small')}</td></tr>`).join('')||'<tr><td>No saved worksheet copies yet.</td></tr>'}</tbody></table></details>`}
   function render(x,employeeId){
     const {state:s,esc,peso,button,range}=x,{snapshot:c,saved}=view(s,employeeId);
     const released=(s.releasedPainterSlips||[]).find(r=>r.employeeId===employeeId&&key(r.period)===key(s.period));
@@ -92,7 +110,7 @@
       <div class="sheet-meta"><div><b>DATE RANGE</b><div class="sheet-week">${button('‹','week-previous','aria-label="Previous week"','sheet-link')}<span>${range(s.period)}</span>${button('›','week-next','aria-label="Next week"','sheet-link')}<input id="painterWeek" type="date" aria-label="Choose payroll week" value="${s.period.start}"></div><small>Saturday–Friday · all amounts in ₱</small></div><div><b>PAYDAY</b><input id="painterPayday" form="painterWorksheet" type="date" aria-label="Payroll payday" required value="${esc(c.period.releaseDate)}" ${released?'disabled':''}><small>${saved?'Saved copy date shown. ':''}Default: following Saturday · editable for holidays${released?' · released copy locked':' · Save table to keep changes'}.</small></div><div><b>EMPLOYEE</b><strong>${esc(c.employee.name)}</strong></div><div><b>POSITION</b><span>${esc(c.employee.position)}</span></div></div>
       <p class="sheet-instruction">Simple payroll: no retention deductions or contract limits. Type in the cells; use the blank row for a new unit. ${button('Empty this week’s table','simple-empty',`data-id="${esc(employeeId)}" ${released||(!c.rows.length&&!c.cashAdvance)?'disabled':''}`,'sheet-link')}</p>
       <form id="painterWorksheet" data-employee="${esc(employeeId)}"><fieldset ${released?'disabled':''} class="sheet-fields"><div class="table-wrap"><table class="painter-table"><caption class="visually-hidden">Weekly painter payroll</caption><thead><tr><th>Unit / year</th><th>Invoice # / plate</th><th>Color</th><th>Job order</th><th>Agreed labor</th><th>Balance before week</th><th>Amount this week</th></tr></thead><tbody>${c.rows.map(row).join('')}${released?'':row({job:{}})}</tbody><tfoot><tr><th colspan="6">TOTAL</th><td class="num" id="painterGross">${peso(c.basic)}</td></tr><tr><th colspan="6">LESS CASH ADVANCE</th><td class="sheet-pay"><input id="painterAdvance" aria-label="Cash advance this week" type="number" min="0" step="0.01" value="${c.cashAdvance}"></td></tr><tr class="sheet-salary"><th colspan="6">TOTAL SALARY <small>Saved worksheet</small></th><td class="num" id="painterNet">${peso(c.net)}</td></tr></tfoot></table></div></fieldset><div class="sheet-status"><span id="painterEditStatus" role="status">${saved?'All changes saved':'Save this table to enable printing.'}</span><button type="button" data-action="painter-discard" class="button sheet-link" hidden>Undo unsaved changes</button></div></form>
-      <div id="painterWarnings"></div><div id="painterBalances" class="table-wrap">${balances(x,c,!released)}</div><p class="sheet-footnote">Choose Retained and enter its payout date if known. Blank dates print as “Not set”. Dates are reference only; no automatic 45-day restriction or deduction. Save table also saves these fields. Previous payments stay unchanged.</p></section>${history(x,employeeId)}`;
+      <div id="painterWarnings"></div><div id="painterBalances" class="table-wrap">${balances(x,c,!released)}</div><p class="sheet-footnote">Save table updates this employee’s worksheet for this week; it does not create extra copies or confirm payment. Save changes before changing the week or payday. Release payslip creates the permanent PDF. Retention dates are reference only.</p></section>`;
   }
-  return {latest,savedFor,jobs,view,draft,save,emptyTable,validate,merge,balances,history,render};
+  return {latest,savedFor,jobs,view,draft,save,emptyTable,validate,merge,compact,balances,render};
 });

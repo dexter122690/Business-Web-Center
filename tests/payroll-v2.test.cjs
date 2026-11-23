@@ -3,6 +3,7 @@ const ROOT=path.resolve(__dirname,'..'),W=require('../payroll-v2/workflow.js'),S
 const b='ce3d6ecf-239e-4b27-a1f6-0ce7ddd16875',r='10000000-0000-4000-8000-000000000001',other='10000000-0000-4000-8000-000000000002',owner='10000000-0000-4000-8000-000000000003',staff='10000000-0000-4000-8000-000000000004';
 const migration=fs.readFileSync(path.join(ROOT,'supabase/077_payroll_v2.sql'),'utf8');
 const teamNamesMigration=fs.readFileSync(path.join(ROOT,'supabase/078_payroll_team_display_names.sql'),'utf8');
+const worksheetMigration=fs.readFileSync(path.join(ROOT,'supabase/080_payroll_working_worksheets.sql'),'utf8');
 const seed=()=>W.emptyWorkspace([{id:'painter',name:'Fictional Painter',position:'Auto painter',type:'contract',rate:0,accountNumber:'PRIVATE-TEST',photos:[]},{id:'daily',name:'Fictional Admin',position:'Admin',type:'daily',rate:550}],undefined,'2026-11-14');
 test('new app has no offline payroll write path and old pause stays enabled',()=>{
  const app=fs.readFileSync(path.join(ROOT,'payroll-v2/app-v2.js'),'utf8'),online=fs.readFileSync(path.join(ROOT,'payroll-v2/online.js'),'utf8');
@@ -67,7 +68,7 @@ test('new navigation opens only its own frame and clears it on branch/access cha
  const document={createElement:element,getElementById:id=>nodes[id],querySelector:()=>dash,querySelectorAll:s=>s==='.view'?[nodes.dashboard,nodes.payroll,nodes.payrollV2].filter(Boolean):nodes.nav.children,addEventListener:listen};
  const window={addEventListener:listen,scrollTo(){},getBusinessSupabaseClient:()=>({rpc:async name=>{assert.equal(name,'payroll_v2_role');requests++;return {data:access,error:null}}})};
  vm.runInNewContext(fs.readFileSync(path.join(ROOT,'payroll-v2-online.js'),'utf8'),{window,document,localStorage:{getItem:k=>data[k]},setTimeout:fn=>timers.push(fn),MutationObserver:class{observe(){}},console});
- await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261123-online');assert.ok(!nodes.dashboard.classList.contains('active'));
+ await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261123-working-sheet');assert.ok(!nodes.dashboard.classList.contains('active'));
  data['bwc-active-branch']=other;access='none';await events['bwc:branch-ready'][0]();assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);assert.ok(nodes.dashboard.classList.contains('active'));
  access='owner';await events.focus[0]();assert.equal(button.hidden,false);button.click();assert.equal(nodes.payrollV2.children.length,1);
  data['bwc-active-business']='another-business';const previous=requests;await events.storage[0]({key:'bwc-active-business'});assert.equal(requests,previous);assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);
@@ -83,7 +84,7 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
  insert into auth.users values('${owner}'),('${staff}');insert into businesses values('${b}','active');insert into branches values('${r}','${b}','TEST BRANCH',true),('${other}','${b}','OTHER BRANCH',true);
  insert into profiles values('${owner}','Test owner','test@example.invalid'),('${staff}','Test staff','staff@example.invalid');insert into business_memberships values('${b}','${owner}','owner','active'),('${b}','${staff}','staff','active');insert into business_member_branch_access values('${b}','${staff}','${r}');
  insert into payroll_workers(business_id,branch_id,full_name,position,is_active) values('${b}','${r}','Legacy Employee','Admin',true);grant usage on schema public,auth to authenticated,anon;set test.actor='${owner}';`);
- await db.exec(migration);await db.exec(migration);await db.exec(teamNamesMigration);await db.exec(teamNamesMigration);
+ await db.exec(migration);await db.exec(migration);await db.exec(teamNamesMigration);await db.exec(teamNamesMigration);await db.exec(worksheetMigration);await db.exec(worksheetMigration);
  const call=async(name,args)=>{const q=`select ${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) as value`;return (await db.query(q,args)).rows[0].value};
  const auth=async(id,fn)=>{await db.exec(`set test.actor='${id}';set role authenticated`);try{return await fn()}finally{await db.exec('reset role')}};
  const save=(state,rev,files=[])=>call('payroll_v2_save',[b,r,rev,JSON.stringify(state),JSON.stringify(files)]);
@@ -121,10 +122,22 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
   const bad=structuredClone(current);bad.painterTestSheets[0].snapshot.net=99;await assert.rejects(auth(owner,()=>save(bad,1)),/totals/);
   const result=await auth(owner,()=>save(current,1));assert.equal(result.revision,2);await assert.rejects(auth(owner,()=>save(current,1)),/Another user/);
  });
+ await t.test('working worksheet is overwritten in place; old-client copies are compacted',async()=>{
+  const changed=S.save(current,'painter',[{id:record.snapshot.rows[0].job.id,weekly:3500}],500,()=>assert.fail('No new worksheet ID should be needed'));
+  let result=await auth(owner,()=>save(changed,2));assert.equal(result.state.painterTestSheets.length,1);assert.equal(result.state.painterTestSheets[0].id,record.id);
+  const oldClient=structuredClone(result.state);oldClient.painterTestSheets.push({...structuredClone(oldClient.painterTestSheets[0]),id:'old-client-new-copy'});
+  result=await auth(owner,()=>save(oldClient,result.revision));assert.equal(result.state.painterTestSheets.length,1);assert.equal(result.state.painterTestSheets[0].id,'old-client-new-copy');
+  const bad=structuredClone(result.state);bad.painterTestSheets=[];await assert.rejects(auth(owner,()=>save(bad,result.revision)),/Keep one working worksheet/);
+  const moved=structuredClone(result.state);moved.painterTestSheets[0].period.start='2026-11-21';await assert.rejects(auth(owner,()=>save(moved,result.revision)),/Keep one working worksheet|cannot be moved/);
+  // Restore the fixture revision only inside this isolated test database so the
+  // release-security cases below can retain their known revision assertions.
+  current=result.state;record=current.painterTestSheets[0];await db.query('update payroll_v2_workspaces set revision=2 where business_id=$1 and branch_id=$2',[b,r]);
+ });
  await t.test('release must atomically save original PDF; duplicate/history mutation denied',async()=>{
   current=A.release(current,record.id,'released-1','2026-11-21');await assert.rejects(auth(owner,()=>save(current,2)),/Generate the PDF/);
   const pdf={id:'released-1',kind:'pdf',dataUrl:'data:application/pdf;base64,JVBERi0xLjQK'};assert.equal((await auth(owner,()=>save(current,2,[pdf]))).revision,3);
   const bad=structuredClone(current);bad.releasedPainterSlips=[];await assert.rejects(auth(owner,()=>save(bad,3)),/read-only/);await assert.rejects(auth(staff,()=>call('payroll_v2_void',[b,r,'released-1','Correction needed'])),/owner/);
+  const changed=structuredClone(current);changed.painterTestSheets[0].savedAt='2026-11-23T12:00:00Z';await assert.rejects(auth(owner,()=>save(changed,3)),/read-only/);
   const competing=structuredClone(current);competing.painterTestSheets.push({...structuredClone(record),id:'competing-sheet'});await assert.rejects(auth(owner,()=>save(competing,3)),/Void the released/);
   const fixed=await auth(owner,()=>call('payroll_v2_void',[b,r,'released-1','Wrong amount entered']));assert.equal(fixed.state.releasedPainterSlips.length,0);assert.equal((await db.query("select count(*)::int n from payroll_v2_events where action='void'")).rows[0].n,1);assert.equal((await db.query('select count(*)::int n from payroll_v2_files')).rows[0].n,1);
  });
@@ -158,6 +171,26 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
   const before=await snapshot();await db.exec(teamNamesMigration);assert.deepEqual(await snapshot(),before);
   const member=(await auth(owner,()=>call('payroll_v2_team',[b,r]))).find(p=>p.id===staff);assert.equal(member.level,'edit');
   await assert.rejects(auth(staff,()=>call('payroll_v2_team',[b,r])),/Owner access required/);
+ });
+ await t.test('worksheet migration removes only old duplicates, keeps live data and is idempotent',async()=>{
+  const loaded=await auth(owner,()=>call('payroll_v2_load',[b,r])),state=loaded.state,latest=state.painterTestSheets[0];
+  // Simulate saved revisions from the previous app, including a source attached
+  // to an archived release. Cleanup must not delete that source or its PDF.
+  const source=structuredClone(latest);source.id='protected-old-source';
+  state.painterTestSheets.unshift({...structuredClone(latest),id:'obsolete-copy-1'},source,{...structuredClone(latest),id:'obsolete-copy-2'});
+  state.releasedPainterSlips.push({...structuredClone(source),id:'protected-release',sourceId:source.id,archivedAt:'2026-11-23T00:00:00Z',releasedOn:'2026-11-21',releasedCopy:true,snapshot:{...structuredClone(source.snapshot),previousPayments:[]}});
+  await db.query('update payroll_v2_workspaces set state=$1 where business_id=$2 and branch_id=$3',[JSON.stringify(state),b,r]);
+  await db.query("insert into payroll_v2_files(business_id,branch_id,file_id,kind,data_url,created_by) values($1,$2,'protected-release','pdf','data:application/pdf;base64,JVBERi0xLjQK',$3)",[b,r,owner]);
+  await db.query("insert into businesses values($1,'active')",[other]);await db.query("insert into branches values($1,$2,'Unrelated business',true)",[staff,other]);
+  await db.query('insert into payroll_v2_workspaces(business_id,branch_id,state,revision) values($1,$2,$3,1)',[other,staff,JSON.stringify(state)]);
+  const protectedTables=['payroll_v2_files','payroll_v2_directory','payroll_v2_access','payroll_workers','profiles','business_team_invites'];
+  const snapshot=async()=>Object.fromEntries(await Promise.all(protectedTables.map(async table=>[table,(await db.query('select * from '+table)).rows])));
+  const before=await snapshot();await db.exec(worksheetMigration);
+  const updated=await auth(owner,()=>call('payroll_v2_load',[b,r]));assert.equal(updated.revision,loaded.revision+1);assert.deepEqual(updated.state,S.compact(state));assert.deepEqual(await snapshot(),before);
+  assert.deepEqual((await db.query('select state from payroll_v2_workspaces where business_id=$1',[other])).rows[0].state,state);
+  await assert.rejects(auth(owner,()=>save(state,loaded.revision)),/Another user/);
+  const after=(await db.query('select * from payroll_v2_workspaces')).rows,events=(await db.query('select * from payroll_v2_events')).rows;
+  await db.exec(worksheetMigration);assert.deepEqual((await db.query('select * from payroll_v2_workspaces')).rows,after);assert.deepEqual((await db.query('select * from payroll_v2_events')).rows,events);
  });
  await db.close();
 });
