@@ -7,7 +7,10 @@
     /* The invoice register is refreshed from the active business/branch before
        its browser cache settles. Prefer that live list so a staff member can
        print the record they can already see on screen. */
-    try{if(typeof inv!=='undefined'&&Array.isArray(inv)&&inv.length)return inv}catch(e){}
+    // An empty live register is authoritative too; never revive stale sample
+    // records from the old, unscoped browser cache after switching branches.
+    try{if(typeof inv!=='undefined'&&Array.isArray(inv))return inv}catch(e){}
+    if(window.BwcInvoiceOffline)return [];
     try{return JSON.parse(localStorage.getItem('15m-replica-invoices')||'[]')}catch(e){return []}
   }
   function findInvoice(id){
@@ -19,6 +22,28 @@
     });
   }
   function settings(key,fallback){try{return Object.assign({},fallback,JSON.parse(localStorage.getItem(key)||'{}'))}catch(e){return fallback}}
+  async function printableLogo(brand,raw){
+    var sources=[raw];
+    if(/15m\s*autocare/i.test(brand.company||''))sources.push('/icons/15m-autocare-logo-transparent.png?v=1');
+    for(var i=0;i<sources.length;i++){
+      var source=sources[i];if(!source)continue;
+      if(/^data:image\//i.test(source))return source;
+      try{
+        // Resolve in the BWC page, not in the about:blank print window. Embed
+        // the cached image so printing/PDF does not need a second network load.
+        var url=new URL(source,window.location.href).href,response=null;
+        if(window.caches)response=await window.caches.match(url);
+        if(!response){
+          var controller=new AbortController(),timer=setTimeout(function(){controller.abort()},5000);
+          try{response=await fetch(url,{signal:controller.signal})}finally{clearTimeout(timer)}
+        }
+        if(!response||!response.ok)continue;
+        var blob=await response.blob();if(!/^image\//i.test(blob.type)||blob.size>4000000)continue;
+        return await new Promise(function(resolve,reject){var reader=new FileReader();reader.onload=function(){resolve(reader.result)};reader.onerror=function(){reject(Error('Logo could not be read'))};reader.readAsDataURL(blob)});
+      }catch(error){/* Try the bundled 15M mark if an old logo URL is unavailable. */}
+    }
+    return '';
+  }
   function paymentRows(invoice){return (invoice.payments||invoice.invoice_payments||[]).map(function(p){return {date:p.date||p.payment_date||'',method:p.method||p.payment_method||'',reference:p.reference||p.reference_number||'',notes:p.notes||'',amount:Number(p.amount||0)}}).sort(function(a,b){return String(a.date).localeCompare(String(b.date))})}
   async function paymentsFromServer(invoice){
     var known=paymentRows(invoice),db=window.businessSupabase;
@@ -35,11 +60,12 @@
     var win=window.open('','_blank');
     if(!win){alert('Allow pop-ups to print the invoice.');return}
     var brand=settings('15m-custom-header',{company:'Your Business Name'}),contact=settings('15m-business-contact',{address:'',phone:'',email:''}),theme=settings('15m-brand-theme',{accent:'#ff5219',text:'#16100d',background:'#ffffff'}),logo=localStorage.getItem('15m-custom-logo')||'';
+    logo=await printableLogo(brand,logo);
     var payments=await paymentsFromServer(invoice),paid=Number(invoice.paid||0),total=Number(invoice.total||0),discount=Math.max(0,Number(invoice.discount||invoice.discount_amount||0)),subtotal=total+discount,balance=Math.max(0,total-paid);
     /* Older invoices may have a paid total from before installment records existed.
        Show that opening amount as the first entry instead of hiding it. */
     var listed=payments.reduce(function(sum,p){return sum+Number(p.amount||0)},0),opening=paid-listed;
-    if(opening>0.009)payments.unshift({date:invoice.paymentDate||invoice.date||'',method:invoice.method||'',reference:invoice.offlinePending?'Initial payment · waiting to upload':'Opening recorded payment',notes:'',amount:opening});
+    if(opening>0.009)payments.unshift({date:invoice.paymentDate||invoice.date||'',method:invoice.method||'',reference:invoice.offlinePending?'Initial payment':'Opening recorded payment',notes:'',amount:opening});
     var services=(invoice.services||[]).map(function(x){return '<tr><td>'+esc(x.n)+(x.d?' - '+esc(x.d):'')+'</td><td>'+amount(x.a)+'</td></tr>'}).join('')||'<tr><td colspan="2">No services added.</td></tr>';
     var parts=(invoice.parts||[]).map(function(x){return '<tr><td>'+esc(x.n)+' × '+Number(x.q||0)+'</td><td>'+amount(x.a||Number(x.q||0)*Number(x.p||0))+'</td></tr>'}).join('')||'<tr><td colspan="2">No replacement parts added.</td></tr>';
     var paymentTable=payments.length?'<h3>Payment history</h3><table class="payments"><thead><tr><th>Date</th><th>Method</th><th>Reference / note</th><th>Amount received</th></tr></thead><tbody>'+payments.map(function(p){return '<tr><td>'+esc(p.date)+'</td><td>'+esc(p.method||'—')+'</td><td>'+esc([p.reference,p.notes].filter(Boolean).join(' · ')||'—')+'</td><td>'+amount(p.amount)+'</td></tr>'}).join('')+'</tbody></table>':'<p class="small">No installment records have been added yet.</p>';
@@ -47,8 +73,9 @@
     win.document.open();
     var discountSummary=discount>0?'<div class="summary-line"><span>Subtotal</span><b>'+amount(subtotal)+'</b></div><div class="summary-line discount"><span>Discount</span><b>- '+amount(discount)+'</b></div>':'';
     win.document.write('<!doctype html><html><head><title>Invoice '+esc(invoice.number)+'</title><style>@page{margin:.45in}body{font:12px Arial;color:'+theme.text+';background:'+theme.background+'}.head{display:flex;gap:13px;align-items:center;border-bottom:3px solid '+theme.accent+';padding-bottom:12px}.head img{max-width:72px;max-height:58px;object-fit:contain}.logo{display:grid;place-items:center;width:54px;height:54px;border:1px solid '+theme.accent+';color:'+theme.accent+';font-weight:bold}.company{font-size:18px;font-weight:bold}.doc{margin-left:auto;color:'+theme.accent+';font-size:18px;font-weight:bold;text-align:right}.doc small{font-size:10px;color:'+theme.text+'}h2{margin:20px 0 8px}h3{margin:16px 0 4px;border-bottom:2px solid '+theme.accent+';padding-bottom:4px}table{width:100%;border-collapse:collapse}td,th{padding:7px;border-bottom:1px solid #ddd;text-align:left}td:last-child,th:last-child{text-align:right}.summary-line{display:flex;justify-content:flex-end;gap:22px;margin-top:5px}.discount{color:#9a3819}.total{color:'+theme.accent+';font-size:18px;font-weight:bold;text-align:right;margin-top:10px}.summary{text-align:right}.payments{font-size:10px}.small{color:#666}.signatures{display:grid;grid-template-columns:1fr 1fr;gap:60px;margin-top:52px;text-align:center}.signature-line{border-top:1px solid '+theme.text+';padding-top:6px;min-height:34px}.signature-line b{display:block;font-size:11px}.signature-line small{color:#666}</style></head><body><div class="head"><div>'+identity+'</div><div><div class="company">'+esc(brand.company)+'</div><div>'+esc(contact.address)+'<br>'+esc(contact.phone)+'<br>'+esc(contact.email)+'</div></div><div class="doc">INVOICE<br><small>Invoice No. '+esc(invoice.number)+'</small><br><small>Invoice date: '+esc(invoiceDate(invoice.date))+'</small></div></div><h2>Invoice '+esc(invoice.number)+'</h2><p><b>'+esc(invoice.client)+'</b><br>'+esc(invoice.contact)+'<br>'+esc(invoice.address)+'<br>'+esc(invoice.make)+' '+esc(invoice.yearModel)+' - '+esc(invoice.plate)+'</p><h3>Services</h3><table>'+services+'</table><h3>Parts</h3><table>'+parts+'</table>'+discountSummary+'<div class="total">TOTAL '+amount(total)+'</div><p class="summary">Total paid: '+amount(paid)+' | Balance remaining: '+amount(balance)+' | Status: '+esc(invoice.status||'Pending')+'</p>'+paymentTable+'<div class="signatures"><div class="signature-line"><b>'+esc(invoice.admin||'Assigned admin')+'</b><small>Prepared by / Authorized signature</small></div><div class="signature-line"><b>'+esc(invoice.client||'Client')+'</b><small>Received by / Client signature</small></div></div></body></html>');
-    if(invoice.offlinePending){var warning=win.document.createElement('p');warning.textContent='TEMPORARY OFFLINE COPY — not yet uploaded. Reference '+invoice.number+'. Original branch: '+((window.BwcInvoiceOffline&&window.BwcInvoiceOffline.branchFor&&window.BwcInvoiceOffline.branchFor(id))||'as recorded at creation')+'. A permanent invoice number is assigned after upload.';warning.style.cssText='border:2px solid #a53c12;padding:10px;font-weight:bold';win.document.body.insertBefore(warning,win.document.body.firstChild)}
-    win.document.close();if(outputMode==='capture')return win;setTimeout(function(){win.print()},250);
+    // Upload warnings belong in the staff queue, not on the customer copy.
+    // Keep the original OFF reference until the server assigns an INV number.
+    win.document.close();await waitForImages(win);if(outputMode==='capture')return win;if(!win.closed)win.print();
   }
   function pdfText(value){
     var text=String(value==null?'':value).replace(/[\r\n]+/g,' ').replace(/[–—]/g,'-').replace(/[•·]/g,'-');
@@ -99,7 +126,7 @@
   }
   function waitForImages(win){
     return Promise.all(Array.prototype.slice.call(win.document.images).map(function(image){
-      if(image.complete)return Promise.resolve();return new Promise(function(resolve){image.onload=image.onerror=resolve});
+      if(image.complete)return Promise.resolve();return new Promise(function(resolve){var timer=setTimeout(done,5000);function done(){clearTimeout(timer);resolve()}image.onload=image.onerror=done});
     }));
   }
   async function downloadInvoicePdf(id){

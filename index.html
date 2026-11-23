@@ -820,13 +820,13 @@ document.addEventListener('click',function(event){
    document.addEventListener('click',function(event){var target=event.target&&event.target.closest?event.target.closest('[data-bwc-line-edit]'):null;if(target){event.preventDefault();event.stopImmediatePropagation();begin(target.dataset.bwcLineEdit,Number(target.dataset.bwcLineIndex));return}var add=event.target&&event.target.closest?event.target.closest('#invoices button[onclick="addService()"],#invoices button[onclick="addPart()"]'):null;if(add){var type=add.getAttribute('onclick').indexOf('addService')>=0?'service':'part';if((type==='service'?serviceEditIndex:partEditIndex)!==null){event.preventDefault();event.stopImmediatePropagation();finish(type);return}}var reset=event.target&&event.target.closest?event.target.closest('#invoices [onclick*="resetInvoice"]'):null;if(reset){serviceEditIndex=null;partEditIndex=null;setTimeout(function(){clearInputs('service');clearInputs('part');var discount=document.getElementById('discountAmount');if(discount)discount.value=0;refreshSummary()},0);return}var invoiceEdit=event.target&&event.target.closest?event.target.closest('#invoices [onclick*="editInvoice"]'):null;if(invoiceEdit)setTimeout(function(){setDiscountFromEditedInvoice(invoiceEdit)},0)},true);
    var observer=new MutationObserver(function(){decorateAll();refreshSummary()});observer.observe(document.getElementById('serviceList')||document.body,{childList:true,subtree:true});observer.observe(document.getElementById('partList')||document.body,{childList:true,subtree:true});decorateAll();
  })();
-  </script><script src="invoice-outbox.js?v=20261123-offline-safe"></script><script src="invoice-offline.js?v=20261123-offline-safe"></script><script src="invoice-online.js?v=20261123-offline-safe"></script>
+  </script><script src="invoice-outbox.js?v=20261123-offline-safe"></script><script src="invoice-offline.js?v=20261123-offline-safe"></script><script src="invoice-online.js?v=20261123-offline-print"></script>
 <script src="service-category-report.js?v=20261122-service-categories"></script>
 <script src="client-source-options.js?v=20260920-specific-sources"></script>
  <script src="invoice-discounts.js?v=20261112-line-editor-totals"></script>
 <script src="pms-client-history.js?v=20261123-payroll-directory"></script>
 <script src="invoice-payments-online.js?v=20261123-offline-safe"></script>
-<script src="invoice-payment-print.js?v=20261123-offline-safe"></script>
+<script src="invoice-payment-print.js?v=20261123-offline-print"></script>
 <script src="invoice-pdf-actions.js?v=20260829"></script>
 <script src="expense-categories.js?v=20261121-category-register"></script>
 <script src="expense-online.js?v=20261121-complete-category-register"></script>

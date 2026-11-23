@@ -75,36 +75,62 @@
   }
   function escapeHtml(value){return String(value||'').replace(/[&<>"']/g,function(character){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]})}
   function isAdmin(worker){return /\badmin(istrator)?\b/i.test(String(worker.position||''))}
+  var adminLoadVersion=0,adminMemory={};
+  function adminCacheKey(s){return s.userId&&s.businessId&&s.branchId?'bwc-invoice-admins:'+s.userId+':'+s.businessId+':'+s.branchId:''}
+  function adminRows(rows){
+    var seen=Object.create(null);
+    return (Array.isArray(rows)?rows:[]).filter(function(worker){return worker&&worker.is_active!==false&&isAdmin(worker)}).map(function(worker){return {full_name:String(worker.full_name||'').trim(),position:'Admin',is_active:true}}).filter(function(worker){var key=worker.full_name.toLowerCase();if(!key||seen[key])return false;seen[key]=true;return true});
+  }
+  function cachedAdmins(s){
+    var key=adminCacheKey(s);if(!key)return [];
+    if(adminMemory[key])return adminMemory[key];
+    try{return adminRows(JSON.parse(localStorage.getItem(key)||'[]'))}catch(error){return []}
+  }
+  function rememberAdmins(s,rows){
+    var key=adminCacheKey(s);if(!key)return;
+    adminMemory[key]=adminRows(rows);
+    try{localStorage.setItem(key,JSON.stringify(adminMemory[key]))}catch(error){/* Keep the current tab usable if browser storage is full. */}
+  }
   function renderAdmins(rows){
     var field=document.getElementById('admin');if(!field)return;
-    var selected=field.value,admins=(rows||[]).filter(function(worker){return worker.is_active!==false&&isAdmin(worker)});
+    var key=adminCacheKey(invoiceScope()),selected=field.dataset.adminScope===key?field.value:'',admins=adminRows(rows);
     field.dataset.onlineAdmins='1';
+    field.dataset.adminScope=key;field.title='';
     field.innerHTML=admins.length?'<option value="">Select admin</option>'+admins.map(function(worker){return '<option value="'+escapeHtml(worker.full_name)+'">'+escapeHtml(worker.full_name)+'</option>'}).join(''):'<option value="">No Admin employee in this branch</option>';
     if(admins.some(function(worker){return worker.full_name===selected}))field.value=selected;
   }
   function renderOfflineAdmins(){
     var field=document.getElementById('admin');if(!field)return;
-    field.dataset.onlineAdmins='0';
-    field.innerHTML='<option value="">Select admin</option><option value="Owner / Admin">Owner / Admin</option>';
+    var rows=cachedAdmins(invoiceScope());renderAdmins(rows);
+    field.title=rows.length?'Admin names last loaded online for this account and branch.':'Connect online once to load this branch’s admin names on this device.';
+    if(!rows.length)field.innerHTML='<option value="">Connect online to load admin names</option>';
   }
   async function loadAdmins(){
-    var branchId=localStorage.getItem('bwc-active-branch');if(!navigator.onLine){renderOfflineAdmins();return}if(!businessId||!branchId){renderAdmins([]);return}
+    var requested=invoiceScope(),key=adminCacheKey(requested),version=++adminLoadVersion,branchId=requested.branchId;
+    if(navigator.onLine===false||!db||!businessId){renderOfflineAdmins();return}if(!key){renderAdmins([]);return}
+    try{
     var result;
-    if(businessId==='ce3d6ecf-239e-4b27-a1f6-0ce7ddd16875')result=await db.rpc('payroll_v2_employee_options',{b:businessId,r:branchId});
-    if(!result||result.error)result=await db.from('payroll_workers').select('full_name,position,is_active').eq('business_id',businessId).eq('branch_id',branchId).eq('is_active',true).order('full_name');
-    if(result.error){renderOfflineAdmins();message('Admin list is unavailable online. You can use Owner / Admin while offline.');return}
+    if(requested.businessId==='ce3d6ecf-239e-4b27-a1f6-0ce7ddd16875')result=await db.rpc('payroll_v2_employee_options',{b:requested.businessId,r:branchId});
+    if(!result||result.error)result=await db.from('payroll_workers').select('full_name,position,is_active').eq('business_id',requested.businessId).eq('branch_id',branchId).eq('is_active',true).order('full_name');
+    if(result.error)throw result.error;
     /* Team Access administrators are valid invoice assignees even when they
        are not paid through the Payroll employee roster. Read the approved
        assignment itself so a newly accepted account is not missed while its
        separate profile/membership record finishes synchronizing. */
-    var teamAdmins=[];
+    var teamAdmins=[],teamLoaded=false;
     try{
-      var invitations=await db.from('business_team_invites').select('full_name').eq('business_id',businessId).eq('branch_id',branchId).eq('role','admin').in('status',['approved','accepted']);
-      if(!invitations.error)teamAdmins=(invitations.data||[]).filter(function(invite){return invite.full_name&&invite.full_name.trim()}).map(function(invite){return {full_name:invite.full_name.trim(),position:'Admin',is_active:true}});
+      var invitations=await db.from('business_team_invites').select('full_name').eq('business_id',requested.businessId).eq('branch_id',branchId).eq('role','admin').in('status',['approved','accepted']);
+      if(!invitations.error){teamLoaded=true;teamAdmins=(invitations.data||[]).filter(function(invite){return invite.full_name&&invite.full_name.trim()}).map(function(invite){return {full_name:invite.full_name.trim(),position:'Admin',is_active:true}})}
     }catch(teamError){console.warn('Team admin names were not available:',teamError)}
-    var combined=(result.data||[]).concat(teamAdmins),seen={};combined=combined.filter(function(worker){var key=String(worker.full_name||'').trim().toLowerCase();if(!key||seen[key])return false;seen[key]=true;return true});
-    var admins=combined.filter(isAdmin);renderAdmins(combined);
+    if(version!==adminLoadVersion||key!==adminCacheKey(invoiceScope()))return;
+    if(!teamLoaded&&cachedAdmins(requested).length){renderOfflineAdmins();return}
+    var admins=adminRows((result.data||[]).concat(teamAdmins));
+    // A first-time device can still retain successfully loaded employee names
+    // if the optional Team Access lookup is temporarily unavailable.
+    if(teamLoaded||admins.length)rememberAdmins(requested,admins);
+    renderAdmins(admins);
     if(!admins.length){var branchName=(document.querySelector('#onlineBranchPicker option:checked')||{}).textContent||'this branch';message('No active employee with the designation Admin is saved online for '+branchName+'. Open Payroll > Manage employees, set the employee designation to Admin, and save the employee.');}
+    }catch(error){if(version===adminLoadVersion&&key===adminCacheKey(invoiceScope()))renderOfflineAdmins()}
   }
   function paidFromHistory(item){return Math.max(Number(item&&item.paid||0),(item&&item.payments||[]).reduce(function(sum,payment){return sum+Number(payment.amount||0)},0))}
   function invoicePayload(x){var openingPayment=!!(x.isNewInvoice&&Number(x.paid||0)>0);return {business_id:businessId,branch_id:localStorage.getItem('bwc-active-branch'),client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,discount_amount:x.discount||0,total_amount:x.total,amount_paid:openingPayment?0:x.paid,status:openingPayment?'Pending':x.status,created_by:userId}}
@@ -272,8 +298,8 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
     restoreScopedCache();
     online=true;setupCrossTabRefresh();await loadAdmins();await loadRemote();if(window.BwcInvoiceOffline)await window.BwcInvoiceOffline.verify();syncOfflineQueue();
   }
-  document.addEventListener('click',function(event){if(online&&event.target.closest('[data-t="invoices"]'))setTimeout(loadAdmins,80)});
-  document.addEventListener('bwc:branch-ready',function(){restoreScopedCache();if(online){loadAdmins();loadRemote()}if(window.BwcInvoiceOffline){window.BwcInvoiceOffline.verify();window.BwcInvoiceOffline.render()}});
+  document.addEventListener('click',function(event){if(event.target.closest('[data-t="invoices"]'))setTimeout(loadAdmins,80)});
+  document.addEventListener('bwc:branch-ready',function(){restoreScopedCache();loadAdmins();if(online)loadRemote();if(window.BwcInvoiceOffline){window.BwcInvoiceOffline.verify();window.BwcInvoiceOffline.render()}});
   var openInvoiceVersion=0;
   async function readInvoiceForOpen(client,business,branch,remoteId){
     if(!business||!branch||!remoteId)throw new Error('Select a business and branch before opening an invoice.');
@@ -302,8 +328,8 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
   document.addEventListener('bwc:workers-loaded',function(){if(online)loadAdmins()});
   document.addEventListener('bwc:invoice-deleted',function(){if(online)loadRemote()});
   document.addEventListener('bwc:invoice-payments-updated',function(){if(online)loadRemote()});
-  window.addEventListener('offline',function(){message('Offline: new invoices only. Check the protected upload queue; existing invoices cannot be edited.')});
-  window.addEventListener('online',function(){if(online)syncOfflineQueue();else start()});
+  window.addEventListener('offline',function(){++adminLoadVersion;renderOfflineAdmins();message('Offline: new invoices only. Check the protected upload queue; existing invoices cannot be edited.')});
+  window.addEventListener('online',function(){if(online){loadAdmins();syncOfflineQueue()}else start()});
   function safe(value){return String(value||'').replace(/[&<>'"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]})}
   function money(value){return 'PHP '+Number(value||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}
   function preview(){var panel=document.querySelector('#invoices aside.card');if(!panel)return;var header={company:'Your Business Name'},contact={address:'',phone:'',email:''},theme={accent:'#ff5219',text:'#16100d',soft:'#fff0e9'};try{header=Object.assign(header,JSON.parse(localStorage.getItem('15m-custom-header')||'{}'));contact=Object.assign(contact,JSON.parse(localStorage.getItem('15m-business-contact')||'{}'));theme=Object.assign(theme,JSON.parse(localStorage.getItem('15m-brand-theme')||'{}'))}catch(error){}var logo=localStorage.getItem('15m-custom-logo')||'',client=formValue('client')||'Client name',vehicle=[formValue('make'),formValue('yearModel'),formValue('plate')].filter(Boolean).join(' · ')||'Vehicle details',serviceRows=(window.services||[]).slice(0,3).map(function(row){return '<div class="bwc-preview-row"><span>'+safe(row.n)+(row.d?' - '+safe(row.d):'')+'</span><b>'+money(row.a)+'</b></div>'}).join('')||'<div class="bwc-preview-row"><span>Service details</span><b>PHP 0.00</b></div>',partRows=(window.parts||[]).slice(0,2).map(function(row){return '<div class="bwc-preview-row"><span>'+safe(row.n)+' × '+Number(row.q||0)+'</span><b>'+money(row.a||Number(row.q||0)*Number(row.p||0))+'</b></div>'}).join(''),total=typeof window.total==='function'?window.total():0,discount=Math.max(0,Number((document.getElementById('discountAmount')||{}).value)||0),subtotal=total+discount,discountRows=discount>0?'<div class="bwc-preview-row"><span>Subtotal</span><b>'+money(subtotal)+'</b></div><div class="bwc-preview-row bwc-preview-discount"><span>Discount</span><b>- '+money(discount)+'</b></div>':'';panel.innerHTML='<style>.bwc-print-preview{font:10px Arial;color:'+theme.text+';background:#fff;border:1px solid #dcd2cd;border-radius:8px;padding:13px}.bwc-preview-head{display:flex;gap:8px;align-items:center;border-bottom:2px solid '+theme.accent+';padding-bottom:8px}.bwc-preview-head img{max-width:34px;max-height:34px;object-fit:contain}.bwc-preview-logo{display:grid;place-items:center;width:31px;height:31px;border:1px solid '+theme.accent+';color:'+theme.accent+';font-size:8px}.bwc-preview-doc{margin-left:auto;color:'+theme.accent+';font-weight:bold;letter-spacing:.8px}.bwc-preview-row{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid #eee}.bwc-preview-discount{color:#9a3819}.bwc-preview-section{font-weight:bold;color:'+theme.accent+';margin-top:9px}.bwc-preview-total{text-align:right;color:'+theme.accent+';font-size:13px;font-weight:bold;margin-top:9px}</style><div class="k">Invoice preview</div><h2>Printed copy preview</h2><div class="bwc-print-preview"><div class="bwc-preview-head">'+(logo?'<img src="'+safe(logo)+'" alt="Logo">':'<div class="bwc-preview-logo">logo</div>')+'<div><b>'+safe(header.company)+'</b><br><small>'+safe(contact.address)+'<br>'+safe(contact.phone)+'<br>'+safe(contact.email)+'</small></div><div class="bwc-preview-doc">INVOICE<br><small>INV-NEW</small></div></div><p><b>'+safe(client)+'</b><br>'+safe(formValue('contact'))+'<br>'+safe(formValue('address'))+'<br>'+safe(vehicle)+'</p><div class="bwc-preview-section">SERVICES</div>'+serviceRows+(partRows?'<div class="bwc-preview-section">PARTS</div>'+partRows:'')+discountRows+'<div class="bwc-preview-total">TOTAL '+money(total)+'</div></div><p class="muted" style="margin-bottom:0">This is a live preview. The final printable invoice also includes the assigned admin and signature lines.</p>'}
