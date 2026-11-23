@@ -219,14 +219,19 @@
     var oldLabel = oldField.closest('label');
     if (oldLabel) {
       oldLabel.hidden = true;
+      // Author layout rules can override the browser's default [hidden] style.
+      // Keep the legacy input for renderRegister(), but never show a second bar.
+      oldLabel.style.setProperty('display', 'none', 'important');
       oldLabel.setAttribute('aria-hidden', 'true');
       var helper = oldLabel.nextElementSibling;
       if (helper && /search results update/i.test(helper.textContent || '')) {
         helper.hidden = true;
+        helper.style.setProperty('display', 'none', 'important');
         helper.setAttribute('aria-hidden', 'true');
       }
     } else {
       oldField.hidden = true;
+      oldField.style.setProperty('display', 'none', 'important');
     }
   }
 

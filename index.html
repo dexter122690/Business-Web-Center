@@ -875,7 +875,7 @@ document.addEventListener('click',function(event){
 <script src="cash-remittance-online.js?v=20260929-branch-safe-load"></script>
 <script src="repair-orders-online.js"></script>
 <script src="forms-folder-online.js?v=20261024"></script>
-<script src="audit-online.js"></script><script src="global-search.js?v=20261112-safe-global-search"></script>
+<script src="audit-online.js"></script><script src="global-search.js?v=20261123-single-search"></script>
 <script src="account-access-online.js"></script>
 <script>
 /*
@@ -1081,7 +1081,6 @@ document.addEventListener('click',function(event){
 </script><script src="attendance-register.js"></script><script src="quotation-discount.js?v=20260921"></script><script src="quotation-prepared-by.js?v=20260922-signature"></script><script src="quotation-print-preview.js?v=20260922"></script><script>
 (function(){
   var specs=[
-    {id:'search',label:'Search previous invoice records by client name or plate number',placeholder:'Search client name or plate number'},
     {id:'cmSearch',label:'Search previous client records by name or plate number',placeholder:'Search client name or plate number'},
     {id:'masterSearch',label:'Search previous client records by name or plate number',placeholder:'Search client name or plate number'}
   ];
@@ -1091,7 +1090,6 @@ document.addEventListener('click',function(event){
       input.placeholder=spec.placeholder;input.setAttribute('aria-label',spec.label);input.classList.add('bwc-record-search');
       var label=input.closest('label');if(label){label.classList.add('bwc-record-search-label');label.setAttribute('title',spec.label);if(!label.querySelector('.bwc-search-icon')){var icon=document.createElement('span');icon.className='bwc-search-icon';icon.setAttribute('aria-hidden','true');icon.textContent='⌕';label.insertBefore(icon,input)}if(label.firstChild&&label.firstChild.nodeType===3)label.firstChild.nodeValue=''}
     });
-    var invoiceRoot=document.getElementById('invoices'),invoiceSearch=document.getElementById('search'),invoiceGrid=invoiceRoot&&invoiceRoot.querySelector('.invoice-grid'),invoiceLabel=invoiceSearch&&invoiceSearch.closest('label');if(invoiceRoot&&invoiceGrid&&invoiceLabel&&!invoiceLabel.classList.contains('bwc-invoice-search-top')){invoiceLabel.classList.add('bwc-invoice-search-top');invoiceRoot.insertBefore(invoiceLabel,invoiceGrid)}
     if(!document.getElementById('bwcRecordSearchStyle')){var style=document.createElement('style');style.id='bwcRecordSearchStyle';style.textContent='.bwc-record-search-label{position:relative;display:block;width:100%;max-width:none!important;min-width:280px;flex:1 1 420px;font-size:0}.bwc-invoice-search-top{margin:0 0 16px}.bwc-record-search{display:block;width:100%;height:42px;box-sizing:border-box;padding:0 16px 0 42px!important;border:0!important;border-radius:24px!important;background:#eef1f5!important;color:#1c1e21;font-size:14px;outline:0;box-shadow:none!important;transition:background .15s,box-shadow .15s}.bwc-record-search::placeholder{color:#606770;opacity:1}.bwc-record-search:hover{background:#e4e6eb!important}.bwc-record-search:focus{background:#fff!important;box-shadow:0 0 0 2px #ff5219!important}.bwc-search-icon{position:absolute;z-index:1;left:14px;top:9px;width:20px;height:24px;color:#606770;font-size:24px;line-height:20px;font-family:Arial,sans-serif;pointer-events:none;transform:rotate(-20deg)}';document.head.appendChild(style)}
   }
   enhance();new MutationObserver(enhance).observe(document.body,{childList:true,subtree:true});
