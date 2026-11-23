@@ -2,6 +2,7 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),fs=requir
 const ROOT=path.resolve(__dirname,'..'),W=require('../payroll-v2/workflow.js'),S=require('../payroll-v2/simple-painter.js'),A=require('../payroll-v2/payslip-archive.js');
 const b='ce3d6ecf-239e-4b27-a1f6-0ce7ddd16875',r='10000000-0000-4000-8000-000000000001',other='10000000-0000-4000-8000-000000000002',owner='10000000-0000-4000-8000-000000000003',staff='10000000-0000-4000-8000-000000000004';
 const migration=fs.readFileSync(path.join(ROOT,'supabase/077_payroll_v2.sql'),'utf8');
+const teamNamesMigration=fs.readFileSync(path.join(ROOT,'supabase/078_payroll_team_display_names.sql'),'utf8');
 const seed=()=>W.emptyWorkspace([{id:'painter',name:'Fictional Painter',position:'Auto painter',type:'contract',rate:0,accountNumber:'PRIVATE-TEST',photos:[]},{id:'daily',name:'Fictional Admin',position:'Admin',type:'daily',rate:550}],undefined,'2026-11-14');
 test('new app has no offline payroll write path and old pause stays enabled',()=>{
  const app=fs.readFileSync(path.join(ROOT,'payroll-v2/app-v2.js'),'utf8'),online=fs.readFileSync(path.join(ROOT,'payroll-v2/online.js'),'utf8');
@@ -19,7 +20,7 @@ test('retired branch-assignment panel stays absent without changing employee rec
  const state=await window.PayrollOnline.ready;window.PayrollOnline.permissions();window.PayrollOnline.permissions();
  assert.strictEqual(state,loaded.state);assert.deepEqual(loaded,before);assert.equal(label.textContent,'STA. ROSA · Owner');assert.deepEqual(calls.map(c=>c.name),['payroll_v2_load']);
  assert.doesNotMatch(source,/Employee profiles awaiting branch assignment|data-assign-employee|payroll_v2_assign_employee/);
- assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261123-remove-assignment-panel/);
+ assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261123-team-names/);
 });
 test('PDF uses half short bond, peso glyph, all unit rows and prior balance',()=>{
  const PDF=require('../payroll-v2/pdf.js');let n=0,s=S.save(seed(),'painter',[{unit:'Test unit',contract:15000,weekly:3000,work:'Panel repaint'}],500,()=>`test-${++n}`),record=S.savedFor(s,'painter');
@@ -76,16 +77,36 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
  await db.exec(`create role authenticated;create role anon;create schema auth;create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$select current_setting('test.actor')::uuid$$;
  create table businesses(id uuid primary key,status text);create table branches(id uuid primary key,business_id uuid,name text,is_active boolean);create table profiles(id uuid primary key,full_name text,email text);
  create table business_memberships(business_id uuid,user_id uuid,role text,status text);create table business_member_branch_access(business_id uuid,user_id uuid,branch_id uuid);
+ create table business_team_invites(id uuid primary key default gen_random_uuid(),business_id uuid,email text,full_name text,branch_id uuid,status text,created_at timestamptz default now());
  create table payroll_workers(id uuid primary key default gen_random_uuid(),business_id uuid,branch_id uuid,full_name text,position text,is_active boolean);create table pms_service_records(id uuid primary key default gen_random_uuid(),business_id uuid,branch_id uuid,technician_worker_id uuid);
  create function can_view_invoice_branch(b uuid,r uuid) returns boolean language sql stable security definer as $$select exists(select 1 from business_memberships m where m.business_id=b and m.user_id=auth.uid() and m.status='active')$$;
  insert into auth.users values('${owner}'),('${staff}');insert into businesses values('${b}','active');insert into branches values('${r}','${b}','TEST BRANCH',true),('${other}','${b}','OTHER BRANCH',true);
  insert into profiles values('${owner}','Test owner','test@example.invalid'),('${staff}','Test staff','staff@example.invalid');insert into business_memberships values('${b}','${owner}','owner','active'),('${b}','${staff}','staff','active');insert into business_member_branch_access values('${b}','${staff}','${r}');
  insert into payroll_workers(business_id,branch_id,full_name,position,is_active) values('${b}','${r}','Legacy Employee','Admin',true);grant usage on schema public,auth to authenticated,anon;set test.actor='${owner}';`);
- await db.exec(migration);await db.exec(migration);
+ await db.exec(migration);await db.exec(migration);await db.exec(teamNamesMigration);await db.exec(teamNamesMigration);
  const call=async(name,args)=>{const q=`select ${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) as value`;return (await db.query(q,args)).rows[0].value};
  const auth=async(id,fn)=>{await db.exec(`set test.actor='${id}';set role authenticated`);try{return await fn()}finally{await db.exec('reset role')}};
  const save=(state,rev,files=[])=>call('payroll_v2_save',[b,r,rev,JSON.stringify(state),JSON.stringify(files)]);
  const original=await db.query('select * from payroll_workers');
+ await t.test('team names follow the selected branch and current Team Access without changing identity or grants',async()=>{
+  const team=()=>auth(owner,()=>call('payroll_v2_team',[b,r]));
+  assert.deepEqual(await team(),[{id:staff,name:'Test staff',email:'staff@example.invalid',level:'none'}]);
+  const insert=(business,branch,name,status='accepted')=>db.query('insert into business_team_invites(business_id,branch_id,email,full_name,status) values($1,$2,$3,$4,$5)',[business,branch,'STAFF@example.invalid',name,status]);
+  await insert(other,r,'Wrong business');await insert(b,other,'Wrong branch');await insert(b,r,'Unapproved name','pending');
+  assert.equal((await team())[0].name,'Test staff');
+  await insert(b,null,'Unassigned team name');assert.equal((await team())[0].name,'Unassigned team name');
+  await insert(b,r,'  Current branch name  ','approved');
+  assert.deepEqual(await team(),[{id:staff,name:'Current branch name',email:'staff@example.invalid',level:'none'}]);
+  await db.query("update business_team_invites set full_name='Renamed team member' where business_id=$1 and branch_id=$2 and status='approved'",[b,r]);
+  assert.equal((await team())[0].name,'Renamed team member');
+  await db.query("update business_team_invites set full_name='   ' where business_id=$1 and (branch_id=$2 or branch_id is null) and status in ('approved','accepted')",[b,r]);
+  assert.equal((await team())[0].name,'Test staff');
+  await db.query("update profiles set full_name='' where id=$1",[staff]);assert.equal((await team())[0].name,'staff@example.invalid');
+  await db.query("update profiles set full_name='Test staff' where id=$1",[staff]);
+  assert.equal((await db.query('select count(*)::int n from payroll_v2_access')).rows[0].n,0);
+  await assert.rejects(auth(staff,()=>call('payroll_v2_team',[b,r])),/Owner access required/);
+  assert.deepEqual(await auth(owner,()=>call('payroll_v2_team',[b,other])),[]);
+ });
  await t.test('owner can save and read; staff and raw table reads denied',async()=>{
   const loaded=await auth(owner,()=>save(seed(),0));assert.equal(loaded.revision,1);assert.equal(loaded.state.employees[0].accountNumber,'PRIVATE-TEST');
   await assert.rejects(auth(staff,()=>call('payroll_v2_load',[b,r])),/access/);await assert.rejects(auth(owner,()=>db.query('select * from payroll_v2_workspaces')),/permission denied/);
@@ -128,8 +149,15 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
   const duplicate=structuredClone(result.state);duplicate.payslips.push({...structuredClone(duplicate.payslips[0]),id:'daily-duplicate'});await assert.rejects(auth(owner,()=>save(duplicate,result.revision)),/Overlapping/);
  });
  await t.test('anonymous RPCs are denied and null revisions fail closed',async()=>{
-  await db.exec('set role anon');try{await assert.rejects(call('payroll_v2_load',[b,r]),/permission denied/)}finally{await db.exec('reset role')}
+  await db.exec('set role anon');try{await assert.rejects(call('payroll_v2_load',[b,r]),/permission denied/);await assert.rejects(call('payroll_v2_team',[b,r]),/permission denied/)}finally{await db.exec('reset role')}
   const loaded=await auth(owner,()=>call('payroll_v2_load',[b,r]));await assert.rejects(auth(owner,()=>save(loaded.state,null)),/revision is required/);
+ });
+ await t.test('display migration preserves populated payroll, profiles, names and permissions',async()=>{
+  const tables=['profiles','business_team_invites','business_memberships','business_member_branch_access','payroll_v2_access','payroll_v2_workspaces','payroll_v2_files','payroll_v2_directory','payroll_v2_events','payroll_workers'];
+  const snapshot=async()=>Object.fromEntries(await Promise.all(tables.map(async table=>[table,(await db.query('select * from '+table)).rows])));
+  const before=await snapshot();await db.exec(teamNamesMigration);assert.deepEqual(await snapshot(),before);
+  const member=(await auth(owner,()=>call('payroll_v2_team',[b,r]))).find(p=>p.id===staff);assert.equal(member.level,'edit');
+  await assert.rejects(auth(staff,()=>call('payroll_v2_team',[b,r])),/Owner access required/);
  });
  await db.close();
 });
