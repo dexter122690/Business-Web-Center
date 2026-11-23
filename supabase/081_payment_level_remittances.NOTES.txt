@@ -1,0 +1,34 @@
+Applied to production November 23, 2026, after explicit owner approval.
+
+The database migration succeeded. Before/after fingerprints verified that it
+did not change existing invoice, payment, collection or cash financial values.
+The separately approved customer repair also succeeded with an audit backup;
+read-back checks verified the original remittance and all unrelated financial
+records remained unchanged.
+
+Publish the matching cash-remittance-online.js and app-shell version next.
+Old cached clients cannot directly mark remittances after the database update;
+they must reload the updated page after deployment. The user controls the GitHub
+push. Do not re-run the customer repair as a general migration or bulk cleanup.
+
+Changes:
+- New collections are linked to individual cash payments and use payment dates.
+- Old invoice-header updates no longer overwrite remittance amounts.
+- Previously remitted payments stay protected; later installments are independent.
+- Existing legacy financial values are not auto-repaired or guessed. Legacy
+  pending records require review/allocation before a new remittance is recorded.
+- A server transaction enforces branch/manager checks and an expected amount.
+- Direct collection writes are revoked to avoid a remittance/correction race.
+- Payment changes gain before/after audit history. CIB synchronization preserves
+  unchanged cash row IDs and only removes obsolete invoice-generated cash rows.
+
+The completed customer repair is kept outside this website repository in the
+workspace's private-repairs/ folder and is NOT published with the app. It verifies
+exact IDs, values and historical audit evidence, keeps a full before/after audit
+backup, checks all unaffected financial rows by fingerprint, and aborts the entire
+transaction if any assertion fails. Removal of the exact incorrect CIB entry was
+explicitly approved; it has no product Undo, but its full prior record is retained
+in the private audit history for a reviewed manual restoration if ever required.
+
+Tests: node --test tests/*.test.cjs with BWC_PGLITE_PATH set to PGlite.
+SQL fixture contains fictional identities only; it exercises the same repair.
