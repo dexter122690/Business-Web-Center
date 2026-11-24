@@ -9,8 +9,11 @@
   const balanceText=(row,peso,field='remaining')=>pending(row.job)?'Pending confirmation':peso(row[field]);
   const previousRecorded=row=>row.previousRecorded??W.money(row.job.contract-row.opening);
   const isReleased=job=>job.retentionStatus==='retained'||Boolean(job.closed);
-  const releaseWeek=job=>job.releasePayrollStart||((job.unitReleasedOn||job.releasedOn)?W.weeklyPeriod(job.unitReleasedOn||job.releasedOn).start:'');
+  // Visibility follows the actual unit release, not the week it was entered/reset.
+  // Keep the saved marker only as a fallback for legacy records without a date.
+  const releaseWeek=job=>{const date=job.unitReleasedOn||job.releasedOn;return W.validDate(date)?W.weeklyPeriod(date).start:(job.releasePayrollStart||'')};
   // Keep reference rows in the snapshot for balances/history, never as new pay.
+  // Existing non-zero weekly payments must remain itemized, not silently hidden.
   const mainRows=c=>c.rows.filter(r=>!isReleased(r.job)||!releaseWeek(r.job)||releaseWeek(r.job)>=c.period.start||r.weekly!==0);
   const balanceRows=c=>c.rows.filter(r=>isReleased(r.job)&&(pending(r.job)||r.remaining>0));
   const retentionDue=job=>{const date=job.unitReleasedOn||job.releasedOn;return isReleased(job)&&W.validDate(date)?W.addDays(date,45):''};
