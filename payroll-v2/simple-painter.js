@@ -2,6 +2,7 @@
 (function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./workflow.js'));else root.SimplePainter=factory(root.PayrollWorkflow)})(typeof window!=='undefined'?window:this,function(W){
   'use strict';
   const copy=v=>JSON.parse(JSON.stringify(v)),same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+  const ordered=v=>Array.isArray(v)?v.map(ordered):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,ordered(v[k])])):v;
   const key=p=>p.start+':'+p.end;
   const sheetKey=s=>s.employeeId+':'+key(s.period);
   const pending=job=>job.contractPending===true;
@@ -12,6 +13,36 @@
   // Keep reference rows in the snapshot for balances/history, never as new pay.
   const mainRows=c=>c.rows.filter(r=>!isReleased(r.job)||!releaseWeek(r.job)||releaseWeek(r.job)>=c.period.start||r.weekly!==0);
   const balanceRows=c=>c.rows.filter(r=>isReleased(r.job)&&(pending(r.job)||r.remaining>0));
+  const retentionDue=job=>{const date=job.unitReleasedOn||job.releasedOn;return isReleased(job)&&W.validDate(date)?W.addDays(date,45):''};
+  const manilaDay=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  function retentionInfo(row,receipts=[],today=manilaDay()){
+    const receipt=receipts.find(p=>p.employeeId===row.job.employeeId&&p.jobId===row.job.id),due=retentionDue(row.job);
+    return {due,receipt,remaining:receipt?0:row.remaining,eligible:!receipt&&!pending(row.job)&&row.remaining>0&&Boolean(due)&&today>=due};
+  }
+  // A receipt confirms money already received, separately from weekly earnings.
+  // No inferred payment and no second addition to a payslip's net salary.
+  function receiptBasis(state,employeeId,jobId){
+    const sheets=latest(state,employeeId).sort((a,b)=>a.period.start.localeCompare(b.period.start)),rows=sheets.flatMap(s=>s.snapshot.rows.filter(r=>r.job.id===jobId).map(r=>({s,r}))),row=rows.at(-1)?.r;
+    if(!row||!isReleased(row.job)||pending(row.job)||!retentionDue(row.job))throw Error('Confirm the agreed labor and unit release date first.');
+    if([...state.payments,...state.releases].some(p=>p.jobId===jobId))throw Error('Review earlier legacy payments before confirming receipt.');
+    const j=row.job,payments=rows.filter(({r})=>r.weekly!==0).map(({s,r})=>({start:s.period.start,end:s.period.end,amount:r.weekly}));
+    const amount=W.money(j.contract-(j.priorSettlement||0)-W.sum(payments,'amount'));
+    if(amount<=0||W.cents(amount)!==W.cents(row.remaining))throw Error('Review the saved unit balance before confirming receipt.');
+    return {employeeId,jobId,unit:j.unit,plate:j.plate||'',contract:j.contract,priorSettlement:j.priorSettlement||0,unitReleasedOn:j.unitReleasedOn||j.releasedOn,dueOn:retentionDue(j),amount,payments};
+  }
+  function validateReceipts(state,previous){
+    const receipts=state.painterRetentionReceipts||[],errors=[],ids=new Set();
+    if(!Array.isArray(receipts))return ['Invalid retained-balance receipts.'];
+    for(const p of receipts){
+      try{
+        const k=p.employeeId+':'+p.jobId,basis=receiptBasis(state,p.employeeId,p.jobId);
+        if(ids.has(k)||!p.id||!W.validDate(p.receivedOn)||p.receivedOn<basis.dueOn||!Number.isFinite(+new Date(p.recordedAt))||!same(ordered(p.basis),ordered(basis))||p.amount!==basis.amount)throw Error('Invalid retained-balance receipt.');
+        ids.add(k);
+      }catch(e){errors.push(e.message)}
+    }
+    for(const p of previous?.painterRetentionReceipts||[])if(!same(p,receipts.find(n=>n.id===p.id)))errors.push('Received balances are locked. Keep the original receipt history.');
+    return errors;
+  }
   // Keep the same last-in-array winner used by the original weekly calculations.
   // Retain any older source referenced by a released PDF, without displaying it.
   function compact(state){
@@ -176,10 +207,10 @@
       }
     }
     if(previous)for(const s of oldLatest.values())for(const {job:j} of s.snapshot.rows)if(j.payrollStart&&!openings.has(j.id)&&[...newLatest.values()].some(n=>n.snapshot.rows.some(r=>r.job.id===j.id)))errors.push('Keep the unit’s pre-BWC starting balance.');
-    return [...new Set(errors)];
+    return [...new Set([...errors,...validateReceipts(state,previous)])];
   }
   function merge(previous,incoming){const n=copy(incoming);if(previous.painterTestSheets?.length||n.painterTestSheets?.length){n.painterTestSheets=n.painterTestSheets||[];for(const old of previous.painterTestSheets||[]){const found=n.painterTestSheets.find(s=>s.id===old.id);if(found&&!same(found,old))throw Error('Backup conflicts with a saved test sheet.');if(!found)n.painterTestSheets.push(copy(old))}n.painterTestSheets.sort((a,b)=>a.savedAt.localeCompare(b.savedAt))}return n}
-  function balances(x,c){const {esc,peso}=x;return `<table class="painter-balances"><caption>Balance and retained units · read-only</caption><thead><tr><th>Unit / job order</th><th class="num">Remaining balance</th><th>Unit release date</th></tr></thead><tbody>${balanceRows(c).map(r=>{const j=r.job;return `<tr><td>${esc(j.unit)} · ${esc(j.plate)}<small>${esc(j.work)}</small></td><td class="num">${balanceText(r,peso)}</td><td>${esc(j.unitReleasedOn||j.releasedOn||'Not set')}</td></tr>`}).join('')||'<tr><td colspan="3">No released units with a remaining balance.</td></tr>'}</tbody></table>`}
+  function balances(x,c){const {esc,peso}=x,receipts=x.state?.painterRetentionReceipts||c.retentionReceipts||[];return `<table class="painter-balances"><caption>Balance and retained units · details are read-only</caption><thead><tr><th>Unit / job order</th><th class="num">Remaining balance</th><th>Unit release date</th><th>Available after 45 days</th><th>Payment status</th></tr></thead><tbody>${balanceRows(c).map(r=>{const j=r.job,info=retentionInfo(r,receipts,x.today||manilaDay());return `<tr><td>${esc(j.unit)} · ${esc(j.plate)}<small>${esc(j.work)}</small></td><td class="num">${info.receipt?peso(0):balanceText(r,peso)}</td><td>${esc(j.unitReleasedOn||j.releasedOn||'Not set')}</td><td>${esc(info.due||'Awaiting release date')}</td><td>${info.receipt?`<b>Natanggap na</b><small>${peso(info.receipt.amount)} · ${esc(info.receipt.receivedOn)}</small>`:info.eligible&&x.canReceive?`<select data-retention-receive="${esc(j.id)}" aria-label="${esc('Remaining balance received — '+j.unit+' '+(j.plate||''))}"><option value="">Hindi pa natatanggap</option><option value="received">Natanggap na</option></select>`:pending(j)?'Confirm agreed labor first':info.eligible?'Ready for confirmation':'Not yet due'}</td></tr>`}).join('')||'<tr><td colspan="5">No released units with a remaining balance.</td></tr>'}</tbody></table>`}
   function render(x,employeeId){
     const {state:s,esc,peso,button,range}=x,{snapshot:c,saved}=view(s,employeeId);
     const released=(s.releasedPainterSlips||[]).find(r=>r.employeeId===employeeId&&key(r.period)===key(s.period));
@@ -189,7 +220,7 @@
       <div class="sheet-meta"><div><b>DATE RANGE</b><div class="sheet-week">${button('‹','week-previous','aria-label="Previous week"','sheet-link')}<span>${range(s.period)}</span>${button('›','week-next','aria-label="Next week"','sheet-link')}<input id="painterWeek" type="date" aria-label="Choose payroll week" value="${s.period.start}"></div><small>Saturday–Friday · all amounts in ₱</small></div><div><b>PAYDAY</b><input id="painterPayday" form="painterWorksheet" type="date" aria-label="Payroll payday" required value="${esc(c.period.releaseDate)}" ${released?'disabled':''}><small>${saved?'Saved copy date shown. ':''}Default: following Saturday · editable for holidays${released?' · released copy locked':' · Save table to keep changes'}.</small></div><div><b>EMPLOYEE</b><strong>${esc(c.employee.name)}</strong></div><div><b>POSITION</b><span>${esc(c.employee.position)}</span></div></div>
       <p class="sheet-instruction">Enter this week’s amounts. Choose Released and its date when a unit leaves; ongoing units carry to the next week. Leave agreed labor blank if not yet confirmed.</p>
       <form id="painterWorksheet" data-employee="${esc(employeeId)}"><fieldset ${released?'disabled':''} class="sheet-fields"><div class="table-wrap"><table class="painter-table"><caption class="visually-hidden">Weekly painter payroll</caption><thead><tr><th>Unit / year</th><th>Invoice # / plate</th><th>Color</th><th>Job order</th><th>Agreed labor</th><th>Unit status</th><th>Balance before week</th><th>Amount this week</th></tr></thead><tbody>${mainRows(c).map(row).join('')}${released?'':row({job:{}})}</tbody><tfoot><tr><th colspan="7">TOTAL</th><td class="num" id="painterGross">${peso(c.basic)}</td></tr><tr><th colspan="7">LESS CASH ADVANCE</th><td class="sheet-pay"><input id="painterAdvance" aria-label="Cash advance this week" type="number" min="0" step="0.01" value="${c.cashAdvance||''}"></td></tr><tr class="sheet-salary"><th colspan="7">TOTAL SALARY <small>Saved worksheet</small></th><td class="num" id="painterNet">${peso(c.net)}</td></tr></tfoot></table></div></fieldset><div class="sheet-status"><span id="painterEditStatus" role="status">${saved?'All changes saved':'Save this table to enable printing.'}</span><button type="button" data-action="painter-discard" class="button sheet-link" hidden>Undo unsaved changes</button></div></form>
-      <div id="painterWarnings"></div><div id="painterBalances" class="table-wrap">${balances(x,c)}</div><p class="sheet-footnote">Save table before changing the week, payday, or printing. The lower table is read-only: released units with a balance stay there and do not carry to the next week’s main table. No automatic retention deduction or payment.</p></section>`;
+      <div id="painterWarnings"></div><div id="painterBalances" class="table-wrap">${balances(x,c)}</div><p class="sheet-footnote">Save table before changing the week, payday, or printing. Released units stay below, not in the next week’s main table. Available date = actual unit release + 45 calendar days. Payment status is current; confirm “Natanggap na” only after payment. This records a separate receipt, not extra weekly salary. Original released PDFs stay unchanged.</p></section>`;
   }
-  return {latest,savedFor,jobs,view,draft,save,emptyTable,validate,merge,compact,balances,render,startingEditable,pending,balanceText,previousRecorded,isReleased,releaseWeek,mainRows,balanceRows};
+  return {latest,savedFor,jobs,view,draft,save,emptyTable,validate,merge,compact,balances,render,startingEditable,pending,balanceText,previousRecorded,isReleased,releaseWeek,mainRows,balanceRows,retentionDue,retentionInfo,receiptBasis,validateReceipts,manilaDay};
 });

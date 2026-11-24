@@ -35,6 +35,12 @@
     }finally{busy=false;document.body.classList.remove('online-saving')}
   }
   async function getFiles(ids){const missing=ids.filter(id=>!pending.has(id)&&!cache.has(id));if(missing.length){const files=await rpc('payroll_v2_get_files',{ids:missing});files.forEach(f=>cache.set(f.id,f))}return ids.map(id=>pending.get(id)||cache.get(id))}
+  async function receiveRetention(employeeId,jobId,date,amount,unitReleasedOn){
+    if(busy)throw Error('A save is still running. Please wait.');if(!['owner','edit'].includes(access))throw Error('Your payroll access is view-only.');
+    busy=true;document.body.classList.add('online-saving');
+    try{return accept(await rpc('payroll_v2_receive_retention',{expected_revision:revision,employee_id:employeeId,job_id:jobId,received_on:date,expected_amount:amount,expected_release_date:unitReleasedOn}))}
+    finally{busy=false;document.body.classList.remove('online-saving')}
+  }
   function stagePhotos(records){if(!canManageEmployees)throw Error('Employee management access is required to upload documents.');for(const record of records)pending.set(record.id,{...record,kind:'photo'});return records.map(r=>r.id)}
   function discardFiles(ids){ids.forEach(id=>pending.delete(id))} // Never deletes committed files.
   function permissions(){
@@ -72,5 +78,5 @@
     if(win){win.opener=null;win.document.body.textContent='Preparing the original payslip PDF…'}
     try{await context();const data=await fileFor(record);if(intent==='pdf'){const a=document.createElement('a');a.href=data;a.download='15M-payslip-'+(record.snapshot.employee.name+'-'+record.snapshot.period.start).replace(/[^a-z0-9-]/gi,'-')+'.pdf';a.click()}else{const blob=await (await fetch(data)).blob(),url=URL.createObjectURL(blob);win.location.href=url;setTimeout(()=>URL.revokeObjectURL(url),60000)}}catch(error){if(win)win.close();throw error}
   }
-  window.PayrollOnline={ready,save,getFiles,stagePhotos,discardFiles,permissions,accessDialog,output,rpc,accept,get access(){return access},get canManageEmployees(){return canManageEmployees},get branchName(){return branchName},get busy(){return busy}};
+  window.PayrollOnline={ready,save,receiveRetention,getFiles,stagePhotos,discardFiles,permissions,accessDialog,output,rpc,accept,get access(){return access},get canManageEmployees(){return canManageEmployees},get branchName(){return branchName},get busy(){return busy}};
 })();

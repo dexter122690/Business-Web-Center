@@ -46,10 +46,11 @@
   .simple-painter .form-error{padding:0;margin:0 0 8px;font-size:12px}
   .simple-painter .form-error:empty{display:none}
   #painterBalances{margin-top:10px}
-  .painter-balances{width:100%;min-width:650px;table-layout:fixed}
+  .painter-balances{width:100%;min-width:850px;table-layout:fixed}
   .painter-balances caption{text-align:left;background:#e4e8eb;color:#24313b;padding:9px;font-size:13px;font-weight:700}
   .painter-balances th{font-size:11px;background:#f2f4f6;color:#34424e;padding:8px;text-transform:none;letter-spacing:0;white-space:normal}
-  .painter-balances th:nth-child(1){width:55%}.painter-balances th:nth-child(2){width:23%}.painter-balances th:nth-child(3){width:22%}
+  .painter-balances th:nth-child(1){width:30%}.painter-balances th:nth-child(2){width:16%}.painter-balances th:nth-child(3){width:15%}.painter-balances th:nth-child(4){width:16%}.painter-balances th:nth-child(5){width:23%}
+  .painter-balances select{font:inherit;width:100%;min-width:0;padding:7px 4px;border:1px solid #b9c4cd;border-radius:4px;background:white}
   .painter-balances td{font-size:12px;vertical-align:middle;border:1px solid #cbd2d8;padding:8px;white-space:normal;overflow-wrap:anywhere}
   .painter-balances td.num{font-weight:600;text-align:right}
   .painter-balances small{display:block;font-size:10px;line-height:1.4;color:#68747e;margin:3px 0 0}

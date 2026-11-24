@@ -19,9 +19,9 @@
       if(!visible.length)out.push(textBlock('No ongoing units entered for this week.'));
       for(const r of c.rows.filter(r=>r.job.priorSettlement>0))out.push(tableRow('PRE-BWC SETTLEMENTS - INCLUDED IN PREVIOUS RECORDED, NOT THIS WEEK’S PAY',['Unit / plate','Before first BWC week','Already settled'],[r.job.unit+' · '+(r.job.plate||''),date(r.job.payrollStart),peso(r.job.priorSettlement)],'previous-grid'));
       const balances=window.SimplePainter.balanceRows(c);
-      for(const r of balances){const j=r.job;out.push(tableRow('BALANCE / RETAINED UNITS — NOT EXTRA SALARY',['Unit / plate','Job order','Status','Amount remaining','Unit released','Retention payout date'],[j.unit+'\n'+(j.plate||''),j.work||'','Released',j.contractPending?'Pending confirmation':peso(r.remaining),date(j.unitReleasedOn??j.releasedOn),date(j.retentionDue??j.retentionEligibleOn??j.due)], 'balance-grid'))}
+      for(const r of balances){const j=r.job,info=window.SimplePainter.retentionInfo(r,c.retentionReceipts);out.push(tableRow('BALANCE / RETAINED UNITS — NOT EXTRA SALARY',['Unit / plate','Job order','Payment status','Amount remaining','Unit released','Available (+45 days)'],[j.unit+'\n'+(j.plate||''),j.work||'',info.receipt?'Received '+date(info.receipt.receivedOn)+'\n'+peso(info.receipt.amount):'Not yet received',j.contractPending?'Pending confirmation':peso(info.remaining),date(j.unitReleasedOn||j.releasedOn),date(info.due)], 'balance-grid'))}
       if(detailedHistory)for(const p of c.previousPayments||[]){const j=c.rows.find(r=>r.job.id===p.jobId)?.job;out.push(tableRow('PREVIOUS ENTRIES — REFERENCE ONLY, EXCLUDED FROM THIS WEEK',['Payroll / entry date','Unit / plate','Entry type','Amount'],[p.periodStart!==p.periodEnd?date(p.periodStart)+' – '+date(p.periodEnd):date(p.date),[j?.unit,j?.plate].filter(Boolean).join(' · '),p.note,peso(p.amount)],'previous-grid'))}
-      out.push(textBlock('Previous amounts and remaining balances are references, not additional salary. Retention dates are references only; no automatic deduction or payment.'));
+      out.push(textBlock('Available 45 calendar days after unit release. Receipt confirmations are separate payments already received, not extra weekly salary. No automatic payment.'));
       return out;
     }
     if(c.employee.type==='daily'){

@@ -3,6 +3,9 @@ Prepared 2026-11-23
 
 Deployment
 - Supabase update 077 has been applied and verified in the 15M project.
+- Update 087 (45-day receipt safeguards) was applied on 2026-11-25. Before/after
+  checks of all payroll workspaces, private files, permissions and event counts
+  matched exactly. No real receipt was entered while testing this update.
 - Push this repository commit using GitHub Desktop. The normal website deployment
   publishes the new Payroll tab. Sign in with the existing BWC owner account.
 - Payroll uses the selected BWC branch and requires an internet connection.
@@ -32,6 +35,20 @@ Access and privacy
 - No personal employee records or account credentials are included in this repository.
 
 Workflow
+- Update 087 adds a full retained-balance receipt action. Availability is exactly
+  45 calendar days from the actual unit release date, including month/year changes.
+  The lower table stays read-only except for the received-status choice once due.
+  Payroll editors/owners confirm actual date and full amount received; viewers cannot.
+  Unknown contracts must be confirmed before a receipt can be recorded.
+- Received balances display zero outstanding, with the original received amount
+  and date retained. Receipt confirmation is separate from weekly earnings: no
+  money transfer, automatic payment, extra weekly salary, or Expenses entry.
+  The server checks Manila dates, current revision, balance and release date;
+  it rejects early/future/duplicate receipts and locks the underlying payment basis.
+  Ordinary worksheet saves cannot create, edit, remove or overwrite a receipt.
+  Corrections require an owner-reviewed audit process, not an editable dropdown.
+- New PDF/print references include computed availability and receipts known by
+  the payslip payday. Previously released PDF files and snapshots remain unchanged.
 - Cutoff: Saturday through Friday. Default payday: following Saturday, editable.
 - Painters: edit the table, Save table, then Print, Save as PDF, or Release payslip.
 - Unit status replaces the editable Settled before BWC column. Choose Ongoing
