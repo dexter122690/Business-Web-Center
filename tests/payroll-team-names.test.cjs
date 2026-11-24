@@ -22,5 +22,5 @@ test('access dialog shows escaped name and email, refreshes on reopen, and never
  assert.deepEqual(calls.map(c=>c.name),['payroll_v2_apply_reviewed_history','payroll_v2_load','payroll_v2_team','payroll_v2_team']);
  for(const call of calls)assert.deepEqual({...call.args},{b:'business-123',r:'branch-123'});
  const index=fs.readFileSync(path.join(root,'payroll-v2/index.html'),'utf8');
- assert.ok(index.includes('online.js?v=20261125-release-date-fix'));assert.ok(index.includes('online.css?v=20261123-employee-management'));
+ assert.ok(index.includes('online.js?v=20261125-retention-payday'));assert.ok(index.includes('online.css?v=20261123-employee-management'));
 });

@@ -10,7 +10,7 @@
     row.html=bodyHtml([row]);return row;
   }
   function bodyHtml(rows){let html='',group=null;for(const r of rows){if(!r.group){if(group)html+='</tbody></table>';group=null;html+=r.html;continue}if(group!==r.group){if(group)html+='</tbody></table>';html+=`<table class="payroll-grid ${r.kind||''}"><caption>${esc(r.group)}</caption><thead><tr>${r.headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>`;group=r.group}html+=`<tr>${r.cells.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`}return html+(group?'</tbody></table>':'')}
-  function blocks(c,detailedHistory=true){
+  function blocks(c,detailedHistory=true,previousPayday=c.period.start){
     const out=[];
     if(c.simpleTest){
       const headings=['Unit / year','Invoice / plate','Color','Job order','Agreed labor','Previous recorded','Balance before','This week'];
@@ -18,8 +18,8 @@
       for(const r of visible)out.push(tableRow('WEEKLY LABOR — AMOUNTS IN ₱',headings,[r.job.unit+'\n'+(r.job.year||''),[r.job.invoice?'INV '+r.job.invoice:'',r.job.plate].filter(Boolean).join('\n'),r.job.color||'',r.job.work||'',r.job.contractPending?'Pending confirmation':peso(r.job.contract),peso(r.previousRecorded??(r.job.contract-r.opening)),r.job.contractPending?'Pending confirmation':peso(r.opening),peso(r.weekly)],'labor-grid'));
       if(!visible.length)out.push(textBlock('No ongoing units entered for this week.'));
       for(const r of c.rows.filter(r=>r.job.priorSettlement>0))out.push(tableRow('PRE-BWC SETTLEMENTS - INCLUDED IN PREVIOUS RECORDED, NOT THIS WEEK’S PAY',['Unit / plate','Before first BWC week','Already settled'],[r.job.unit+' · '+(r.job.plate||''),date(r.job.payrollStart),peso(r.job.priorSettlement)],'previous-grid'));
-      const balances=window.SimplePainter.balanceRows(c);
-      for(const r of balances){const j=r.job,info=window.SimplePainter.retentionInfo(r,c.retentionReceipts);out.push(tableRow('BALANCE / RETAINED UNITS — NOT EXTRA SALARY',['Unit / plate','Job order','Payment status','Amount remaining','Unit released','Available (+45 days)'],[j.unit+'\n'+(j.plate||''),j.work||'',info.receipt?'Received '+date(info.receipt.receivedOn)+'\n'+peso(info.receipt.amount):'Not yet received',j.contractPending?'Pending confirmation':peso(info.remaining),date(j.unitReleasedOn||j.releasedOn),date(info.due)], 'balance-grid'))}
+      const balances=window.SimplePainter.balanceRows(c,c.retentionReceipts,previousPayday);
+      for(const r of balances){const j=r.job,info=window.SimplePainter.retentionInfo(r,c.retentionReceipts,undefined,c.period.releaseDate);out.push(tableRow('BALANCE / RETAINED UNITS — NOT EXTRA SALARY',['Unit / plate','Job order','Payment status','Amount remaining','Unit released','Available (+45 days)'],[j.unit+'\n'+(j.plate||''),j.work||'',info.receipt?'Received '+date(info.receipt.receivedOn)+'\n'+peso(info.receipt.amount):'Not yet received',j.contractPending?'Pending confirmation':peso(info.remaining),date(j.unitReleasedOn||j.releasedOn),date(info.due)], 'balance-grid'))}
       if(detailedHistory)for(const p of c.previousPayments||[]){const j=c.rows.find(r=>r.job.id===p.jobId)?.job;out.push(tableRow('PREVIOUS ENTRIES — REFERENCE ONLY, EXCLUDED FROM THIS WEEK',['Payroll / entry date','Unit / plate','Entry type','Amount'],[p.periodStart!==p.periodEnd?date(p.periodStart)+' – '+date(p.periodEnd):date(p.date),[j?.unit,j?.plate].filter(Boolean).join(' · '),p.note,peso(p.amount)],'previous-grid'))}
       out.push(textBlock('Available 45 calendar days after unit release. Receipt confirmations are separate payments already received, not extra weekly salary. No automatic payment.'));
       return out;
@@ -47,7 +47,7 @@
     const measure=document.createElement('div');measure.className='slip-measure';measure.setAttribute('aria-hidden','true');document.body.append(measure);measure.innerHTML=cardHtml(s,[],1,1,true);const body=measure.querySelector('.half-content'),pages=[];let current=[];
     const fits=rows=>{body.innerHTML=bodyHtml(rows);return body.scrollHeight<=body.clientHeight+1};
     const flush=()=>{if(current.length)pages.push(current);current=[]};
-    try{for(const b of blocks(s.snapshot,detailedHistory)){
+    try{for(const b of blocks(s.snapshot,detailedHistory,s.retentionPreviousPayday??(s.releasedCopy?'':s.period.start))){
       if(fits([...current,b])){current.push(b);continue}flush();if(fits([b])){current.push(b);continue}
       // Extremely long cells continue as labeled text rather than being clipped.
       let remaining=b.text;while(remaining){let low=1,high=remaining.length,best=0;while(low<=high){const mid=Math.floor((low+high)/2);if(fits([textBlock(remaining.slice(0,mid))])){best=mid;low=mid+1}else high=mid-1}if(!best)throw Error('Payslip content cannot fit the half-sheet layout.');let cut=best;if(best<remaining.length){const space=remaining.lastIndexOf(' ',best);if(space>best/2)cut=space}current.push(textBlock(remaining.slice(0,cut)));remaining=remaining.slice(cut);if(remaining)flush()}
