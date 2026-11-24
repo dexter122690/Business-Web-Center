@@ -34,6 +34,18 @@ Access and privacy
 Workflow
 - Cutoff: Saturday through Friday. Default payday: following Saturday, editable.
 - Painters: edit the table, Save table, then Print, Save as PDF, or Release payslip.
+- Starting an ongoing/retained unit from the old payroll: choose its first BWC
+  week, retain the original agreed labor and enter Settled before BWC once.
+  This covers amounts already settled through the Friday before that week.
+  It reduces the opening balance only; it is not new salary, an Expense, or a
+  new payment. Do not include amounts already recorded in BWC or deduct an
+  already-settled cash advance again. Enter only new pay in Amount this week.
+- Starting amounts may be corrected in the first working week before another
+  week or a released payslip exists. Afterwards they stay locked. Historical
+  rows whose balances are used by later worksheets cannot be silently changed.
+  Existing records without opening amounts continue unchanged.
+- Supabase update 083 adds server checks for these optional starting balances.
+  It does not create/delete payroll records, import old payslips or change roles.
 - Daily staff: record attendance and late/OT duration; review the calculation and
   confirm release. Overtime is recorded only; no overtime-pay rule is configured.
 - A painter's previous amount is a recorded worksheet amount, not independent

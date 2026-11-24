@@ -54,6 +54,6 @@ test('Forms follows Client Requests including late tabs, preserving handlers, vi
 test('changed sidebar asset is versioned in the page and refreshed offline cache',()=>{
  const worker=read('sw.js');
  for(const source of [html,worker])assert.ok(source.includes('vertical-layout.js?v=20261124-invoice-home'));
- assert.match(worker,/bwc-invoice-offline-v32/);assert.match(worker,/version:32/);
+ const version=worker.match(/bwc-invoice-offline-v(\d+)/)[1];assert.ok(Number(version)>=32);assert.ok(worker.includes('version:'+version));
  new vm.Script(read('vertical-layout.js'));new vm.Script(worker);
 });

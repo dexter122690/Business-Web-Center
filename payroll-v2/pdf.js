@@ -15,6 +15,8 @@
     content.push(table(['EMPLOYEE','POSITION','SATURDAY–FRIDAY'],['*','*','*'],[[cell(e.name,{bold:true}),cell(e.position),cell(p.start+' — '+p.end)]]));
     if(c.simpleTest){
       content.push(table(['UNIT / YEAR','INVOICE / PLATE','COLOR','JOB ORDER','AGREED LABOR','PREV. RECORDED','BALANCE BEFORE','THIS WEEK'],[62,56,37,'*',56,55,55,55],c.rows.length?c.rows.map(r=>[cell(r.job.unit+'\n'+text(r.job.year)),cell(text(r.job.invoice)+'\n'+text(r.job.plate)),cell(r.job.color),cell(r.job.work),money(r.job.contract),money(r.job.contract-r.opening),money(r.opening),money(r.weekly)]):[[cell('No unit entries'),cell(''),cell(''),cell(''),money(0),money(0),money(0),money(0)]]));
+      const broughtForward=c.rows.filter(r=>r.job.priorSettlement>0);
+      if(broughtForward.length){content.push({text:'PRE-BWC SETTLEMENTS - INCLUDED IN PREV. RECORDED ABOVE, NOT THIS WEEK’S PAY',bold:true,fontSize:6.5,margin:[0,3,0,0]});content.push(table(['UNIT / PLATE','BEFORE FIRST BWC WEEK','ALREADY SETTLED'],['*',150,95],broughtForward.map(r=>[cell(r.job.unit+' · '+text(r.job.plate)),cell(r.job.payrollStart),money(r.job.priorSettlement)])));}
     }else{
       content.push({text:'Daily rate: '+peso(e.rate)+' · '+c.rules.hoursPerDay+' hours/day · '+c.paidDays+' paid day(s)',margin:[0,2,0,2]});
       content.push(table(['DATE','ATTENDANCE','LATE','OVERTIME (RECORD)','DEDUCTION','DAY PAY'],[85,'*',55,95,70,70],c.attendance.map(a=>[cell(a.date),cell(a.status),cell((a.lateMinutes||0)+' min'),cell((a.overtimeMinutes||0)+' min'),money(a.deduction),money(a.net)])));

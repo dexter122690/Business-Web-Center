@@ -44,7 +44,8 @@ test('both payslip layouts reserve handwriting space without changing saved data
  assert.deepEqual(record,before);
  const css=fs.readFileSync(path.join(ROOT,'payroll-v2/half-payslip.css'),'utf8'),index=fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8');
  assert.match(css,/\.signature-space\{height:22pt/);assert.match(css,/\.printed-name-space\{height:14pt/);
- for(const asset of ['half-payslip.css','half-slips.js','pdf.js'])assert.ok(index.includes(asset+'?v=20261123-signature-space'));
+ assert.ok(index.includes('half-payslip.css?v=20261123-signature-space'));
+ for(const asset of ['half-slips.js','pdf.js'])assert.ok(index.includes(asset+'?v=20261124-starting-balances'));
 });
 test('compact PDF summary retains every nonzero adjustment and the original net pay',()=>{
  const PDF=require('../payroll-v2/pdf.js'),snapshot=W.createPayslip(seed(),'daily');
@@ -68,7 +69,7 @@ test('new navigation opens only its own frame and clears it on branch/access cha
  const document={createElement:element,getElementById:id=>nodes[id],querySelector:()=>dash,querySelectorAll:s=>s==='.view'?[nodes.dashboard,nodes.payroll,nodes.payrollV2].filter(Boolean):nodes.nav.children,addEventListener:listen};
  const window={addEventListener:listen,scrollTo(){},getBusinessSupabaseClient:()=>({rpc:async name=>{assert.equal(name,'payroll_v2_role');requests++;return {data:access,error:null}}})};
  vm.runInNewContext(fs.readFileSync(path.join(ROOT,'payroll-v2-online.js'),'utf8'),{window,document,localStorage:{getItem:k=>data[k]},setTimeout:fn=>timers.push(fn),MutationObserver:class{observe(){}},console});
- await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261123-employee-management');assert.ok(!nodes.dashboard.classList.contains('active'));
+ await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261124-starting-balances');assert.ok(!nodes.dashboard.classList.contains('active'));
  data['bwc-active-branch']=other;access='none';await events['bwc:branch-ready'][0]();assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);assert.ok(nodes.dashboard.classList.contains('active'));
  access='owner';await events.focus[0]();assert.equal(button.hidden,false);button.click();assert.equal(nodes.payrollV2.children.length,1);
  data['bwc-active-business']='another-business';const previous=requests;await events.storage[0]({key:'bwc-active-business'});assert.equal(requests,previous);assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);
@@ -258,6 +259,39 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
   assert.ok((await db.query("select count(*)::int n from payroll_v2_events where action='employee_management_access'")).rows[0].n>=3);
   await db.exec('set role anon');try{await assert.rejects(call('payroll_v2_grant_employee_management',[b,r,staff,true]),/permission denied/)}finally{await db.exec('reset role')}
   await db.query("update business_memberships set status='inactive' where user_id=$1",[staff]);await assert.rejects(auth(staff,()=>call('payroll_v2_load',[b,r])),/access/);
+ });
+ await t.test('starting-balance migration is idempotent and preserves existing payroll, roles and private files',async()=>{
+  const sql=fs.readFileSync(path.join(ROOT,'supabase/083_payroll_starting_balances.sql'),'utf8');
+  const tables=['payroll_v2_workspaces','payroll_v2_files','payroll_v2_directory','payroll_v2_access','payroll_v2_events','business_memberships'];
+  const snapshot=async()=>Object.fromEntries(await Promise.all(tables.map(async table=>[table,(await db.query('select * from '+table)).rows])));
+  const before=await snapshot();await db.exec(sql);await db.exec(sql);assert.deepEqual(await snapshot(),before);
+  assert.equal((await db.query("select has_function_privilege('authenticated','public.payroll_v2_check_starting_balances(jsonb,jsonb)','execute') allowed")).rows[0].allowed,false);
+ });
+ let carryLoaded,carryJob;
+ await t.test('online saves persist starting settlements without new payments and reject forged amounts',async()=>{
+  const loaded=await auth(owner,()=>call('payroll_v2_load',[b,r])),before=structuredClone(loaded.state);let id=0;
+  const s=W.selectWeek(loaded.state,'2026-11-28');
+  const next=S.save(s,'painter',[{unit:'Starting balance QA',contract:15000,priorSettlement:8000,weekly:2000}],0,()=>`carry-${++id}`);
+  carryJob=S.savedFor(next,'painter').snapshot.rows.find(x=>x.job.unit==='Starting balance QA').job.id;
+  carryLoaded=await auth(owner,()=>save(next,loaded.revision));
+  const row=carryLoaded.state.painterTestSheets.find(x=>x.period.start==='2026-11-28').snapshot.rows.find(x=>x.job.id===carryJob);
+  assert.deepEqual([row.job.contract,row.job.priorSettlement,row.opening,row.remaining],[15000,8000,7000,5000]);
+  for(const key of ['employees','payments','releases','advances','payslips','releasedPainterSlips'])assert.deepEqual(carryLoaded.state[key],before[key]);
+  for(const mutate of [rw=>rw.job.priorSettlement=-1,rw=>rw.job.priorSettlement=16000,rw=>rw.job.payrollStart='2026-11-27',rw=>{rw.opening+=1;rw.remaining+=1},rw=>{delete rw.job.priorSettlement;delete rw.job.payrollStart}]){
+   const bad=structuredClone(carryLoaded.state);mutate(bad.painterTestSheets.find(x=>x.period.start==='2026-11-28').snapshot.rows.find(x=>x.job.id===carryJob));
+   await assert.rejects(auth(owner,()=>save(bad,carryLoaded.revision)),/starting balance|Starting balance/);
+  }
+ });
+ await t.test('server prevents repeat settlement deductions or changed opening metadata after rollover',async()=>{
+  const next=S.save(W.selectWeek(carryLoaded.state,'2026-12-05'),'painter',[{id:carryJob,weekly:1000}],0,()=> 'carry-next-week');
+  carryLoaded=await auth(owner,()=>save(next,carryLoaded.revision));
+  const current=carryLoaded.state.painterTestSheets.find(x=>x.period.start==='2026-12-05').snapshot.rows.find(x=>x.job.id===carryJob);
+  assert.equal(current.opening,5000);assert.equal(current.remaining,4000);
+  const changed=structuredClone(carryLoaded.state);
+  for(const sh of changed.painterTestSheets)for(const rw of sh.snapshot.rows)if(rw.job.id===carryJob){rw.job.priorSettlement=7000;rw.opening+=1000;rw.remaining+=1000}
+  await assert.rejects(auth(owner,()=>save(changed,carryLoaded.revision)),/Starting balance is locked/);
+  const double=structuredClone(carryLoaded.state),rw=double.painterTestSheets.find(x=>x.period.start==='2026-12-05').snapshot.rows.find(x=>x.job.id===carryJob);rw.opening-=8000;rw.remaining-=8000;
+  await assert.rejects(auth(owner,()=>save(double,carryLoaded.revision)),/Starting balance does not match/);
  });
  await db.close();
 });

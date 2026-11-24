@@ -37,7 +37,8 @@
       $('#painterGross').textContent=peso(c.basic);$('#painterNet').textContent=peso(c.net);$('#painterError').textContent='';
       $('#painterWarnings').innerHTML=c.warnings.map(w=>`<p class="sheet-notice">${esc(w)}</p>`).join('');
       document.querySelectorAll('[data-reference-row]').forEach(el=>{const row=c.rows.find(r=>r.job.id===el.dataset.referenceRow);if(row)el.querySelector('[data-reference-balance]').textContent=peso(row.remaining)});
-      document.querySelectorAll('[data-painter-row]').forEach(row=>{const r=c.rows.find(r=>r.job.id===row.dataset.painterRow);if(r)row.querySelector('[data-row-opening]').textContent=peso(r.opening)});
+      const tableRows=Array.from(document.querySelectorAll('[data-painter-row]')),knownIds=new Set(tableRows.map(row=>row.dataset.painterRow).filter(Boolean));
+      tableRows.forEach(row=>{const r=row.dataset.painterRow?c.rows.find(r=>r.job.id===row.dataset.painterRow):c.rows.find(r=>!knownIds.has(r.job.id));if(r)row.querySelector('[data-row-opening]').textContent=peso(r.opening)});
     }catch(error){$('#painterError').textContent=error.message;$('#painterGross').textContent='Review entries';$('#painterNet').textContent='—'}
   }
   function discardPainter(){if(painterSaving||O.busy){notify('Saving — please wait before continuing.');return false}if(!painterDirty)return true;notify('Save table or Undo unsaved changes before continuing. Your inputs are still here.');return false}

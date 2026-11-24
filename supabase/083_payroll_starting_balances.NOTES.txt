@@ -1,0 +1,35 @@
+083 - One-time pre-BWC settlements for painter worksheets
+
+Applied to the BWC database on 2026-11-24.
+
+The migration adds an internal starting-balance validator to payroll_v2_save.
+It preserves the existing worksheet, released-history, revision, branch and
+employee-management permission checks. It performs no payroll-data imports,
+deletions, payments, Expense postings or access grants.
+
+For a unit carried over from earlier payroll, select its first BWC week, retain
+the original agreed labor, and enter Settled before BWC. Enter only the NEW
+weekly portion in Amount this week. Previously settled amounts reduce the
+balance, not the current payslip total. Do not include amounts already recorded
+in BWC or deduct previously settled cash advances again.
+
+The starting amount is editable in the first working week, until another week
+or released payslip depends on it. It then remains locked. The server rejects
+inconsistent carry-forward balances and old clients that strip the metadata.
+Existing units without starting-balance metadata continue unchanged.
+Retention status and reference release dates remain available; this update does
+not impose new retention-payment rules. Historical payslip import is not part
+of this update. No real historical amounts or documents were entered.
+
+Deployment: push the accompanying website commit, then refresh/reopen Payroll.
+The database update is already applied; it need not be run again.
+
+Verification: isolated tests cover the full RPC, idempotence, first-week editing,
+rollover, saved/released protections, malformed metadata, and unchanged legacy
+records. Browser checks used fictional employees and an isolated local server.
+Half-short-bond PDF checks covered short and multi-page records. Live checks
+confirmed both existing branch workspaces remain compatible, the guard is wired
+into saving, and the helper cannot be called directly by signed-in clients.
+Before/after counts and content checksums matched for payroll workspaces,
+directory, files, events, pending profiles, settings, payroll access, business
+memberships and branch access.
