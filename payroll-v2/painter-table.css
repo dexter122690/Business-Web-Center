@@ -67,3 +67,6 @@
   @media(max-width:700px){.simple-painter{padding:12px 10px}.sheet-toolbar{gap:8px;flex-wrap:wrap}.sheet-toolbar .sheet-title{display:none}.sheet-toolbar .button{font-size:11px;padding:6px 8px}.sheet-meta small{margin-left:0}.sheet-meta>div{gap:6px}.sheet-release{align-items:start;flex-wrap:wrap}}
 }
 .slip-ledger{width:100%;table-layout:fixed;border-collapse:collapse;font:6.7pt/1.24 Arial,sans-serif;color:#172a26}.slip-ledger th,.slip-ledger td{border:1px solid #8c9890;padding:3px;vertical-align:top;overflow-wrap:anywhere}.slip-ledger th{background:#eef2ee;text-align:left;font-size:6.4pt;letter-spacing:0}.slip-ledger td:last-child,.slip-ledger th:last-child{text-align:right;width:23%}.slip-ledger td:nth-child(1),.slip-ledger th:nth-child(1){width:38%}.slip-ledger td small{display:block;font-size:6.2pt;line-height:1.3;color:#374e42}.quarter-line:has(.slip-ledger){border:0;padding:0}.quarter-line .slip-section{display:block;padding:5px 2px;background:#f3f4e5;font-size:7pt}
+.painter-table .pending-contract{display:flex;align-items:flex-start;gap:5px;padding:5px;font-size:11px;line-height:1.3;white-space:normal}
+.painter-table .pending-contract input[type=checkbox]{width:14px;min-width:14px;height:14px;margin:1px 0;padding:0;flex:0 0 14px}
+.painter-table input[readonly]{background:#f2f4f6;color:#64748b}

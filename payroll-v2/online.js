@@ -15,7 +15,7 @@
   }
   async function rpc(name,args={}){await context();const result=await client.rpc(name,{b,r,...args});if(result.error)throw Error(result.error.message||'Payroll request failed.');return result.data}
   function accept(result){revision=Number(result.revision);access=result.access;canManageEmployees=access==='owner'||(access==='edit'&&result.canManageEmployees===true);branchName=result.branchName;if(!canManageEmployees){for(const [id,file] of cache)if(file.kind==='photo')cache.delete(id);for(const [id,file] of pending)if(file.kind==='photo')pending.delete(id)}committedPdfs.clear();for(const s of result.state.releasedPainterSlips||[])committedPdfs.add(s.id);for(const s of result.state.slipReleases||[])committedPdfs.add(s.slipId);return result.state}
-  const ready=(async()=>{await context();return accept(await rpc('payroll_v2_load'))})();
+  const ready=(async()=>{await context();const reviewed=await rpc('payroll_v2_apply_reviewed_history');const state=accept(await rpc('payroll_v2_load'));if(reviewed.status==='stale'||reviewed.status==='applied'){const notice=document.createElement('p');notice.className='rule-note';notice.textContent=reviewed.status==='applied'?'Reviewed historical payroll imported. These payments were already received; no money was transferred.':reviewed.message;document.getElementById('payrollBranchLabel').after(notice)}return state})();
   // A save is atomic: both state and newly generated PDF/photo files succeed or fail.
   async function save(state){
     if(busy)throw Error('A save is still running. Please wait.');if(!['owner','edit'].includes(access))throw Error('Your payroll access is view-only.');

@@ -7,7 +7,7 @@
     const replaced=p=>earlier.some(s=>W.inPeriod(p.date,s.period)&&s.snapshot.rows.some(r=>r.job.id===p.jobId));
     const out=state.payments.filter(p=>ids.has(p.jobId)&&p.date<c.period.start&&!replaced(p)).map(p=>({jobId:p.jobId,date:p.date,periodStart:p.periodStart||p.date,periodEnd:p.periodEnd||p.date,amount:W.money(p.gross-p.retention),note:'Recorded labor, less held'}));
     out.push(...state.releases.filter(p=>ids.has(p.jobId)&&p.date<c.period.start&&!replaced(p)).map(p=>({jobId:p.jobId,date:p.date,periodStart:p.date,periodEnd:p.date,amount:p.amount,note:'Recorded retention payment'})));
-    for(const sheet of earlier)for(const r of sheet.snapshot.rows)if(ids.has(r.job.id)&&r.weekly)out.push({jobId:r.job.id,date:sheet.period.end,periodStart:sheet.period.start,periodEnd:sheet.period.end,amount:r.weekly,note:'Previous payroll entry'});
+    for(const sheet of earlier)for(const r of sheet.snapshot.rows)if(ids.has(r.job.id)&&r.weekly)out.push({jobId:r.job.id,date:forWeek(state,sheet.employeeId,sheet.period)?.releasedOn||sheet.period.end,periodStart:sheet.period.start,periodEnd:sheet.period.end,amount:r.weekly,note:'Previous payroll entry'});
     return out.sort((a,b)=>a.date.localeCompare(b.date));
   }
   function enrich(state,record){const n=copy(record);if(n.snapshot.simpleTest&&!n.snapshot.previousPayments)n.snapshot.previousPayments=previousPayments(state,n.snapshot);return n}
@@ -30,7 +30,7 @@
       if(!r?.id||ids.has(r.id)||weeks.has(k)||!r.releasedCopy||!W.validDate(r.releasedOn)||!Number.isFinite(+new Date(r.archivedAt))||!source||r.employeeId!==source.employeeId||!same(r.period,source.period)||!Array.isArray(r.snapshot?.previousPayments)){errors.push('Invalid released payslip.');continue}
       ids.add(r.id);weeks.add(k);const expected=copy(source.snapshot),actual=copy(r.snapshot);delete expected.previousPayments;delete actual.previousPayments;
       if(!same(expected,actual))errors.push('Released payslip must match its saved table.');
-      for(const p of r.snapshot.previousPayments)if(!r.snapshot.rows.some(row=>row.job.id===p.jobId)||!W.validDate(p.date)||p.date>=r.period.start||!W.validDate(p.periodStart)||!W.validDate(p.periodEnd)||p.periodStart>p.periodEnd||!Number.isFinite(p.amount)||typeof p.note!=='string')errors.push('Invalid previous-payment reference.');
+      for(const p of r.snapshot.previousPayments)if(!r.snapshot.rows.some(row=>row.job.id===p.jobId)||!W.validDate(p.date)||(p.periodEnd>=r.period.start||p.date>r.releasedOn)||!W.validDate(p.periodStart)||!W.validDate(p.periodEnd)||p.periodStart>p.periodEnd||!Number.isFinite(p.amount)||typeof p.note!=='string')errors.push('Invalid previous-payment reference.');
     }
     for(const old of previous?.releasedPainterSlips||[])if(!same(old,rows.find(r=>r.id===old.id)))errors.push('Released copies are read-only. Real owner accounts are required before edit/delete can be enabled.');
     return [...new Set(errors)];

@@ -19,9 +19,9 @@ test('retired branch-assignment panel stays absent without changing employee rec
  const source=fs.readFileSync(path.join(ROOT,'payroll-v2/online.js'),'utf8');
  vm.runInNewContext(source,{window,parent,document,location:{origin:parent.location.origin},console});
  const state=await window.PayrollOnline.ready;window.PayrollOnline.permissions();window.PayrollOnline.permissions();
- assert.strictEqual(state,loaded.state);assert.deepEqual(loaded,before);assert.equal(label.textContent,'STA. ROSA · Owner');assert.deepEqual(calls.map(c=>c.name),['payroll_v2_load']);
+ assert.strictEqual(state,loaded.state);assert.deepEqual(loaded,before);assert.equal(label.textContent,'STA. ROSA · Owner');assert.deepEqual(calls.map(c=>c.name),['payroll_v2_apply_reviewed_history','payroll_v2_load']);
  assert.doesNotMatch(source,/Employee profiles awaiting branch assignment|data-assign-employee|payroll_v2_assign_employee/);
- assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261123-employee-management/);
+ assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261124-pending-contracts/);
 });
 test('PDF uses half short bond, peso glyph, all unit rows and prior balance',()=>{
  const PDF=require('../payroll-v2/pdf.js');let n=0,s=S.save(seed(),'painter',[{unit:'Test unit',contract:15000,weekly:3000,work:'Panel repaint'}],500,()=>`test-${++n}`),record=S.savedFor(s,'painter');
@@ -45,7 +45,7 @@ test('both payslip layouts reserve handwriting space without changing saved data
  const css=fs.readFileSync(path.join(ROOT,'payroll-v2/half-payslip.css'),'utf8'),index=fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8');
  assert.match(css,/\.signature-space\{height:22pt/);assert.match(css,/\.printed-name-space\{height:14pt/);
  assert.ok(index.includes('half-payslip.css?v=20261123-signature-space'));
- for(const asset of ['half-slips.js','pdf.js'])assert.ok(index.includes(asset+'?v=20261124-starting-balances'));
+ for(const asset of ['half-slips.js','pdf.js'])assert.ok(index.includes(asset+'?v=20261124-pending-contracts'));
 });
 test('compact PDF summary retains every nonzero adjustment and the original net pay',()=>{
  const PDF=require('../payroll-v2/pdf.js'),snapshot=W.createPayslip(seed(),'daily');
@@ -69,7 +69,7 @@ test('new navigation opens only its own frame and clears it on branch/access cha
  const document={createElement:element,getElementById:id=>nodes[id],querySelector:()=>dash,querySelectorAll:s=>s==='.view'?[nodes.dashboard,nodes.payroll,nodes.payrollV2].filter(Boolean):nodes.nav.children,addEventListener:listen};
  const window={addEventListener:listen,scrollTo(){},getBusinessSupabaseClient:()=>({rpc:async name=>{assert.equal(name,'payroll_v2_role');requests++;return {data:access,error:null}}})};
  vm.runInNewContext(fs.readFileSync(path.join(ROOT,'payroll-v2-online.js'),'utf8'),{window,document,localStorage:{getItem:k=>data[k]},setTimeout:fn=>timers.push(fn),MutationObserver:class{observe(){}},console});
- await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261124-starting-balances');assert.ok(!nodes.dashboard.classList.contains('active'));
+ await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261124-pending-contracts');assert.ok(!nodes.dashboard.classList.contains('active'));
  data['bwc-active-branch']=other;access='none';await events['bwc:branch-ready'][0]();assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);assert.ok(nodes.dashboard.classList.contains('active'));
  access='owner';await events.focus[0]();assert.equal(button.hidden,false);button.click();assert.equal(nodes.payrollV2.children.length,1);
  data['bwc-active-business']='another-business';const previous=requests;await events.storage[0]({key:'bwc-active-business'});assert.equal(requests,previous);assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);
@@ -292,6 +292,45 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
   await assert.rejects(auth(owner,()=>save(changed,carryLoaded.revision)),/Starting balance is locked/);
   const double=structuredClone(carryLoaded.state),rw=double.painterTestSheets.find(x=>x.period.start==='2026-12-05').snapshot.rows.find(x=>x.job.id===carryJob);rw.opening-=8000;rw.remaining-=8000;
   await assert.rejects(auth(owner,()=>save(double,carryLoaded.revision)),/Starting balance does not match/);
+ });
+ await t.test('pending-contract migration is idempotent, accepts null balances and rejects fabricated numbers',async()=>{
+  const before=(await db.query('select * from payroll_v2_workspaces')).rows;
+  const sql=fs.readFileSync(path.join(ROOT,'supabase/084_payroll_pending_contracts.sql'),'utf8');await db.exec(sql);await db.exec(sql);
+  assert.deepEqual((await db.query('select * from payroll_v2_workspaces')).rows,before);
+  let loaded=await auth(owner,()=>call('payroll_v2_load',[b,r])),id=0;
+  let next=S.save(W.selectWeek(loaded.state,'2026-12-12'),'painter',[{unit:'Unknown contract QA',contractPending:true,weekly:7500}],0,()=>`unknown-${++id}`);
+  loaded=await auth(owner,()=>save(next,loaded.revision));const sh=()=>loaded.state.painterTestSheets.find(s=>s.period.start==='2026-12-12');
+  const jobId=sh().snapshot.rows.find(r=>r.job.contractPending).job.id;
+  for(const mutate of [rw=>rw.job.contract=0,rw=>rw.opening=0,rw=>rw.remaining=0,rw=>rw.previousRecorded=4,rw=>rw.weekly=-1,rw=>rw.job.contractPending='true']){
+   const bad=structuredClone(loaded.state);mutate(bad.painterTestSheets.find(s=>s.period.start==='2026-12-12').snapshot.rows.find(r=>r.job.id===jobId));
+   await assert.rejects(auth(owner,()=>save(bad,loaded.revision)),/painter amount|previous payments|starting balance/);
+  }
+  next=S.save(W.selectWeek(loaded.state,'2026-12-19'),'painter',[{id:jobId,weekly:1000}],0,()=>`unknown-${++id}`);loaded=await auth(owner,()=>save(next,loaded.revision));
+  assert.equal(S.savedFor(loaded.state,'painter').snapshot.rows.find(r=>r.job.id===jobId).previousRecorded,7500);
+  next=S.save(loaded.state,'painter',[{id:jobId,contractPending:false,contract:12000,weekly:1000}],0,()=>`unknown-${++id}`);loaded=await auth(owner,()=>save(next,loaded.revision));
+  assert.equal(S.savedFor(loaded.state,'painter').snapshot.rows.find(r=>r.job.id===jobId).remaining,3500);
+ });
+ await t.test('reviewed imports are private, owner-only, atomic, revision-checked and run once',async()=>{
+  const sql=fs.readFileSync(path.join(ROOT,'supabase/085_payroll_reviewed_history_import.sql'),'utf8');await db.exec(sql);await db.exec(sql);
+  let loaded=await auth(owner,()=>call('payroll_v2_load',[b,r]));const before=structuredClone(loaded.state);let id=0;
+  let next=S.save(W.selectWeek(before,'2026-12-26'),'painter',[{unit:'Reviewed historical QA',contractPending:true,weekly:120}],0,()=>`reviewed-${++id}`);
+  const source=S.savedFor(next,'painter');next=A.release(next,source.id,'reviewed-release','2027-01-02');
+  const copies=next.releasedPainterSlips.filter(x=>x.employeeId==='painter'),sheets=next.painterTestSheets.filter(x=>x.employeeId==='painter');
+  const pdfs=[{id:'reviewed-release',kind:'pdf',dataUrl:'data:application/pdf;base64,JVBERi0xLjQ='}];
+  await db.query('insert into payroll_v2_history_imports(id,business_id,branch_id,employee_id,expected_revision,before_sheets,before_releases,worksheets,released_copies,files,review_note) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',['reviewed-qa',b,r,'painter',loaded.revision-1,JSON.stringify(before.painterTestSheets.filter(x=>x.employeeId==='painter')),JSON.stringify(before.releasedPainterSlips.filter(x=>x.employeeId==='painter')),JSON.stringify(sheets),JSON.stringify(copies),JSON.stringify(pdfs),'Fictional reviewed import']);
+  assert.equal((await auth(owner,()=>call('payroll_v2_apply_reviewed_history',[b,r]))).status,'stale');
+  assert.deepEqual((await auth(owner,()=>call('payroll_v2_load',[b,r]))).state,before);
+  assert.equal((await auth(staff,()=>call('payroll_v2_apply_reviewed_history',[b,r]))).status,'none');
+  await assert.rejects(auth(staff,()=>db.query('select * from payroll_v2_history_imports')),/permission denied/);
+  await db.query('update payroll_v2_history_imports set expected_revision=$1',[loaded.revision]);
+  assert.equal((await auth(owner,()=>call('payroll_v2_apply_reviewed_history',[b,r]))).status,'applied');
+  loaded=await auth(owner,()=>call('payroll_v2_load',[b,r]));
+  for(const key of Object.keys(before).filter(k=>!['painterTestSheets','releasedPainterSlips'].includes(k)))assert.deepEqual(loaded.state[key],before[key]);
+  assert.deepEqual(loaded.state.painterTestSheets,sheets);assert.deepEqual(loaded.state.releasedPainterSlips,copies);
+  assert.equal((await auth(owner,()=>call('payroll_v2_get_files',[b,r,['reviewed-release']]))).length,1);
+  assert.equal((await auth(owner,()=>call('payroll_v2_apply_reviewed_history',[b,r]))).status,'none');
+  assert.equal((await auth(owner,()=>call('payroll_v2_load',[b,r]))).revision,loaded.revision);
+  assert.equal((await db.query("select count(*)::int n from payroll_v2_events where action='reviewed_history_import'")).rows[0].n,1);
  });
  await db.close();
 });

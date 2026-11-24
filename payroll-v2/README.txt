@@ -46,6 +46,19 @@ Workflow
   Existing records without opening amounts continue unchanged.
 - Supabase update 083 adds server checks for these optional starting balances.
   It does not create/delete payroll records, import old payslips or change roles.
+- Unknown original labor prices: select Agreed price not yet confirmed. Store
+  only the actual payment; contract/opening/remaining are null and display
+  Pending confirmation in the table, print preview and PDF. Confirming the
+  price in a later working week subtracts the previously recorded payments.
+  Existing released copies remain unchanged. Apply update 084 before deploying.
+- Reviewed historical imports: update 085 provides a private, owner-only queue.
+  A compatible client applies the reviewed branch/employee payload on the next
+  owner Payroll open, reusing the normal revision, amount, archive and PDF checks.
+  A changed branch revision stops the import for review; it never overwrites
+  newer payroll. Before-sheets and review notes are retained privately. No
+  imports are bundled in this repository, and neither migration stages data.
+  Actual received dates are preserved in the released archive and later payment
+  references. Historical imports do not transfer money or create Expenses.
 - Daily staff: record attendance and late/OT duration; review the calculation and
   confirm release. Overtime is recorded only; no overtime-pay rule is configured.
 - A painter's previous amount is a recorded worksheet amount, not independent
