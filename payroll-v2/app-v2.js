@@ -24,7 +24,7 @@
     document.querySelectorAll('.simple-painter [data-action="week-previous"],.simple-painter [data-action="week-next"],#painterWeek').forEach(el=>el.disabled=painterDirty||painterSaving);
     const payday=$('#painterPayday');if(payday)payday.disabled=painterCellsDirty||painterSaving||O.access==='view'||Boolean(A.forWeek(state,ui.employeeId,state.period));
   }
-  function painterRows(){return Array.from(document.querySelectorAll('#painterWorksheet [data-painter-row]')).map(tr=>{const row={id:tr.dataset.painterRow};tr.querySelectorAll('[data-field]').forEach(el=>{row[el.dataset.field]=el.value});return row})}
+  function painterRows(){return Array.from(document.querySelectorAll('#painterWorksheet [data-painter-row]')).map(tr=>{const row={id:tr.dataset.painterRow,linkJobId:tr.dataset.linkJobId||""};tr.querySelectorAll('[data-field]').forEach(el=>{row[el.dataset.field]=el.value});return row})}
   function painterState(){return C.setPayday(state,$('#painterPayday').value)}
   function painterDraft(){return S.draft(painterState(),ui.employeeId,painterRows(),$('#painterAdvance').value,()=>uid('test-unit'))}
   function previewPainter(cellsChanged=true){
@@ -46,7 +46,16 @@
     if(painterCellsDirty||painterSaving){event.target.value=painterPaydayValue;notify('Save table before changing payday.');return}
     painterPaydayValue=event.target.value;previewPainter(false);
   }else if(event.target.closest('#painterWorksheet'))previewPainter()});
-  document.addEventListener('change',async event=>{if(event.target.id==='painterWeek'){if(!discardPainter()||!C.validDate(event.target.value)){event.target.value=state.period.start;return}changeWeek(event.target.value)}});
+  document.addEventListener('change',async event=>{if(event.target.id==='painterExistingJob'){
+    const tr=document.querySelector('[data-painter-row=""]');if(!tr)return;
+    if(tr.querySelector('[data-field="unit"]').value){event.target.value=tr.dataset.linkJobId||'';notify('Use Undo unsaved changes before replacing the new row.');return}
+    if(!event.target.value)return;
+    try{const r=S.linkedRow(state,ui.employeeId,event.target.value);tr.dataset.linkJobId=r.job.id;
+      tr.querySelectorAll('[data-field]').forEach(el=>{const k=el.dataset.field;el.value=k==='weekly'?'':k==='retentionStatus'?(S.isReleased(r.job)?'retained':'ongoing'):(r.job[k]??'')});
+      previewPainter();
+    }catch(error){event.target.value='';$('#painterError').textContent=error.message}
+    return;
+  }if(event.target.id==='painterWeek'){if(!discardPainter()||!C.validDate(event.target.value)){event.target.value=state.period.start;return}changeWeek(event.target.value)}});
   document.addEventListener('click',async event=>{if(event.target.closest('[data-action="painter-discard"]')&&!painterSaving){painterDirty=false;painterCellsDirty=false;render();event.preventDefault();event.stopImmediatePropagation();return}if((painterDirty||painterSaving)&&event.target.closest('[data-action],[data-view],.brand,[data-person],[data-paytype]')&&!discardPainter()){event.preventDefault();event.stopImmediatePropagation()}},true);
   document.addEventListener('submit',async event=>{
     if(event.target.id==='painterWorksheet'){

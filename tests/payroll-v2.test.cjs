@@ -21,7 +21,7 @@ test('retired branch-assignment panel stays absent without changing employee rec
  const state=await window.PayrollOnline.ready;window.PayrollOnline.permissions();window.PayrollOnline.permissions();
  assert.strictEqual(state,loaded.state);assert.deepEqual(loaded,before);assert.equal(label.textContent,'STA. ROSA · Owner');assert.deepEqual(calls.map(c=>c.name),['payroll_v2_apply_reviewed_history','payroll_v2_load']);
  assert.doesNotMatch(source,/Employee profiles awaiting branch assignment|data-assign-employee|payroll_v2_assign_employee/);
- assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261125-retention-payday/);
+ assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261125-cross-date/);
 });
 test('PDF uses half short bond, peso glyph, all unit rows and prior balance',()=>{
  const PDF=require('../payroll-v2/pdf.js');let n=0,s=S.save(seed(),'painter',[{unit:'Test unit',contract:15000,weekly:3000,work:'Panel repaint'}],500,()=>`test-${++n}`),record=S.savedFor(s,'painter');
@@ -45,7 +45,7 @@ test('both payslip layouts reserve handwriting space without changing saved data
  const css=fs.readFileSync(path.join(ROOT,'payroll-v2/half-payslip.css'),'utf8'),index=fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8');
  assert.match(css,/\.signature-space\{height:22pt/);assert.match(css,/\.printed-name-space\{height:14pt/);
  assert.ok(index.includes('half-payslip.css?v=20261123-signature-space'));
- for(const asset of ['half-slips.js','pdf.js'])assert.ok(index.includes(asset+'?v=20261125-retention-payday'));
+ for(const asset of ['half-slips.js','pdf.js'])assert.ok(index.includes(asset+'?v=20261125-cross-date'));
 });
 test('compact PDF summary retains every nonzero adjustment and the original net pay',()=>{
  const PDF=require('../payroll-v2/pdf.js'),snapshot=W.createPayslip(seed(),'daily');
@@ -69,7 +69,7 @@ test('new navigation opens only its own frame and clears it on branch/access cha
  const document={createElement:element,getElementById:id=>nodes[id],querySelector:()=>dash,querySelectorAll:s=>s==='.view'?[nodes.dashboard,nodes.payroll,nodes.payrollV2].filter(Boolean):nodes.nav.children,addEventListener:listen};
  const window={addEventListener:listen,scrollTo(){},getBusinessSupabaseClient:()=>({rpc:async name=>{assert.equal(name,'payroll_v2_role');requests++;return {data:access,error:null}}})};
  vm.runInNewContext(fs.readFileSync(path.join(ROOT,'payroll-v2-online.js'),'utf8'),{window,document,localStorage:{getItem:k=>data[k]},setTimeout:fn=>timers.push(fn),MutationObserver:class{observe(){}},console});
- await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261125-retention-payday');assert.ok(!nodes.dashboard.classList.contains('active'));
+ await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261125-cross-date');assert.ok(!nodes.dashboard.classList.contains('active'));
  data['bwc-active-branch']=other;access='none';await events['bwc:branch-ready'][0]();assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);assert.ok(nodes.dashboard.classList.contains('active'));
  access='owner';await events.focus[0]();assert.equal(button.hidden,false);button.click();assert.equal(nodes.payrollV2.children.length,1);
  data['bwc-active-business']='another-business';const previous=requests;await events.storage[0]({key:'bwc-active-business'});assert.equal(requests,previous);assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);
@@ -397,6 +397,37 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
   assert.equal((await db.query("select count(*)::int n from payroll_v2_events where action='retention_received'")).rows[0].n,2);
   assert.equal((await db.query("select has_function_privilege('authenticated','payroll_v2_check_retention_receipts(jsonb,jsonb,boolean)','execute') allowed")).rows[0].allowed,false);
   await db.exec('set role anon');try{await assert.rejects(call('payroll_v2_receive_retention',[b,other,loaded.revision,'receipt-painter',j.id,today,700,release]),/permission denied/)}finally{await db.exec('reset role')}
+ });
+ await t.test('cross-date guard is idempotent, preserves live records, validates caps and backdated balances',async()=>{
+  const before=(await db.query('select * from payroll_v2_workspaces order by business_id,branch_id')).rows;
+  const sql=fs.readFileSync(path.join(ROOT,'supabase/088_payroll_cross_date_safeguards.sql'),'utf8');await db.exec(sql);await db.exec(sql);
+  assert.deepEqual((await db.query('select * from payroll_v2_workspaces order by business_id,branch_id')).rows,before);
+  const branch='10000000-0000-4000-8000-000000000088';await db.query('insert into branches values($1,$2,$3,true)',[branch,b,'CROSS DATE TEST']);
+  let n=0;const uid=()=>`cross-db-${++n}`,persist=(state,rev,files=[])=>auth(owner,()=>call('payroll_v2_save',[b,branch,rev,JSON.stringify(state),JSON.stringify(files)]));
+  let loaded=await auth(owner,()=>call('payroll_v2_load',[b,branch]));
+  let state=S.save(W.selectWeek(seed(),'2026-11-25'),'painter',[{unit:'Test Honda',invoice:'QA-1',plate:'QA 245',contract:10000,weekly:5000}],0,uid);
+  loaded=await persist(state,loaded.revision);const id=S.savedFor(state,'painter').snapshot.rows[0].job.id;
+  state=S.save(W.selectWeek(state,'2026-11-10'),'painter',[{linkJobId:id,weekly:3000}],0,uid);
+  const forged=structuredClone(state),oldRow=forged.painterTestSheets.find(s=>s.period.start==='2026-11-21').snapshot.rows[0];oldRow.opening=10000;oldRow.remaining=5000;
+  await assert.rejects(persist(forged,loaded.revision),/other dates/);
+  const over=structuredClone(state),past=over.painterTestSheets.find(s=>s.period.start==='2026-11-07'),future=over.painterTestSheets.find(s=>s.period.start==='2026-11-21');
+  past.snapshot.rows[0].weekly=6000;past.snapshot.rows[0].remaining=4000;past.snapshot.basic=6000;past.snapshot.net=6000;future.snapshot.rows[0].opening=4000;future.snapshot.rows[0].remaining=-1000;
+  await assert.rejects(persist(over,loaded.revision),/exceed agreed labor/);
+  loaded=await persist(state,loaded.revision);assert.equal(loaded.state.painterTestSheets.find(s=>s.period.start==='2026-11-21').snapshot.rows[0].remaining,2000);
+  await assert.rejects(persist(state,loaded.revision-1),/Another user/);
+  // Direct callers cannot hide a known contract or duplicate an exact invoice/plate.
+  const duplicate=structuredClone(state),dupe=duplicate.painterTestSheets.find(s=>s.period.start==='2026-11-07');dupe.snapshot.rows[0].job.id='duplicate-id';dupe.snapshot.jobs=dupe.snapshot.rows.map(r=>r.job);
+  await assert.rejects(persist(duplicate,loaded.revision),/other dates|existing job/);
+  // Pending zero-settlement markers may safely move earlier; received/released copies may not.
+  state=S.save(W.selectWeek(loaded.state,'2026-11-25'),'painter',[{unit:'Pending anchor',contract:'',weekly:100}],0,uid);loaded=await persist(state,loaded.revision);
+  const pendingId=S.savedFor(state,'painter').snapshot.rows.find(r=>r.job.unit==='Pending anchor').job.id;
+  state=S.save(W.selectWeek(state,'2026-09-05'),'painter',[{linkJobId:pendingId,weekly:200}],0,uid);loaded=await persist(state,loaded.revision);
+  assert.deepEqual(S.validate(loaded.state),[]);assert.equal(loaded.state.painterTestSheets.find(s=>s.period.start==='2026-11-21').snapshot.rows.find(r=>r.job.id===pendingId).previousRecorded,200);
+  state=W.selectWeek(loaded.state,'2026-11-25');const source=S.savedFor(state,'painter');state=A.release(state,source.id,'cross-released','2026-11-28');
+  loaded=await persist(state,loaded.revision,[{id:'cross-released',kind:'pdf',dataUrl:'data:application/pdf;base64,JVBERi0xLjQ='}]);
+  const bad=structuredClone(loaded.state),earlier=bad.painterTestSheets.find(s=>s.period.start==='2026-11-07');earlier.snapshot.rows[0].weekly=2000;earlier.snapshot.rows[0].remaining=8000;earlier.snapshot.basic=2000;earlier.snapshot.net=2000;
+  await assert.rejects(persist(bad,loaded.revision),/other dates|released payslip|locked/);
+  assert.equal((await db.query("select has_function_privilege('authenticated','payroll_v2_check_cross_date(jsonb,jsonb)','execute') allowed")).rows[0].allowed,false);
  });
  await db.close();
 });

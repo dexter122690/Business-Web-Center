@@ -1,0 +1,30 @@
+Payroll cross-date safeguards
+
+Deploy 088 after 087, before publishing frontend version 20261125-cross-date.
+The migration only adds private validation helpers and updates existing guards.
+It does not rewrite payroll records, files, employee profiles, roles or other tabs.
+The BWC production migration was applied and verified on November 25, 2026.
+Before/after workspace and file hashes matched; the save guard is active.
+
+Behavior
+- One stable employee/job ID connects payments in all saved weeks.
+- Total weekly payments, prior settlements, uncovered legacy payments and received
+  retention cannot exceed a confirmed agreed labor amount.
+- A past payment updates later UNRELEASED worksheet balances, not weekly pay.
+- Released sources/PDFs, their prior-payment history and retention receipts stay locked.
+- Choose Use existing job when adding a known unit to an earlier saved period.
+  New entries with the exact same invoice and plate are rejected as duplicates.
+  Unit/model name alone is not an identity match. Missing identifiers need review.
+- Confirmed agreed labor must match across known-price weeks. Unknown historical
+  contracts remain pending; they are not silently assigned a zero or guessed price.
+- A zero pre-BWC anchor can move earlier for a linked job only when no released
+  payslip or received retention locks it. Nonzero opening settlements stay fixed.
+- The database independently rejects overpayments and stale later balances;
+  older frontend clients do not silently bypass these checks.
+
+Verification
+- Automated JS and PostgreSQL tests include Nov 25 payment 5,000 / contract 10,000:
+  Nov 10 entry 6,000 rejected; 3,000 accepted; later opening 7,000 / balance 2,000.
+- Browser verified failed save preserves input and valid save enables Print/PDF.
+- Both half-short payslip pages rendered and visually checked using fictional data.
+- No fictional/test records were inserted into the live database.

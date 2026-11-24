@@ -32,7 +32,9 @@ test('opening can be corrected in its first working week but locks once another 
  assert.throws(()=>S.save(s,'p',[{id:j.id,priorSettlement:6000,weekly:1000}],0,uid),/locked/);
  s=S.save(s,'p',[{id:j.id,weekly:1000}],0,uid);s=W.selectWeek(s,'2026-11-28');
  assert.equal(S.startingEditable(s,'p',row(s).job),false);assert.throws(()=>S.save(s,'p',[{id:j.id,priorSettlement:6000,weekly:2000}],0,uid),/locked/);
- assert.throws(()=>S.save(s,'p',[{id:j.id,weekly:2500}],0,uid),/later worksheet/);
+ const recalculated=S.save(s,'p',[{id:j.id,weekly:2500}],0,uid);
+ assert.equal(S.view(W.selectWeek(recalculated,'2026-12-05'),'p').snapshot.rows[0].opening,5500);
+ assert.equal(S.view(W.selectWeek(recalculated,'2026-12-05'),'p').snapshot.rows[0].weekly,1000);
  assert.throws(()=>S.emptyTable(s,'p',uid),/first BWC worksheet|later worksheet/);
 });
 test('released source and PDF snapshot retain their opening information and remain locked',()=>{

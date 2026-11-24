@@ -1,5 +1,5 @@
 /* One working painter worksheet per employee/week; released snapshots stay fixed. */
-(function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./workflow.js'));else root.SimplePainter=factory(root.PayrollWorkflow)})(typeof window!=='undefined'?window:this,function(W){
+(function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./workflow.js'),require('./painter-ledger.js'));else root.SimplePainter=factory(root.PayrollWorkflow,root.PainterLedger)})(typeof window!=='undefined'?window:this,function(W,L){
   'use strict';
   const copy=v=>JSON.parse(JSON.stringify(v)),same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
   const ordered=v=>Array.isArray(v)?v.map(ordered):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,ordered(v[k])])):v;
@@ -94,9 +94,9 @@
   function draft(state,employeeId,inputs,cashAdvance,makeId){
     const base=view(state,employeeId).snapshot,seen=new Set(),rows=[];
     for(const input of inputs){
-      if(!input.id&&!['unit','year','plate','invoice','color','work','contract','priorSettlement','weekly'].some(k=>String(input[k]??'').trim()))continue;
-      const old=base.rows.find(r=>r.job.id===input.id);
-      if(input.id&&(!old||seen.has(input.id)))throw Error('Check the selected unit.');
+      if(!input.id&&!input.linkJobId&&!['unit','year','plate','invoice','color','work','contract','priorSettlement','weekly'].some(k=>String(input[k]??'').trim()))continue;
+      const old=input.linkJobId?linkedRow(state,employeeId,input.linkJobId):base.rows.find(r=>r.job.id===input.id);
+      if((input.id&&(!old||input.id!==old.job.id))||(old&&seen.has(old.job.id)))throw Error('Check the selected unit.');
       const job=old?copy(old.job):{id:makeId(),employeeId,unit:'',year:'',plate:'',invoice:'',color:'',work:'',contract:0};seen.add(job.id);
       for(const [field,max] of [['unit',120],['year',10],['plate',30],['invoice',60],['color',70],['work',1000]]){
         if(input[field]===undefined)continue;const value=String(input[field]).trim();if(value.length>max)throw Error('Please shorten the '+field+' field.');job[field]=field==='plate'?value.toUpperCase():value;
@@ -121,19 +121,40 @@
       for(const field of ['unitReleasedOn','retentionDue'])if(input[field]!==undefined){if(input[field]&&!W.validDate(input[field]))throw Error('Choose a valid reference release date.');job[field]=input[field]}
       if(input.retentionStatus==='ongoing')job.unitReleasedOn='';
       if(job.releasePayrollStart&&!W.validDate(job.unitReleasedOn))throw Error('Choose the unit release date for '+job.unit+'.');
-      if(old&&!mainRows(base).some(r=>r.job.id===job.id))throw Error('Released balances are read-only. Open the week when the unit was released to correct its status.');
+      if(old&&!input.linkJobId&&!mainRows(base).some(r=>r.job.id===job.id))throw Error('Released balances are read-only. Open the week when the unit was released to correct its status.');
       const weekly=number(input.weekly,'Amount this week'),recorded=W.money((old?previousRecorded(old):0)+settled-(old?.job.priorSettlement||0)),opening=pending(job)?null:W.money(job.contract-recorded);
       rows.push({job,opening,weekly,remaining:pending(job)?null:W.money(opening-weekly),...(pending(job)?{previousRecorded:recorded}:{})});
     }
     // An incomplete UI payload must never silently remove an existing unit.
     for(const old of base.rows)if(!seen.has(old.job.id))rows.push(copy(old));
-    return snapshot(state,employeeId,rows,number(cashAdvance,'Cash advance'));
+    const data=snapshot(state,employeeId,rows,number(cashAdvance,'Cash advance')),preview=copy(state),old=savedFor(state,employeeId);
+    preview.painterTestSheets=(preview.painterTestSheets||[]).filter(s=>s.id!==old?.id);
+    preview.painterTestSheets.push({id:old?.id||'cross-date-preview',employeeId,period:copy(data.period),snapshot:data});
+    L.reconcile(preview,state,employeeId,L.affected(preview,state).filter(j=>j.employeeId===employeeId).map(j=>j.id));
+    const errors=L.check(preview,state);if(errors.length)throw Error(errors[0]);
+    if(data.rows.some(r=>pending(r.job)))data.warnings.push('Agreed labor not confirmed: payments are linked across dates, but the contract limit cannot be verified until a price is entered.');
+    return data;
+  }
+  function linkableJobs(state,employeeId){const ids=new Set(view(state,employeeId).snapshot.rows.map(r=>r.job.id));return jobs(state,employeeId).filter(j=>!ids.has(j.id))}
+  function linkedRow(state,employeeId,id){
+    const found=linkableJobs(state,employeeId).find(j=>j.id===id);if(!found)throw Error('Choose an existing job for this employee.');
+    const job=copy(found);
+    if(job.payrollStart&&job.payrollStart>state.period.start){
+      if(!L.safeEarlierAnchor(state,employeeId,id,state.period.start,job.priorSettlement))throw Error('This unit has a locked starting balance. Review its earlier settlement before backdating.');
+      job.payrollStart=state.period.start;
+    }
+    if(isReleased(job)){
+      if((job.unitReleasedOn||job.releasedOn)>state.period.end){job.retentionStatus='ongoing';job.closed=false;job.unitReleasedOn='';delete job.releasedOn;delete job.releasePayrollStart}
+      else job.releasePayrollStart=state.period.start;
+    }
+    const recorded=W.money((job.priorSettlement||0)+L.paidBefore(state,employeeId,id,state.period.start)),opening=pending(job)?null:W.money(job.contract-recorded);
+    return {job,opening,weekly:0,remaining:opening,...(pending(job)?{previousRecorded:recorded}:{})};
   }
   function syncFutureStatus(next,state,employeeId,data){
     const old=view(state,employeeId).snapshot,fields=['retentionStatus','unitReleasedOn','releasePayrollStart','closed'];
     const signature=j=>[isReleased(j),isReleased(j)?(j.unitReleasedOn||j.releasedOn||''):'',isReleased(j)?releaseWeek(j):''];
     for(const row of data.rows){
-      const before=old.rows.find(r=>r.job.id===row.job.id);if(before&&same(signature(before.job),signature(row.job)))continue;
+      const before=old.rows.find(r=>r.job.id===row.job.id);if(!before&&L.entries(state,employeeId,row.job.id).length)continue;if(before&&same(signature(before.job),signature(row.job)))continue;
       for(const sheet of next.painterTestSheets.filter(s=>s.employeeId===employeeId&&s.period.start>data.period.start)){
         const later=sheet.snapshot.rows.find(r=>r.job.id===row.job.id);if(!later)continue;
         if((next.releasedPainterSlips||[]).some(s=>s.sourceId===sheet.id)||later.weekly!==0)throw Error('This unit has later payroll payments or a released payslip. Review that later week before changing its release status.');
@@ -151,6 +172,7 @@
     const index=next.painterTestSheets.findIndex(s=>s.id===sheet.id);
     if(index<0)next.painterTestSheets.push(sheet);else next.painterTestSheets[index]=sheet;
     syncFutureStatus(next,state,employeeId,data);
+    L.reconcile(next,state,employeeId,L.affected(next,state).filter(j=>j.employeeId===employeeId).map(j=>j.id));
     const errors=validate(next,state);if(errors.length)throw Error(errors[0]);return next;
   }
   // Explicitly clear only this working week; original ledgers and releases remain.
@@ -215,24 +237,25 @@
       if([...state.payments,...state.releases].some(p=>p.jobId===id))errors.push('Do not combine an opening settlement with legacy payment entries for the same unit.');
       if(previous){
         const priorRows=[...oldLatest.values()].flatMap(s=>s.snapshot.rows.filter(r=>r.job.id===id).map(r=>({sheet:s,job:r.job})));
-        if(priorRows.some(({sheet:s,job:j})=>(j.priorSettlement||0)!==o.amount||j.payrollStart!==o.start)&&priorRows.some(({sheet:s})=>s.period.start!==o.start))errors.push('Starting balance is locked because this unit has other payroll records.');
+        if(priorRows.some(({sheet:s,job:j})=>(j.priorSettlement||0)!==o.amount||j.payrollStart!==o.start)&&priorRows.some(({sheet:s})=>s.period.start!==o.start)&&!L.safeEarlierAnchor(previous,o.employeeId,id,o.start,o.amount))errors.push('Starting balance is locked because this unit has other payroll records.');
       }
     }
     if(previous)for(const s of oldLatest.values())for(const {job:j} of s.snapshot.rows)if(j.payrollStart&&!openings.has(j.id)&&[...newLatest.values()].some(n=>n.snapshot.rows.some(r=>r.job.id===j.id)))errors.push('Keep the unit’s pre-BWC starting balance.');
-    return [...new Set([...errors,...validateReceipts(state,previous)])];
+    return [...new Set([...errors,...validateReceipts(state,previous),...L.check(state,previous)])];
   }
   function merge(previous,incoming){const n=copy(incoming);if(previous.painterTestSheets?.length||n.painterTestSheets?.length){n.painterTestSheets=n.painterTestSheets||[];for(const old of previous.painterTestSheets||[]){const found=n.painterTestSheets.find(s=>s.id===old.id);if(found&&!same(found,old))throw Error('Backup conflicts with a saved test sheet.');if(!found)n.painterTestSheets.push(copy(old))}n.painterTestSheets.sort((a,b)=>a.savedAt.localeCompare(b.savedAt))}return n}
   function balances(x,c){const {esc,peso}=x,receipts=x.state?.painterRetentionReceipts||c.retentionReceipts||[];return `<table class="painter-balances"><caption>Balance and retained units · details are read-only</caption><thead><tr><th>Unit / job order</th><th class="num">Remaining balance</th><th>Unit release date</th><th>Available after 45 days</th><th>Payment status</th></tr></thead><tbody>${balanceRows(c,receipts,previousPayrollDate(x.state,c)).map(r=>{const j=r.job,info=retentionInfo(r,receipts,x.today||manilaDay(),c.period.releaseDate);return `<tr><td>${esc(j.unit)} · ${esc(j.plate)}<small>${esc(j.work)}</small></td><td class="num">${info.receipt?peso(0):balanceText(r,peso)}</td><td>${esc(j.unitReleasedOn||j.releasedOn||'Not set')}</td><td>${esc(info.due||'Awaiting release date')}</td><td>${info.receipt?`<b>Natanggap na</b><small>${peso(info.receipt.amount)} · ${esc(info.receipt.receivedOn)}</small>`:info.eligible&&x.canReceive?`<select data-retention-receive="${esc(j.id)}" aria-label="${esc('Remaining balance received — '+j.unit+' '+(j.plate||''))}"><option value="">Hindi pa natatanggap</option><option value="received">Natanggap na</option></select>`:pending(j)?'Confirm agreed labor first':info.receivedLater?'Received in a later payroll':info.eligible?'Ready for confirmation':'Not yet due'}</td></tr>`}).join('')||'<tr><td colspan="5">No outstanding or newly received retained balances for this payroll.</td></tr>'}</tbody></table>`}
   function render(x,employeeId){
     const {state:s,esc,peso,button,range}=x,{snapshot:c,saved}=view(s,employeeId);
+    const linkable=linkableJobs(s,employeeId);
     const released=(s.releasedPainterSlips||[]).find(r=>r.employeeId===employeeId&&key(r.period)===key(s.period));
     function cell(j,key,label,value,type='text'){return `<input data-field="${key}" ${released?'disabled':''} aria-label="${esc(label+' — '+(j.id?j.unit+' '+j.plate:'New unit'))}" placeholder="${esc(label)}" type="${type}" ${type==='number'?'min="0" step="0.01"':''} value="${esc(value??'')}">`}
     function row(r){const j=r.job,label=j.id?j.unit+' '+j.plate:'New unit',done=isReleased(j);return `<tr data-painter-row="${esc(j.id||'')}"><td>${cell(j,'unit','Unit',j.unit)}${cell(j,'year','Year model',j.year)}</td><td>${cell(j,'invoice','Invoice #',j.invoice)}${cell(j,'plate','Plate number',j.plate)}</td><td>${cell(j,'color','Color',j.color)}</td><td><textarea data-field="work" aria-label="${esc('Job order — '+label)}" placeholder="Job order" rows="2">${esc(j.work||'')}</textarea></td><td>${cell(j,'contract','Agreed labor',j.contract,'number')}</td><td class="sheet-unit-status"><select data-field="retentionStatus" aria-label="${esc('Unit status — '+label)}" ${released?'disabled':''}><option value="ongoing" ${done?'':'selected'}>Ongoing</option><option value="retained" ${done?'selected':''}>Released</option></select><label class="unit-release-date" ${done?'':'hidden'}>Release date<input type="date" data-field="unitReleasedOn" aria-label="${esc('Unit release date — '+label)}" value="${esc(j.unitReleasedOn||j.releasedOn||'')}" ${done?'required':''} ${released?'disabled':''}></label></td><td class="num" data-row-opening>${j.id?balanceText(r,peso,'opening'):'—'}</td><td class="sheet-pay">${cell(j,'weekly','Amount this week',j.id&&r.weekly?r.weekly:'','number')}</td></tr>`}
     return `<section class="simple-painter"><div class="sheet-toolbar">${button('← Employees','home')}<span class="sheet-title">Weekly payroll</span><div><button type="submit" form="painterWorksheet" class="button primary" ${released?'disabled':''}>Save table</button>${button('Print','simple-print',`id="painterPrint" data-id="${esc(employeeId)}" ${saved?'':'disabled'}`)}${button('Save as PDF','simple-pdf',`id="painterPdf" data-id="${esc(employeeId)}" ${saved?'':'disabled'}`)}${button(released?'Released · locked':'Release payslip','simple-release',`id="painterRelease" data-id="${esc(employeeId)}" ${saved&&!released?'':'disabled'}`)}</div></div><p id="painterSaveMessage" class="sheet-save-message" role="status">${released?'Released copy locked. Edit/delete stay unavailable except through the owner correction action.':saved?'Saved table ready to print, save as PDF, or release.':'Enter amounts → Save table → Print / Save as PDF / Release payslip.'}</p><p id="painterError" class="form-error" role="alert"></p>
       <div class="sheet-meta"><div><b>DATE RANGE</b><div class="sheet-week">${button('‹','week-previous','aria-label="Previous week"','sheet-link')}<span>${range(s.period)}</span>${button('›','week-next','aria-label="Next week"','sheet-link')}<input id="painterWeek" type="date" aria-label="Choose payroll week" value="${s.period.start}"></div><small>Saturday–Friday · all amounts in ₱</small></div><div><b>PAYDAY</b><input id="painterPayday" form="painterWorksheet" type="date" aria-label="Payroll payday" required value="${esc(c.period.releaseDate)}" ${released?'disabled':''}><small>${saved?'Saved copy date shown. ':''}Default: following Saturday · editable for holidays${released?' · released copy locked':' · Save table to keep changes'}.</small></div><div><b>EMPLOYEE</b><strong>${esc(c.employee.name)}</strong></div><div><b>POSITION</b><span>${esc(c.employee.position)}</span></div></div>
-      <p class="sheet-instruction">Enter this week’s amounts. Choose Released and its date when a unit leaves; ongoing units carry to the next week. Leave agreed labor blank if not yet confirmed.</p>
+      <p class="sheet-instruction">Enter this week’s amounts. Choose Released and its date when a unit leaves; ongoing units carry to the next week. Leave agreed labor blank if not yet confirmed. All dates count toward the same job’s agreed labor.</p>${!released&&linkable.length?`<label class="sheet-instruction">Use existing job <select id="painterExistingJob" aria-label="Use existing payroll job"><option value="">Choose a job when entering an earlier week…</option>${linkable.map(j=>`<option value="${esc(j.id)}">${esc(j.unit)} · ${esc(j.plate||"no plate")} · Invoice ${esc(j.invoice||"not set")} · ${esc(j.work||"")}</option>`).join("")}</select></label>`:""}
       <form id="painterWorksheet" data-employee="${esc(employeeId)}"><fieldset ${released?'disabled':''} class="sheet-fields"><div class="table-wrap"><table class="painter-table"><caption class="visually-hidden">Weekly painter payroll</caption><thead><tr><th>Unit / year</th><th>Invoice # / plate</th><th>Color</th><th>Job order</th><th>Agreed labor</th><th>Unit status</th><th>Balance before week</th><th>Amount this week</th></tr></thead><tbody>${mainRows(c).map(row).join('')}${released?'':row({job:{}})}</tbody><tfoot><tr><th colspan="7">TOTAL</th><td class="num" id="painterGross">${peso(c.basic)}</td></tr><tr><th colspan="7">LESS CASH ADVANCE</th><td class="sheet-pay"><input id="painterAdvance" aria-label="Cash advance this week" type="number" min="0" step="0.01" value="${c.cashAdvance||''}"></td></tr><tr class="sheet-salary"><th colspan="7">TOTAL SALARY <small>Saved worksheet</small></th><td class="num" id="painterNet">${peso(c.net)}</td></tr></tfoot></table></div></fieldset><div class="sheet-status"><span id="painterEditStatus" role="status">${saved?'All changes saved':'Save this table to enable printing.'}</span><button type="button" data-action="painter-discard" class="button sheet-link" hidden>Undo unsaved changes</button></div></form>
       <div id="painterWarnings"></div><div id="painterBalances" class="table-wrap">${balances(x,c)}</div><p class="sheet-footnote">Save table before changing the week, payday, or printing. Released units stay below, not in the next week’s main table. Available date = actual unit release + 45 calendar days. Paid balances stay on the payment payroll and disappear from the next payroll table, not from history. Confirm “Natanggap na” only after payment. This records a separate receipt, not extra weekly salary. Original released PDFs stay unchanged.</p></section>`;
   }
-  return {latest,savedFor,jobs,view,draft,save,emptyTable,validate,merge,compact,balances,render,startingEditable,pending,balanceText,previousRecorded,isReleased,releaseWeek,mainRows,balanceRows,previousPayrollDate,retentionDue,retentionInfo,receiptBasis,validateReceipts,manilaDay};
+  return {linkableJobs,linkedRow,latest,savedFor,jobs,view,draft,save,emptyTable,validate,merge,compact,balances,render,startingEditable,pending,balanceText,previousRecorded,isReleased,releaseWeek,mainRows,balanceRows,previousPayrollDate,retentionDue,retentionInfo,receiptBasis,validateReceipts,manilaDay};
 });
