@@ -11,7 +11,7 @@ test('pre-BWC settlement reduces the opening only; original contract and weekly 
  assert.deepEqual([c.rows[0].job.contract,c.rows[0].job.priorSettlement,c.rows[0].opening,c.rows[0].remaining,c.basic,c.net],[15000,8000,7000,5000,2000,1700]);
  assert.equal(c.rows[0].job.payrollStart,'2026-11-28');assert.deepEqual(before,seed());
  for(const k of ['employees','jobs','payments','releases','advances','attendance','payslips','releasedPainterSlips'])assert.deepEqual(s[k],before[k]);
- assert.deepEqual(S.validate(s),[]);assert.match(html(s),/Settled before BWC/);assert.match(html(s),/Through 2026-11-27/);
+ assert.deepEqual(S.validate(s),[]);assert.doesNotMatch(html(s),/Settled before BWC/);assert.match(html(s),/Unit status/);
 });
 test('save/reload is idempotent and each future week deducts the opening settlement just once',()=>{
  let s=first(),j=row(s).job,initial=copy(S.savedFor(s,'p'));
@@ -65,6 +65,6 @@ test('retained balances and dates carry forward without creating a retention pay
 test('PDF and half-sheet preview identify pre-BWC settlements as references, not new salary',()=>{
  const record=S.savedFor(first(),'p'),before=copy(record),definition=PDF.definition(record),json=JSON.stringify(definition);
  assert.deepEqual(definition.pageSize,{width:612,height:396});assert.match(json,/PRE-BWC SETTLEMENTS/);assert.match(json,/₱8,000.00/);assert.match(json,/₱7,000.00/);assert.match(json,/₱2,000.00/);assert.match(json,/2026-11-28/);
- const window={};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../payroll-v2/half-slips.js'),'utf8'),{window});
+ const window={SimplePainter:S};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../payroll-v2/half-slips.js'),'utf8'),{window});
  const preview=JSON.stringify(window.PayrollSlips.blocks(record.snapshot));assert.match(preview,/PRE-BWC SETTLEMENTS/);assert.match(preview,/NOT THIS WEEK/);assert.deepEqual(record,before);
 });

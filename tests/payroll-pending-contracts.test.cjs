@@ -21,9 +21,9 @@ test('pending is not zero, fabricated balances and paid-history amounts are reje
 });
 test('UI and both print layouts explicitly label pending while preserving real payment amounts',()=>{
  const s=S.save(seed(),'p',[{unit:'Test unit',contractPending:true,weekly:7500}],0,uid),record=S.savedFor(s,'p'),before=structuredClone(record);
- const rendered=S.render({state:s,esc:String,peso:n=>'₱'+n,range:()=>'',button:()=>''},'p');assert.match(rendered,/Agreed price not yet confirmed/);assert.match(rendered,/Pending confirmation/);assert.match(rendered,/type="checkbox"/);
- const json=JSON.stringify(PDF.definition(record));assert.equal((json.match(/Pending confirmation/g)||[]).length,3);assert.match(json,/₱7,500.00/);
- const window={};vm.runInNewContext(fs.readFileSync(require.resolve('../payroll-v2/half-slips.js'),'utf8'),{window});
+ const rendered=S.render({state:s,esc:String,peso:n=>'₱'+n,range:()=>'',button:()=>''},'p');assert.match(rendered,/Leave agreed labor blank/);assert.match(rendered,/Pending confirmation/);assert.doesNotMatch(rendered,/type="checkbox"/);
+ const json=JSON.stringify(PDF.definition(record));assert.equal((json.match(/Pending confirmation/g)||[]).length,2);assert.match(json,/₱7,500.00/);
+ const window={SimplePainter:S};vm.runInNewContext(fs.readFileSync(require.resolve('../payroll-v2/half-slips.js'),'utf8'),{window});
  assert.match(JSON.stringify(window.PayrollSlips.blocks(record.snapshot,true)),/Pending confirmation/);assert.deepEqual(record,before);
 });
 test('released historical payments use the actual received date, not the Friday cutoff',()=>{

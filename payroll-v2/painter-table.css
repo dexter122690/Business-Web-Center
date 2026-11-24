@@ -19,7 +19,10 @@
   .painter-table{width:100%;min-width:1000px;table-layout:fixed;border-collapse:collapse;font-size:13px}
   .painter-table th{font-size:11px;background:#edf0f2;color:#27323c;text-transform:none;letter-spacing:0;white-space:normal;padding:8px 7px;border:1px solid #bcc5cd;text-align:left}
   .painter-table th:nth-child(1){width:15%}.painter-table th:nth-child(2){width:13%}.painter-table th:nth-child(3){width:8%}.painter-table th:nth-child(4){width:18%}.painter-table th:nth-child(5){width:11%}.painter-table th:nth-child(6){width:12%}.painter-table th:nth-child(7){width:11%}.painter-table th:nth-child(8){width:12%}
-  .painter-table .sheet-opening{background:#f0f7f3}.sheet-opening small{display:block;padding:3px 7px;font-size:10px;color:#56616b;line-height:1.4}
+  .painter-table .sheet-unit-status{background:#f0f7f3}
+  .sheet-unit-status select{width:100%;border:0;background:transparent;padding:8px 4px;font:12px Arial,sans-serif}
+  .unit-release-date{display:block;padding:3px 5px;font-size:10px;color:#56616b}
+  .painter-table .unit-release-date input{font-size:11px;padding:5px 0}
   .painter-table td{border:1px solid #cbd2d8;padding:0;vertical-align:top;background:#fff;font-size:13px}
   .painter-table td.num{vertical-align:middle;padding:7px;color:#59636d;background:#f8f9fa}
   .painter-table input,.painter-table textarea{display:block;width:100%;box-sizing:border-box;border:0;border-radius:0;background:transparent;padding:7px;font:13px/1.4 Arial,sans-serif;color:#1d2730;min-height:32px;min-width:0;margin:0}
@@ -46,7 +49,7 @@
   .painter-balances{width:100%;min-width:650px;table-layout:fixed}
   .painter-balances caption{text-align:left;background:#e4e8eb;color:#24313b;padding:9px;font-size:13px;font-weight:700}
   .painter-balances th{font-size:11px;background:#f2f4f6;color:#34424e;padding:8px;text-transform:none;letter-spacing:0;white-space:normal}
-  .painter-balances th:nth-child(1){width:28%}.painter-balances th:nth-child(2){width:18%}.painter-balances th:nth-child(3){width:16%}.painter-balances th:nth-child(4){width:19%}.painter-balances th:nth-child(5){width:19%}
+  .painter-balances th:nth-child(1){width:55%}.painter-balances th:nth-child(2){width:23%}.painter-balances th:nth-child(3){width:22%}
   .painter-balances td{font-size:12px;vertical-align:middle;border:1px solid #cbd2d8;padding:8px;white-space:normal;overflow-wrap:anywhere}
   .painter-balances td.num{font-weight:600;text-align:right}
   .painter-balances small{display:block;font-size:10px;line-height:1.4;color:#68747e;margin:3px 0 0}

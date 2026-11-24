@@ -24,11 +24,11 @@
     document.querySelectorAll('.simple-painter [data-action="week-previous"],.simple-painter [data-action="week-next"],#painterWeek').forEach(el=>el.disabled=painterDirty||painterSaving);
     const payday=$('#painterPayday');if(payday)payday.disabled=painterCellsDirty||painterSaving||O.access==='view'||Boolean(A.forWeek(state,ui.employeeId,state.period));
   }
-  function painterRows(){return Array.from(document.querySelectorAll('#painterWorksheet [data-painter-row]:not([data-closed])')).map(tr=>{const row={id:tr.dataset.painterRow};tr.querySelectorAll('[data-field]').forEach(el=>{row[el.dataset.field]=el.type==='checkbox'?el.checked:el.value});const reference=Array.from(document.querySelectorAll('[data-reference-row]')).find(el=>el.dataset.referenceRow===row.id);reference?.querySelectorAll('[data-ref-field]').forEach(el=>{row[el.dataset.refField]=el.value});return row})}
+  function painterRows(){return Array.from(document.querySelectorAll('#painterWorksheet [data-painter-row]')).map(tr=>{const row={id:tr.dataset.painterRow};tr.querySelectorAll('[data-field]').forEach(el=>{row[el.dataset.field]=el.value});return row})}
   function painterState(){return C.setPayday(state,$('#painterPayday').value)}
   function painterDraft(){return S.draft(painterState(),ui.employeeId,painterRows(),$('#painterAdvance').value,()=>uid('test-unit'))}
   function previewPainter(cellsChanged=true){
-    document.querySelectorAll('[data-painter-row]').forEach(row=>{row.querySelector('[data-field="contract"]').readOnly=row.querySelector('[data-field="contractPending"]').checked});if(cellsChanged)painterCellsDirty=true;
+    document.querySelectorAll('[data-painter-row]').forEach(row=>{const done=row.querySelector('[data-field="retentionStatus"]').value==='retained';row.querySelector('.unit-release-date').hidden=!done;row.querySelector('[data-field="unitReleasedOn"]').required=done});if(cellsChanged)painterCellsDirty=true;
     painterDirty=true;const status=$('#painterEditStatus');status.textContent='Unsaved changes — click Save table.';status.classList.add('worksheet-unsaved');$('#painterWorksheet [data-action="painter-discard"]').hidden=false;
     painterDateControls();
     ['#painterPrint','#painterPdf','#painterRelease'].forEach(id=>$(id).disabled=true);$('#painterSaveMessage').textContent='Unsaved changes — Save table before changing dates, printing, or releasing.';
@@ -36,7 +36,7 @@
       const c=painterDraft();
       $('#painterGross').textContent=peso(c.basic);$('#painterNet').textContent=peso(c.net);$('#painterError').textContent='';
       $('#painterWarnings').innerHTML=c.warnings.map(w=>`<p class="sheet-notice">${esc(w)}</p>`).join('');
-      document.querySelectorAll('[data-reference-row]').forEach(el=>{const row=c.rows.find(r=>r.job.id===el.dataset.referenceRow);if(row)el.querySelector('[data-reference-balance]').textContent=S.balanceText(row,peso)});
+      $('#painterBalances').innerHTML=S.balances({esc,peso},c);
       const tableRows=Array.from(document.querySelectorAll('[data-painter-row]')),knownIds=new Set(tableRows.map(row=>row.dataset.painterRow).filter(Boolean));
       tableRows.forEach(row=>{const r=row.dataset.painterRow?c.rows.find(r=>r.job.id===row.dataset.painterRow):c.rows.find(r=>!knownIds.has(r.job.id));if(r)row.querySelector('[data-row-opening]').textContent=S.balanceText(r,peso,'opening')});
     }catch(error){$('#painterError').textContent=error.message;$('#painterGross').textContent='Review entries';$('#painterNet').textContent='—'}

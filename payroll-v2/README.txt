@@ -34,19 +34,19 @@ Access and privacy
 Workflow
 - Cutoff: Saturday through Friday. Default payday: following Saturday, editable.
 - Painters: edit the table, Save table, then Print, Save as PDF, or Release payslip.
-- Starting an ongoing/retained unit from the old payroll: choose its first BWC
-  week, retain the original agreed labor and enter Settled before BWC once.
-  This covers amounts already settled through the Friday before that week.
-  It reduces the opening balance only; it is not new salary, an Expense, or a
-  new payment. Do not include amounts already recorded in BWC or deduct an
-  already-settled cash advance again. Enter only new pay in Amount this week.
-- Starting amounts may be corrected in the first working week before another
-  week or a released payslip exists. Afterwards they stay locked. Historical
-  rows whose balances are used by later worksheets cannot be silently changed.
-  Existing records without opening amounts continue unchanged.
-- Supabase update 083 adds server checks for these optional starting balances.
-  It does not create/delete payroll records, import old payslips or change roles.
-- Unknown original labor prices: select Agreed price not yet confirmed. Store
+- Unit status replaces the editable Settled before BWC column. Choose Ongoing
+  or Released; Released requires the actual unit release date in the same cell.
+  The row stays in the release week's main table. Later weeks carry ongoing
+  units only; released rows remain read-only references, never new weekly pay.
+- Balance and retained units is read-only and lists released units with a
+  positive balance (or an unknown balance awaiting an agreed labor price).
+  Ongoing and fully paid released units do not appear in that lower table.
+  No automatic retention deductions, release-date arithmetic or payouts.
+- Existing pre-BWC amounts remain stored and validated, but are no longer
+  editable in the normal worksheet. Released payslip snapshots remain locked.
+- Apply Supabase update 086 before deploying the simplified release controls.
+  It adds validation only; it does not clear/import any employee records.
+- Unknown original labor prices: leave Agreed labor blank. Store
   only the actual payment; contract/opening/remaining are null and display
   Pending confirmation in the table, print preview and PDF. Confirming the
   price in a later working week subtracts the previously recorded payments.

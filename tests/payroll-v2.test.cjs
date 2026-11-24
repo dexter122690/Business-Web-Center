@@ -21,11 +21,11 @@ test('retired branch-assignment panel stays absent without changing employee rec
  const state=await window.PayrollOnline.ready;window.PayrollOnline.permissions();window.PayrollOnline.permissions();
  assert.strictEqual(state,loaded.state);assert.deepEqual(loaded,before);assert.equal(label.textContent,'STA. ROSA · Owner');assert.deepEqual(calls.map(c=>c.name),['payroll_v2_apply_reviewed_history','payroll_v2_load']);
  assert.doesNotMatch(source,/Employee profiles awaiting branch assignment|data-assign-employee|payroll_v2_assign_employee/);
- assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261124-pending-contracts/);
+ assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261125-unit-release/);
 });
 test('PDF uses half short bond, peso glyph, all unit rows and prior balance',()=>{
  const PDF=require('../payroll-v2/pdf.js');let n=0,s=S.save(seed(),'painter',[{unit:'Test unit',contract:15000,weekly:3000,work:'Panel repaint'}],500,()=>`test-${++n}`),record=S.savedFor(s,'painter');
- const def=PDF.definition(record),json=JSON.stringify(def);assert.deepEqual(def.pageSize,{width:612,height:396});assert.match(json,/₱3,000.00/);assert.match(json,/₱2,500.00/);assert.match(json,/PREV. RECORDED/);assert.match(json,/BALANCE \/ RETAINED/);assert.match(json,/Test unit/);
+ const def=PDF.definition(record),json=JSON.stringify(def);assert.deepEqual(def.pageSize,{width:612,height:396});assert.match(json,/₱3,000.00/);assert.match(json,/₱2,500.00/);assert.match(json,/PREV. RECORDED/);assert.doesNotMatch(json,/BALANCE \/ RETAINED/);assert.match(json,/Test unit/);
 });
 test('both payslip layouts reserve handwriting space without changing saved data',()=>{
  const vm=require('node:vm'),PDF=require('../payroll-v2/pdf.js');let n=0;
@@ -45,7 +45,7 @@ test('both payslip layouts reserve handwriting space without changing saved data
  const css=fs.readFileSync(path.join(ROOT,'payroll-v2/half-payslip.css'),'utf8'),index=fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8');
  assert.match(css,/\.signature-space\{height:22pt/);assert.match(css,/\.printed-name-space\{height:14pt/);
  assert.ok(index.includes('half-payslip.css?v=20261123-signature-space'));
- for(const asset of ['half-slips.js','pdf.js'])assert.ok(index.includes(asset+'?v=20261124-pending-contracts'));
+ for(const asset of ['half-slips.js','pdf.js'])assert.ok(index.includes(asset+'?v=20261125-unit-release'));
 });
 test('compact PDF summary retains every nonzero adjustment and the original net pay',()=>{
  const PDF=require('../payroll-v2/pdf.js'),snapshot=W.createPayslip(seed(),'daily');
@@ -69,7 +69,7 @@ test('new navigation opens only its own frame and clears it on branch/access cha
  const document={createElement:element,getElementById:id=>nodes[id],querySelector:()=>dash,querySelectorAll:s=>s==='.view'?[nodes.dashboard,nodes.payroll,nodes.payrollV2].filter(Boolean):nodes.nav.children,addEventListener:listen};
  const window={addEventListener:listen,scrollTo(){},getBusinessSupabaseClient:()=>({rpc:async name=>{assert.equal(name,'payroll_v2_role');requests++;return {data:access,error:null}}})};
  vm.runInNewContext(fs.readFileSync(path.join(ROOT,'payroll-v2-online.js'),'utf8'),{window,document,localStorage:{getItem:k=>data[k]},setTimeout:fn=>timers.push(fn),MutationObserver:class{observe(){}},console});
- await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261124-pending-contracts');assert.ok(!nodes.dashboard.classList.contains('active'));
+ await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261125-unit-release');assert.ok(!nodes.dashboard.classList.contains('active'));
  data['bwc-active-branch']=other;access='none';await events['bwc:branch-ready'][0]();assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);assert.ok(nodes.dashboard.classList.contains('active'));
  access='owner';await events.focus[0]();assert.equal(button.hidden,false);button.click();assert.equal(nodes.payrollV2.children.length,1);
  data['bwc-active-business']='another-business';const previous=requests;await events.storage[0]({key:'bwc-active-business'});assert.equal(requests,previous);assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);
@@ -331,6 +331,22 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
   assert.equal((await auth(owner,()=>call('payroll_v2_apply_reviewed_history',[b,r]))).status,'none');
   assert.equal((await auth(owner,()=>call('payroll_v2_load',[b,r]))).revision,loaded.revision);
   assert.equal((await db.query("select count(*)::int n from payroll_v2_events where action='reviewed_history_import'")).rows[0].n,1);
+ });
+ await t.test('unit-release guard is idempotent and prevents paying carried read-only rows',async()=>{
+  const before=(await db.query('select * from payroll_v2_workspaces')).rows;
+  const sql=fs.readFileSync(path.join(ROOT,'supabase/086_payroll_unit_release_flow.sql'),'utf8');await db.exec(sql);await db.exec(sql);
+  assert.deepEqual((await db.query('select * from payroll_v2_workspaces')).rows,before);
+  let loaded=await auth(owner,()=>call('payroll_v2_load',[b,r])),id=0;
+  let next=S.save(W.selectWeek(loaded.state,'2027-01-02'),'painter',[{unit:'Released QA',contract:1000,weekly:300,retentionStatus:'retained',unitReleasedOn:'2027-01-05'}],0,()=>`release-db-${++id}`);
+  loaded=await auth(owner,()=>save(next,loaded.revision));
+  const j=S.savedFor(loaded.state,'painter').snapshot.rows.find(r=>r.job.unit==='Released QA').job;
+  next=S.save(W.selectWeek(loaded.state,'2027-01-09'),'painter',[],0,()=>`release-db-${++id}`);loaded=await auth(owner,()=>save(next,loaded.revision));
+  assert.equal(S.mainRows(S.savedFor(loaded.state,'painter').snapshot).some(r=>r.job.id===j.id),false);
+  for(const mutate of [r=>r.job.unitReleasedOn='',r=>r.job.releasePayrollStart='2027-01-03',r=>{r.weekly=10;r.remaining-=10}]){
+   const bad=structuredClone(loaded.state),sheet=bad.painterTestSheets.find(s=>s.period.start==='2027-01-09');mutate(sheet.snapshot.rows.find(r=>r.job.id===j.id));
+   sheet.snapshot.basic=W.sum(sheet.snapshot.rows,'weekly');sheet.snapshot.net=sheet.snapshot.basic-sheet.snapshot.cashAdvance;
+   await assert.rejects(auth(owner,()=>save(bad,loaded.revision)),/released-unit|date/);
+  }
  });
  await db.close();
 });
