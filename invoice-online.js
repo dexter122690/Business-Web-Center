@@ -45,7 +45,10 @@
   window.bwcPublishInvoiceRefresh=function(type,detail){if(online)publishCrossTabRefresh(type,detail)};
   var invoiceSaving=false,remoteLoadVersion=0;
   function invoiceScope(){return {businessId:businessId||localStorage.getItem('bwc-active-business')||'',branchId:localStorage.getItem('bwc-active-branch')||'',userId:userId,branchName:(document.querySelector('#onlineBranchPicker option:checked')||{}).textContent||''}}
-  function configureOffline(){if(window.BwcInvoiceOffline)window.BwcInvoiceOffline.configure({db:function(){return db},scope:invoiceScope,refresh:loadRemote,saved:function(receipt){document.dispatchEvent(new Event('bwc:cash-updated'));document.dispatchEvent(new Event('bwc:pms-updated'));var detail={remoteId:receipt.invoice_id,invoiceNumber:receipt.invoice_number,edited:false};document.dispatchEvent(new CustomEvent('bwc:invoice-saved',{detail:detail}));publishCrossTabRefresh('invoice-saved',detail)}})}
+  function configureOffline(){
+    if(window.BwcInvoiceSaveActions)window.BwcInvoiceSaveActions.configure({scope:function(){var scope=invoiceScope();return scope.businessId===(localStorage.getItem('bwc-active-business')||'')?scope:null},read:function(scope,id){return readInvoiceForOpen(db,scope.businessId,scope.branchId,id)}});
+    if(window.BwcInvoiceOffline)window.BwcInvoiceOffline.configure({db:function(){return db},scope:invoiceScope,refresh:loadRemote,saved:function(receipt){if(window.BwcInvoiceSaveActions)window.BwcInvoiceSaveActions.confirmed(receipt);document.dispatchEvent(new Event('bwc:cash-updated'));document.dispatchEvent(new Event('bwc:pms-updated'));var detail={remoteId:receipt.invoice_id,invoiceNumber:receipt.invoice_number,edited:false};document.dispatchEvent(new CustomEvent('bwc:invoice-saved',{detail:detail}));publishCrossTabRefresh('invoice-saved',detail)}});
+  }
   function message(text){var box=document.getElementById('invoiceOnlineStatus');if(!box){box=document.createElement('div');box.id='invoiceOnlineStatus';box.className='notice';var view=document.getElementById('invoices');if(view)view.insertBefore(box,view.firstChild)}if(box)box.textContent=text}
   function normalize(row){var services=(row.invoice_services||[]).map(function(s){return {n:s.service_name,d:s.service_detail||'',a:Number(s.amount||0)}}),parts=(row.invoice_parts||[]).map(function(p){var q=Number(p.quantity||0),price=Number(p.unit_price||0);return {n:p.part_name,q:q,p:price,a:q*price}}),payments=(row.invoice_payments||[]).map(function(p){return {date:p.payment_date,amount:Number(p.amount||0),method:p.payment_method||'',reference:p.reference_number||'',notes:p.notes||'',createdAt:p.created_at||''}}),rawWriteoffs=row.invoice_balance_writeoffs,writeoffs=Array.isArray(rawWriteoffs)?rawWriteoffs:(rawWriteoffs?[rawWriteoffs]:[]),writtenOff=writeoffs.reduce(function(sum,item){return sum+Number(item.amount||0)},0);return {id:row.invoice_number,remoteId:row.id,number:'INV-'+String(row.invoice_number).padStart(5,'0'),client:row.client_name,contact:row.contact_number,address:row.client_address,email:row.client_email||'',make:row.vehicle_make,yearModel:row.vehicle_year_model,color:row.vehicle_color,plate:row.plate_number,date:row.invoice_date,release:row.release_date||'',admin:row.assigned_admin,method:row.payment_method,source:row.client_source,services:services,parts:parts,payments:payments,total:Number(row.total_amount||0),paid:Number(row.amount_paid||0),writtenOff:writtenOff,balance:Math.max(0,Number(row.total_amount||0)-Number(row.amount_paid||0)-writtenOff),status:row.status}}
   async function resolveBusiness(){
@@ -188,6 +191,7 @@
   }
   window.createInvoice=async function(){
     if(invoiceSaving)return;invoiceSaving=true;
+    var printTicket=window.BwcInvoiceSaveActions&&window.BwcInvoiceSaveActions.begin();
     try{
     var req=['client','contact','address','make','yearModel','color','plate','invoiceDate','admin','source'];if(req.some(function(x){return !formValue(x)})){alert('Please complete every required field.');return}
     if(!services.length&&!parts.length){alert('Add at least one service or auto part.');return}
@@ -214,7 +218,7 @@
     }
     if(x.isNewInvoice){
       if(!window.BwcInvoiceOffline){alert('Safe invoice saving is not ready. Reload BWC while online; your form has not been cleared.');return}
-      try{var queued=await window.BwcInvoiceOffline.saveNew(x);resetInvoice();setInvoiceFormMode(false);show('invoices');message(queued.invoice.number+' saved on this device. See the upload status above; its permanent invoice number is assigned after upload.');syncOfflineQueue()}catch(error){message(error.message);alert(error.message)}return;
+      try{var queued=await window.BwcInvoiceOffline.saveNew(x);resetInvoice();setInvoiceFormMode(false);show('invoices');message(queued.invoice.number+' saved on this device. See the upload status above; its permanent invoice number is assigned after upload.');if(window.BwcInvoiceSaveActions)window.BwcInvoiceSaveActions.queued(printTicket,queued);syncOfflineQueue()}catch(error){message(error.message);alert(error.message)}return;
     }
     if(!businessId||!localStorage.getItem('bwc-active-branch')){alert('The selected branch is still loading. Please wait a few seconds, then create the invoice again.');return}
     var branchAccess=await confirmInvoiceBranchAccess();if(branchAccess.corrected){alert('Your saved branch was corrected to your assigned branch. The page will now refresh; create the invoice again after it reloads.');location.reload();return}if(branchAccess.error){alert(branchAccess.error);return}

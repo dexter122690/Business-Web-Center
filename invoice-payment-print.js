@@ -19,7 +19,7 @@
     return getInvoices().find(function(item){
       var number=String(item.number||''),itemDigits=number.replace(/^INV-0*/i,'');
       return String(item.id)===value||String(item.remoteId||'')===value||number===value||itemDigits===digits;
-    });
+    })||(window.BwcInvoiceSaveActions&&window.BwcInvoiceSaveActions.find(value));
   }
   function settings(key,fallback){try{return Object.assign({},fallback,JSON.parse(localStorage.getItem(key)||'{}'))}catch(e){return fallback}}
   async function printableLogo(brand,raw){
