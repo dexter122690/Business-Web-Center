@@ -14,6 +14,16 @@ to prevent silent changes to recorded income. Owner void remains audit-preservin
 Existing preview prices are NOT automatically converted to paid records.
 This monitoring update is part of the unshipped 092 local-preview migration.
 
+Timing: a new entry for today's Manila date captures server arrived_at on save.
+The on-screen Manila clock is synchronized with the server, then advances using
+a monotonic clock. Each ongoing unit shows elapsed minutes and seconds, updating
+once per second without database writes. Done saves server completed_at plus
+elapsed_seconds; these remain fixed across reloads, payment and metadata edits.
+Reopen resumes from the ORIGINAL arrival (including the intervening time) and
+the previous Done timestamp/duration remains in audit history. Timed arrival
+dates cannot be edited. No exact arrival time is invented for old/backdated rows;
+they show Not recorded. Timing never changes price, payment date, or income.
+
 Migration 092 adds only carwash_records and carwash_events, their RLS/select grants,
 and two carwash RPCs. No existing records, invoice numbers, cash transactions,
 inventory, payroll, expense or remittance records are changed. No imports occur.

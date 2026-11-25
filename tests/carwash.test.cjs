@@ -1,6 +1,15 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const api=require('../carwash.js'),{setup}=require('./helpers/carwash-db.cjs');
 const root=path.resolve(__dirname,'..'),source=fs.readFileSync(path.join(root,'carwash.js'),'utf8');
+test('Manila clock and elapsed minutes are timezone-safe, live while ongoing, frozen when done',()=>{
+ assert.equal(api.today('2026-11-25T16:01:02Z'),'2026-11-26');assert.match(api.manilaTime('2026-11-25T16:01:02Z'),/12:01:02\s*AM/i);assert.equal(api.manilaTime(null),'Not recorded');
+ const start='2026-11-25T15:59:00Z',ongoing={arrived_at:start,status:'ongoing',elapsed_seconds:null};
+ assert.equal(api.elapsed(ongoing,Date.parse('2026-11-25T16:01:05Z')),125);assert.equal(api.duration(125),'2 min 05 sec');assert.equal(api.duration(3661),'61 min 01 sec');assert.equal(api.duration(null),'Not recorded');assert.equal(api.elapsed({status:'done',arrived_at:null}),null);
+ assert.equal(api.elapsed(ongoing,Date.parse(start)-1000),0);
+ const done={...ongoing,status:'done',elapsed_seconds:125,completed_at:'2026-11-25T16:01:05Z'};assert.equal(api.elapsed(done,Date.parse('2027-01-01')),125);
+ let wall=10000,mono=100;const clock=api.createClock(()=>wall,()=>mono);assert.equal(clock.now(),10000);clock.sync(start);wall+=3600000;mono+=2000;assert.equal(clock.now(),Date.parse(start)+2000);assert.throws(()=>clock.sync('invalid'));
+ assert.match(source,/root\.setInterval\(tick,1000\)/);assert.match(source,/Arrival time \(Manila\)/);assert.match(source,/data-cw-elapsed/);
+});
 test('weekly cutoff is always Saturday–Friday, including month and year boundaries',()=>{
  assert.deepEqual(api.week('2026-11-27'),{from:'2026-11-21',to:'2026-11-27'});assert.deepEqual(api.week('2026-11-28'),{from:'2026-11-28',to:'2026-12-04'});
  assert.deepEqual(api.week('2027-01-01'),{from:'2026-12-26',to:'2027-01-01'});
@@ -96,6 +105,26 @@ test('carwash database transactions and permissions',{skip:!process.env.BWC_PGLI
    await save({action:'void',id:paid.id,revision:reopened.revision});assert.equal(await total(),0);
    await assert.rejects(save({...op,revision:reopened.revision+1}),/Record changed/);
   });
+  await t.test('server timestamps arrival once and freezes elapsed seconds on Done without altering payment',async()=>{
+   await user(ids.editor);
+   const server=(await db.query('select carwash_access($1,$2) value',[ids.business,ids.branch])).rows[0].value;assert.ok(Number.isFinite(Date.parse(server.server_now)));
+   const date=api.today(server.server_now),p={...row(),service_date:date,arrived_at:'1900-01-01',elapsed_seconds:999,completed_at:'1900-01-02'},req=crypto.randomUUID();let entry=await save(p,req);
+   assert.equal(api.today(entry.arrived_at),date);assert.equal(entry.elapsed_seconds,null);assert.equal(entry.completed_at,null);assert.notEqual(entry.arrived_at,p.arrived_at);assert.deepEqual(await save(p,req),entry);
+   entry=await save({...p,revision:entry.revision,price:'100'});assert.equal(entry.arrived_at,(await save(p,req)).arrived_at);
+   await assert.rejects(save({...p,revision:entry.revision,service_date:'2025-01-01'}),/arrival date and time are locked/);
+   const paid=await save({action:'paid',id:entry.id,revision:entry.revision,payment_date:date});assert.equal(paid.arrived_at,entry.arrived_at);assert.equal(paid.elapsed_seconds,null);assert.equal(paid.status,'ongoing');
+   // Local fixture clock only: represent a visit that began 2 minutes 5 seconds ago.
+   await db.query("update carwash_records set arrived_at=clock_timestamp()-interval '125 seconds',service_date=((clock_timestamp()-interval '125 seconds') at time zone 'Asia/Manila')::date where id=$1",[entry.id]);
+   const op={action:'done',id:entry.id,revision:paid.revision,elapsed_seconds:999999,completed_at:'1900-01-01'},doneReq=crypto.randomUUID(),done=await save(op,doneReq);
+   assert.equal(done.status,'done');assert.ok(done.elapsed_seconds>=125&&done.elapsed_seconds<130);assert.ok(Date.parse(done.completed_at)>Date.parse(done.arrived_at));assert.equal(done.payment_date,paid.payment_date);assert.equal(done.price,100);assert.deepEqual(await save(op,doneReq),done);
+   await assert.rejects(save(op),/Record changed/);
+   const edited=await save({...p,service_date:done.service_date,revision:done.revision,unit:'Timer test edited',price:'100'});assert.equal(edited.elapsed_seconds,done.elapsed_seconds);assert.equal(edited.completed_at,done.completed_at);assert.equal(edited.arrived_at,done.arrived_at);
+   const reopened=await save({action:'reopen',id:done.id,revision:edited.revision});assert.equal(reopened.arrived_at,done.arrived_at);assert.equal(reopened.completed_at,null);assert.equal(reopened.elapsed_seconds,null);assert.equal(reopened.payment_date,done.payment_date);
+   const again=await save({action:'done',id:done.id,revision:reopened.revision});assert.ok(again.elapsed_seconds>=done.elapsed_seconds);assert.equal(again.arrived_at,done.arrived_at);
+   const audit=(await db.query('select after_record from carwash_events where request_id=$1',[doneReq])).rows[0].after_record;assert.equal(audit.elapsed_seconds,done.elapsed_seconds);assert.equal(audit.completed_at,done.completed_at);
+   const historic=await save({...row(),arrived_at:'2025-11-21T08:00:00Z'});assert.equal(historic.arrived_at,null);const historicDone=await save({action:'done',id:historic.id,revision:historic.revision});assert.equal(historicDone.elapsed_seconds,null);assert.ok(historicDone.completed_at);
+   await user(ids.viewer);await assert.rejects(save({action:'done',id:reopened.id,revision:again.revision}),/edit access/);await user(ids.owner);
+  });
   await t.test('preview migration can be re-run without clearing entries or completion state',async()=>{
    const before=(await db.query('select * from carwash_records order by id')).rows;
    await db.exec(fs.readFileSync(path.join(root,'supabase/092_carwash_records.sql'),'utf8'));
@@ -107,7 +136,7 @@ test('carwash database transactions and permissions',{skip:!process.env.BWC_PGLI
 });
 test('app assets and income reports include CARWASH without printing, invoicing, or cash mutation',()=>{
  const html=fs.readFileSync(path.join(root,'index.html'),'utf8'),worker=fs.readFileSync(path.join(root,'sw.js'),'utf8');
- for(const asset of ['carwash.js?v=20261125-carwash-payment','reporting-online.js?v=20261125-carwash-payment','executive-print.js?v=20261125-carwash','vertical-layout.js?v=20261125-carwash']){assert.ok(html.includes(asset));assert.ok(worker.includes(asset))}
+ for(const asset of ['carwash.js?v=20261125-carwash-timer','reporting-online.js?v=20261125-carwash-payment','executive-print.js?v=20261125-carwash','vertical-layout.js?v=20261125-carwash']){assert.ok(html.includes(asset));assert.ok(worker.includes(asset))}
  assert.doesNotMatch(source,/\.print\(|create_invoice|cash_transactions|invoice_payments/);assert.match(source,/bwc:carwash-updated/);assert.match(source,/save_carwash_record/);
  new vm.Script(source);new vm.Script(worker);
  const reporting=fs.readFileSync(path.join(root,'reporting-online.js'),'utf8');assert.doesNotMatch(reporting,/paid=paid\.concat\(carwash/);assert.match(reporting,/var sales=receiptRows\.filter/);
