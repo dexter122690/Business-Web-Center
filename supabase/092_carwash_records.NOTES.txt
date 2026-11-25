@@ -1,6 +1,12 @@
 CARWASH — deployment notes
-Status: LOCAL PREVIEW ONLY. Owner chose "Local preview muna" on 2026-11-25.
-Do not apply to production or publish this frontend without new approval.
+Status: Owner approved BWC launch on 2026-11-25, superseding the local-only preview.
+Apply migration 092 before publishing. Place CARWASH directly below Dashboard.
+Do not import sample preview records. Verify production setup and frontend after deployment.
+Live setup verified 2026-11-25: migration 092 succeeded in business-web-center.
+Both new tables were empty; RLS enabled; access/save RPCs present; direct authenticated
+inserts and anonymous saves denied. Local integration verified PHP 150 payment adds
+exactly PHP 150 to Dashboard cash received, while invoice totals and CIB stay unchanged.
+Full regression suite: 422 passed, no failures or skipped tests.
 
 Owner decision: carwash services are NOT entered again in Invoice Making.
 New units require a positive price upon arrival and default to Ongoing + Unpaid.
@@ -15,7 +21,7 @@ today (Asia/Manila). No payment before arrival or in the future is allowed.
 The original row date remains arrival date. Paid price and arrival date are locked
 to prevent silent changes to recorded income. Owner void remains audit-preserving.
 Existing preview prices are NOT automatically converted to paid records.
-This monitoring update is part of the unshipped 092 local-preview migration.
+The dedicated tab survives BWC's load-time menu rebuild without changing other tabs.
 
 Timing: a new entry for today's Manila date captures server arrived_at on save.
 The on-screen Manila clock is synchronized with the server, then advances using
@@ -44,8 +50,7 @@ explicitly confirmed active payments once, grouped as Carwash income, based on
 payment date and selected branch/period. Arrival-month lists remain separate.
 It does not add to the CIB cash-in-hand card (payment method is not collected).
 
-Apply the additive migration before publishing the new frontend. Review the
-production scope with the owner before running it. If not installed, the CARWASH
+Apply the additive migration before publishing the new frontend. If not installed, the CARWASH
 screen stays read-only with a setup message and old dashboard receipts continue.
 To roll back the UI, deploy the previous frontend; preserve these new tables.
 Never drop the tables to roll back once real records exist.

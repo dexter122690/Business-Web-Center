@@ -1,6 +1,17 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const api=require('../carwash.js'),{setup}=require('./helpers/carwash-db.cjs');
 const root=path.resolve(__dirname,'..'),source=fs.readFileSync(path.join(root,'carwash.js'),'utf8');
+test('carwash tab survives BWC load-time navigation replacement directly below Dashboard',()=>{
+ const dashboard={id:'dashboard'},invoice={id:'invoice'},carwash={id:'carwash',hidden:true,onclick(){return 'carwash'}};
+ let callback;const nav={children:[dashboard,invoice],contains(item){return this.children.includes(item)},querySelector(){return this.children.find(x=>x.id==='dashboard')},get firstChild(){return this.children[0]},insertBefore(item,before){const old=this.children.indexOf(item);if(old>=0)this.children.splice(old,1);const index=this.children.indexOf(before);this.children.splice(index<0?this.children.length:index,0,item)}};
+ Object.defineProperty(dashboard,'nextSibling',{get(){return nav.children[nav.children.indexOf(dashboard)+1]||null}});
+ class Observer{constructor(fn){callback=fn}observe(target,options){assert.equal(target,nav);assert.deepEqual(options,{childList:true})}}
+ const click=carwash.onclick;api.retainTab(nav,carwash,Observer);assert.deepEqual(nav.children,[dashboard,carwash,invoice]);
+ nav.children=[dashboard,invoice];callback();assert.deepEqual(nav.children,[dashboard,carwash,invoice]);callback();assert.equal(nav.children.filter(x=>x===carwash).length,1);
+ assert.equal(carwash.onclick,click);assert.equal(carwash.hidden,true);
+ assert.ok(source.includes("doc.querySelectorAll('#nav button').forEach(t=>t.classList.toggle('active',t===tab))"));
+ assert.ok(!source.includes("root.show('carwash')"));
+});
 test('Manila clock and elapsed minutes are timezone-safe, live while ongoing, frozen when done',()=>{
  assert.equal(api.today('2026-11-25T16:01:02Z'),'2026-11-26');assert.match(api.manilaTime('2026-11-25T16:01:02Z'),/12:01:02\s*AM/i);assert.equal(api.manilaTime(null),'Not recorded');
  const start='2026-11-25T15:59:00Z',ongoing={arrived_at:start,status:'ongoing',elapsed_seconds:null};
@@ -165,7 +176,7 @@ test('carwash database transactions and permissions',{skip:!process.env.BWC_PGLI
 });
 test('app assets and income reports include CARWASH without printing, invoicing, or cash mutation',()=>{
  const html=fs.readFileSync(path.join(root,'index.html'),'utf8'),worker=fs.readFileSync(path.join(root,'sw.js'),'utf8');
- for(const asset of ['carwash.js?v=20261125-carwash-required-price','reporting-online.js?v=20261125-carwash-payment','executive-print.js?v=20261125-carwash','vertical-layout.js?v=20261125-carwash']){assert.ok(html.includes(asset));assert.ok(worker.includes(asset))}
+ for(const asset of ['carwash.js?v=20261125-carwash-launch','reporting-online.js?v=20261125-carwash-payment','executive-print.js?v=20261125-carwash','vertical-layout.js?v=20261125-carwash-launch']){assert.ok(html.includes(asset));assert.ok(worker.includes(asset))}
  assert.doesNotMatch(source,/\.print\(|create_invoice|cash_transactions|invoice_payments/);assert.match(source,/bwc:carwash-updated/);assert.match(source,/save_carwash_record/);
  new vm.Script(source);new vm.Script(worker);
  const reporting=fs.readFileSync(path.join(root,'reporting-online.js'),'utf8');assert.doesNotMatch(reporting,/paid=paid\.concat\(carwash/);assert.match(reporting,/var sales=receiptRows\.filter/);

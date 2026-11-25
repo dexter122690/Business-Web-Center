@@ -44,6 +44,10 @@
   }
  }
  async function reportRows(db,scope){try{return {rows:await read(db,scope),available:true}}catch(error){if(missing(error))return {rows:[],available:false};throw error}}
+ function retainTab(nav,tab,Observer){
+  function ensure(){if(nav.contains(tab))return;var dashboard=nav.querySelector('[data-t="dashboard"],[data-restore-tab="dashboard"]');nav.insertBefore(tab,dashboard?dashboard.nextSibling:nav.firstChild)}
+  ensure();if(Observer){var observer=new Observer(ensure);observer.observe(nav,{childList:true});return observer}return null;
+ }
  function mount(root){
   var doc=root.document,box,tab,rows=[],access={},currentScope='',version=0,busy=false,activeSave=null,editing=null,pending=null,dirty=false,cancelConfirm=null;
   var now=today(),year=Number(now.slice(0,4)),month=Number(now.slice(5,7)),mode='records',notice='';
@@ -107,10 +111,10 @@
   }
   function install(){
    var nav=doc.getElementById('nav'),main=doc.querySelector('main');if(!nav||!main)return;
-   tab=doc.createElement('button');tab.type='button';tab.dataset.t='carwash';tab.id='carwashTab';tab.textContent='CARWASH';nav.appendChild(tab);
+   tab=doc.createElement('button');tab.type='button';tab.dataset.t='carwash';tab.id='carwashTab';tab.textContent='CARWASH';retainTab(nav,tab,root.MutationObserver);
    box=doc.createElement('section');box.id='carwash';box.className='view';main.appendChild(box);
    var style=doc.createElement('style');style.textContent='#carwash .cw-monitor{margin:0 0 22px}#carwash .cw-monitor-heading{font-size:13px;color:#75645d;margin-bottom:10px}#carwash .cw-monitor-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}#carwash .cw-monitor-card{border:1px solid #e7d7d0;border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;gap:6px}#carwash .cw-monitor-card>span{font-size:14px;font-weight:700}#carwash .cw-monitor-card strong{font-size:34px;line-height:1.15;font-variant-numeric:tabular-nums}#carwash .cw-monitor-card small{font-size:12px}#carwash .cw-heading,#carwash .cw-filters,#carwash .cw-actions,#carwash .cw-summary{display:flex;align-items:center;gap:12px;flex-wrap:wrap}#carwash .cw-heading{justify-content:space-between}#carwash .cw-filters label{min-width:110px}#carwash .cw-filters input{max-width:110px}#carwash .cw-entry{display:grid;grid-template-columns:1fr 1.3fr 1.5fr 1.3fr 1fr;gap:12px}#carwash .cw-entry label{display:flex;flex-direction:column;gap:5px;min-width:0}#carwash .cw-entry input{box-sizing:border-box;width:100%;min-width:0}#carwash .cw-actions{margin:12px 0 20px}#carwash .cw-table{overflow-x:auto}#carwash table{width:100%;border-collapse:collapse}#carwash th,#carwash td{padding:12px;border-bottom:1px solid #e7d7d0;text-align:left}#carwash td:nth-child(4),#carwash th:nth-child(4){text-align:right;white-space:nowrap}#carwash tfoot{background:#fff1e9}#carwash tfoot th{font-size:14px}#carwash tfoot th:last-of-type{text-align:right}#carwash button[type="submit"]{background:#ff5219;color:white;border:0;border-radius:8px;padding:12px 22px;font-size:14px;font-weight:700}#carwash .cw-summary{margin:20px 0}#carwash .cw-clock,#carwash .cw-elapsed,#cwLiveClock{white-space:nowrap;font-variant-numeric:tabular-nums}#carwash .cw-elapsed{font-weight:700}#carwash .cw-heading h1{margin-bottom:4px}#carwash .cw-entry small{display:block;font-size:11px;margin-top:5px;color:#75645d}#carwash table{min-width:970px}#carwash .cw-row-actions{display:flex;gap:6px;flex-wrap:wrap}#carwash .cw-status{display:inline-block;padding:5px 10px;border-radius:20px;font-weight:700;white-space:nowrap}#carwash .cw-ongoing{background:#fff0ca;color:#715000}#carwash .cw-done{background:#dff3e8;color:#16633a}#carwash [data-cw="paid"]{background:#16633a;color:white;border-color:#16633a}#carwash #carwashNotice{min-height:20px}#carwash button:disabled{opacity:.5;cursor:wait}#carwash input[readonly]{background:#f2efed;color:#665e59}@media(max-width:900px){#carwash .cw-entry{grid-template-columns:1fr 1fr}}@media(max-width:420px){#carwash .cw-entry{grid-template-columns:1fr}}';doc.head.appendChild(style);
-   tab.addEventListener('click',function(){if(typeof root.show==='function')root.show('carwash');else{doc.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v===box));doc.querySelectorAll('#nav [data-t]').forEach(t=>t.classList.toggle('active',t===tab))}if(!dirty&&!busy)load()});
+   tab.addEventListener('click',function(){if(tab.hidden)return;doc.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v===box));doc.querySelectorAll('#nav button').forEach(t=>t.classList.toggle('active',t===tab));if(!dirty&&!busy)load()});
    box.addEventListener('input',e=>{if(e.target.closest('#cwForm')){dirty=true;if(e.target.name==='service_date')arrivalDateEdited=true;tick()}});box.addEventListener('submit',save);
    box.addEventListener('change',async function(e){if(!['cwMonth','cwYear'].includes(e.target.id))return;if(busy||!await discard()){doc.getElementById('cwMonth').value=String(month);doc.getElementById('cwYear').value=String(year);return}try{monthRange(doc.getElementById('cwYear').value,doc.getElementById('cwMonth').value);year=Number(doc.getElementById('cwYear').value);month=Number(doc.getElementById('cwMonth').value);load()}catch(error){message(error.message)}});
    box.addEventListener('click',async function(e){var b=e.target.closest('[data-cw]');if(!b||busy)return;var act=b.dataset.cw;
@@ -130,5 +134,5 @@
   }
   if(doc.readyState==='loading')doc.addEventListener('DOMContentLoaded',install,{once:true});else install();
  }
- return {today:today,manilaTime:manilaTime,elapsed:elapsed,duration:duration,createClock:createClock,week:week,monthRange:monthRange,summarize:summarize,sum:sum,paid:paid,paymentDate:paymentDate,payload:payload,read:read,reportRows:reportRows,mount:mount};
+ return {today:today,manilaTime:manilaTime,elapsed:elapsed,duration:duration,createClock:createClock,week:week,monthRange:monthRange,summarize:summarize,sum:sum,paid:paid,paymentDate:paymentDate,payload:payload,read:read,reportRows:reportRows,retainTab:retainTab,mount:mount};
 });

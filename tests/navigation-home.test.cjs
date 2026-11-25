@@ -45,15 +45,17 @@ test('Forms follows Client Requests including late tabs, preserving handlers, vi
  assert.deepEqual(nav.children,[dashboard,invoices,schedule,forms]);
  const requests=make('','clientRequestsTab');nav.children.push(requests);observer.callback();
  assert.deepEqual(nav.children,[dashboard,invoices,schedule,requests,forms]);
+ const carwash=make('carwash','carwashTab');nav.children.push(carwash);observer.callback();
+ assert.deepEqual(nav.children,[dashboard,carwash,invoices,schedule,requests,forms]);
  handlers.load();observer.callback();
- assert.deepEqual(nav.children,[dashboard,invoices,schedule,requests,forms]);
+ assert.deepEqual(nav.children,[dashboard,carwash,invoices,schedule,requests,forms]);
  assert.strictEqual(forms.onclick,click);assert.equal(forms.onclick(),'formsFolderTab');
  assert.equal(invoices.classList.contains('active'),true);assert.equal(dashboard.hidden,true);assert.strictEqual(sidebar.footer,footer);
 });
 
 test('changed sidebar asset is versioned in the page and refreshed offline cache',()=>{
  const worker=read('sw.js');
- for(const source of [html,worker])assert.ok(source.includes('vertical-layout.js?v=20261125-carwash'));
+ for(const source of [html,worker])assert.ok(source.includes('vertical-layout.js?v=20261125-carwash-launch'));
  const version=worker.match(/bwc-invoice-offline-v(\d+)/)[1];assert.ok(Number(version)>=32);assert.ok(worker.includes('version:'+version));
  new vm.Script(read('vertical-layout.js'));new vm.Script(worker);
 });

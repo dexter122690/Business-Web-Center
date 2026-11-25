@@ -1,4 +1,4 @@
--- Separate carwash monitoring and receipts. LOCAL PREVIEW ONLY; not yet deployed.
+-- Separate carwash monitoring and receipts. Additive BWC launch migration.
 begin;
 
 create table if not exists public.carwash_records (
