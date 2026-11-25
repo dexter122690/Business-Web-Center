@@ -24,10 +24,11 @@
     document.querySelectorAll('.simple-painter [data-action="week-previous"],.simple-painter [data-action="week-next"],#painterWeek').forEach(el=>el.disabled=painterDirty||painterSaving);
     const payday=$('#painterPayday');if(payday)payday.disabled=painterCellsDirty||painterSaving||O.access==='view'||Boolean(A.forWeek(state,ui.employeeId,state.period));
   }
-  function painterRows(){return Array.from(document.querySelectorAll('#painterWorksheet [data-painter-row]')).map(tr=>{const row={id:tr.dataset.painterRow,linkJobId:tr.dataset.linkJobId||""};tr.querySelectorAll('[data-field]').forEach(el=>{row[el.dataset.field]=el.value});return row})}
+  function painterRows(){return Array.from(document.querySelectorAll('#painterWorksheet [data-painter-row]')).map(tr=>{const row={id:tr.dataset.painterRow,linkJobId:tr.dataset.linkJobId||"",workItems:Array.from(tr.querySelectorAll('[data-job-item]')).map(item=>({description:item.querySelector('[data-job-description]').value,amount:item.querySelector('[data-job-amount]').value}))};tr.querySelectorAll('[data-field]').forEach(el=>{row[el.dataset.field]=el.value});return row})}
   function painterState(){return C.setPayday(state,$('#painterPayday').value)}
   function painterDraft(){return S.draft(painterState(),ui.employeeId,painterRows(),$('#painterAdvance').value,()=>uid('test-unit'))}
   function previewPainter(cellsChanged=true){
+    document.querySelectorAll('[data-painter-row]').forEach(row=>{const amounts=Array.from(row.querySelectorAll('[data-job-amount]')).map(el=>el.value===''?0:Number(el.value));row.querySelector('[data-field="weekly"]').value=amounts.every(n=>Number.isFinite(n)&&n>=0)?C.money(amounts.reduce((total,n)=>total+C.cents(n),0)/100)||'':''});
     document.querySelectorAll('[data-painter-row]').forEach(row=>{const done=row.querySelector('[data-field="retentionStatus"]').value==='retained';row.querySelector('.unit-release-date').hidden=!done;row.querySelector('[data-field="unitReleasedOn"]').required=done});if(cellsChanged)painterCellsDirty=true;
     painterDirty=true;const status=$('#painterEditStatus');status.textContent='Unsaved changes — click Save table.';status.classList.add('worksheet-unsaved');$('#painterWorksheet [data-action="painter-discard"]').hidden=false;
     painterDateControls();
@@ -52,11 +53,22 @@
     if(!event.target.value)return;
     try{const r=S.linkedRow(state,ui.employeeId,event.target.value);tr.dataset.linkJobId=r.job.id;
       tr.querySelectorAll('[data-field]').forEach(el=>{const k=el.dataset.field;el.value=k==='weekly'?'':k==='retentionStatus'?(S.isReleased(r.job)?'retained':'ongoing'):(r.job[k]??'')});
+      tr.querySelector('[data-job-items]').innerHTML=S.jobItemsEditor(S.workItems(r),'New unit',esc);
       previewPainter();
     }catch(error){event.target.value='';$('#painterError').textContent=error.message}
     return;
   }if(event.target.id==='painterWeek'){if(!discardPainter()||!C.validDate(event.target.value)){event.target.value=state.period.start;return}changeWeek(event.target.value)}});
   document.addEventListener('click',async event=>{if(event.target.closest('[data-action="painter-discard"]')&&!painterSaving){painterDirty=false;painterCellsDirty=false;render();event.preventDefault();event.stopImmediatePropagation();return}if((painterDirty||painterSaving)&&event.target.closest('[data-action],[data-view],.brand,[data-person],[data-paytype]')&&!discardPainter()){event.preventDefault();event.stopImmediatePropagation()}},true);
+  document.addEventListener('click',event=>{
+    const control=event.target.closest('[data-job-add],[data-job-remove]');if(!control)return;
+    event.preventDefault();if(painterSaving||O.busy||O.access==='view'||control.disabled)return;
+    const tr=control.closest('[data-painter-row]'),list=tr.querySelector('[data-job-items]');
+    const items=Array.from(list.querySelectorAll('[data-job-item]')).map(el=>({description:el.querySelector('[data-job-description]').value,amount:el.querySelector('[data-job-amount]').value}));
+    if(control.hasAttribute('data-job-add')){if(items.length>=30){notify('Use up to 30 job lines per unit.');return}items.push({description:'',amount:0})}
+    else items.splice(Array.from(list.children).indexOf(control.closest('[data-job-item]')),1);
+    const unit=tr.querySelector('[data-field="unit"]').value,plate=tr.querySelector('[data-field="plate"]').value;
+    list.innerHTML=S.jobItemsEditor(items,tr.dataset.painterRow?unit+' '+plate:'New unit',esc);previewPainter();
+  });
   document.addEventListener('submit',async event=>{
     if(event.target.id==='painterWorksheet'){
       event.preventDefault();if(painterSaving)return;

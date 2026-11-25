@@ -1,0 +1,34 @@
+Itemized weekly painter job amounts
+
+Deploy 089 after 088, before publishing frontend version 20261125-job-items.
+Applied and verified in BWC production on November 25, 2026. Workspace and
+stored-file hashes matched before/after; the new save validation is active.
+This migration changes validation only, not payroll data or access permissions.
+
+Behavior
+- Each unit has job descriptions with an amount for each job and a + Job button.
+- Amount this week is read-only and automatically sums those amounts in centavos.
+- Up to 30 job lines per unit; descriptions are required beside nonzero amounts.
+- Agreed labor stays separate and cross-date overpayment guards still apply.
+- Each week's itemization is saved with its worksheet. Next-week descriptions
+  carry forward with zero amounts; staff must enter the next week's payment.
+- Legacy free text and its saved weekly total remain a single unitemized line
+  until edited. Prices are never guessed or parsed from old descriptions.
+- Save updates one working worksheet; released copies/PDFs remain immutable.
+- Print and PDF show each weekly job description and amount. The retained-units
+  section remains a balance reference, not a second list of weekly payments.
+- Older clients cannot silently remove an existing worksheet's itemized lines.
+- Other BWC modules and employee profile data are unchanged.
+
+Verification
+- 332 automated tests passed, including PostgreSQL save/reload and tamper checks.
+- Browser checked add/remove lines, automatic total 4,625, Save, date navigation,
+  zero amounts next week, and rejection above the remaining agreed labor.
+- A blank new-unit row does not block saving another unit's itemized amounts.
+- Fictional four-job and thirty-job PDF examples rendered and visually checked
+  on half-short pages; all jobs, amounts, totals and signature areas are readable.
+- No fictional records were inserted into the production database.
+
+Publishing
+Push the prepared local commits from GitHub Desktop, then refresh BWC after the
+site deploys. The database validation update has already been applied.

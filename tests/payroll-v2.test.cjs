@@ -21,7 +21,7 @@ test('retired branch-assignment panel stays absent without changing employee rec
  const state=await window.PayrollOnline.ready;window.PayrollOnline.permissions();window.PayrollOnline.permissions();
  assert.strictEqual(state,loaded.state);assert.deepEqual(loaded,before);assert.equal(label.textContent,'STA. ROSA · Owner');assert.deepEqual(calls.map(c=>c.name),['payroll_v2_apply_reviewed_history','payroll_v2_load']);
  assert.doesNotMatch(source,/Employee profiles awaiting branch assignment|data-assign-employee|payroll_v2_assign_employee/);
- assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261125-cross-date/);
+ assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261125-job-items/);
 });
 test('PDF uses half short bond, peso glyph, all unit rows and prior balance',()=>{
  const PDF=require('../payroll-v2/pdf.js');let n=0,s=S.save(seed(),'painter',[{unit:'Test unit',contract:15000,weekly:3000,work:'Panel repaint'}],500,()=>`test-${++n}`),record=S.savedFor(s,'painter');
@@ -45,7 +45,7 @@ test('both payslip layouts reserve handwriting space without changing saved data
  const css=fs.readFileSync(path.join(ROOT,'payroll-v2/half-payslip.css'),'utf8'),index=fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8');
  assert.match(css,/\.signature-space\{height:22pt/);assert.match(css,/\.printed-name-space\{height:14pt/);
  assert.ok(index.includes('half-payslip.css?v=20261123-signature-space'));
- for(const asset of ['half-slips.js','pdf.js'])assert.ok(index.includes(asset+'?v=20261125-cross-date'));
+ for(const asset of ['half-slips.js','pdf.js'])assert.ok(index.includes(asset+'?v=20261125-job-items'));
 });
 test('compact PDF summary retains every nonzero adjustment and the original net pay',()=>{
  const PDF=require('../payroll-v2/pdf.js'),snapshot=W.createPayslip(seed(),'daily');
@@ -69,7 +69,7 @@ test('new navigation opens only its own frame and clears it on branch/access cha
  const document={createElement:element,getElementById:id=>nodes[id],querySelector:()=>dash,querySelectorAll:s=>s==='.view'?[nodes.dashboard,nodes.payroll,nodes.payrollV2].filter(Boolean):nodes.nav.children,addEventListener:listen};
  const window={addEventListener:listen,scrollTo(){},getBusinessSupabaseClient:()=>({rpc:async name=>{assert.equal(name,'payroll_v2_role');requests++;return {data:access,error:null}}})};
  vm.runInNewContext(fs.readFileSync(path.join(ROOT,'payroll-v2-online.js'),'utf8'),{window,document,localStorage:{getItem:k=>data[k]},setTimeout:fn=>timers.push(fn),MutationObserver:class{observe(){}},console});
- await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261125-cross-date');assert.ok(!nodes.dashboard.classList.contains('active'));
+ await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261125-job-items');assert.ok(!nodes.dashboard.classList.contains('active'));
  data['bwc-active-branch']=other;access='none';await events['bwc:branch-ready'][0]();assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);assert.ok(nodes.dashboard.classList.contains('active'));
  access='owner';await events.focus[0]();assert.equal(button.hidden,false);button.click();assert.equal(nodes.payrollV2.children.length,1);
  data['bwc-active-business']='another-business';const previous=requests;await events.storage[0]({key:'bwc-active-business'});assert.equal(requests,previous);assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);
@@ -428,6 +428,26 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
   const bad=structuredClone(loaded.state),earlier=bad.painterTestSheets.find(s=>s.period.start==='2026-11-07');earlier.snapshot.rows[0].weekly=2000;earlier.snapshot.rows[0].remaining=8000;earlier.snapshot.basic=2000;earlier.snapshot.net=2000;
   await assert.rejects(persist(bad,loaded.revision),/other dates|released payslip|locked/);
   assert.equal((await db.query("select has_function_privilege('authenticated','payroll_v2_check_cross_date(jsonb,jsonb)','execute') allowed")).rows[0].allowed,false);
+ });
+ await t.test('job items persist online, validate totals, preserve older records, and cannot be stripped by old clients',async()=>{
+  const before=(await db.query('select * from payroll_v2_workspaces order by business_id,branch_id')).rows;
+  const sql=fs.readFileSync(path.join(ROOT,'supabase/089_payroll_job_items.sql'),'utf8');await db.exec(sql);await db.exec(sql);
+  assert.deepEqual((await db.query('select * from payroll_v2_workspaces order by business_id,branch_id')).rows,before);
+  const branch='10000000-0000-4000-8000-000000000089';await db.query('insert into branches values($1,$2,$3,true)',[branch,b,'ITEMIZED TEST']);
+  let n=0;const uid=()=>`items-db-${++n}`,persist=(state,rev,files=[])=>auth(owner,()=>call('payroll_v2_save',[b,branch,rev,JSON.stringify(state),JSON.stringify(files)]));
+  let loaded=await auth(owner,()=>call('payroll_v2_load',[b,branch]));
+  let state=S.save(W.selectWeek(seed(),'2026-11-21'),'painter',[{unit:'Fictional itemized unit',contract:10000,workItems:[{description:'Repair bumper',amount:1125},{description:'Paint cover',amount:700},{description:'Paint tailgate',amount:1000},{description:'Repair compartment',amount:1800}]}],200,uid);
+  loaded=await persist(state,loaded.revision);assert.deepEqual(S.validate(loaded.state),[]);assert.equal(S.savedFor(loaded.state,'painter').snapshot.net,4425);
+  for(const edit of [r=>r.workItems[0].amount=1,r=>r.workItems[0].amount=-1,r=>r.workItems[0].amount='1125',r=>r.workItems[0].description='',r=>r.workItems[0].description='Changed',r=>delete r.workItems,r=>r.workItems=null,r=>r.workItems[0].extra='bad']){
+   const bad=structuredClone(loaded.state);edit(bad.painterTestSheets[0].snapshot.rows[0]);await assert.rejects(persist(bad,loaded.revision),/job|amount|numeric|description|itemized/);
+  }
+  state=S.save(W.selectWeek(loaded.state,'2026-11-28'),'painter',[],0,uid);loaded=await persist(state,loaded.revision);
+  const current=S.savedFor(loaded.state,'painter');assert.equal(current.snapshot.rows[0].workItems.length,4);assert.equal(current.snapshot.basic,0);assert.deepEqual(S.validate(loaded.state),[]);
+  const id=current.snapshot.rows[0].job.id;state=S.save(loaded.state,'painter',[{id,workItems:[{description:'Next stage',amount:1000}]}],0,uid);loaded=await persist(state,loaded.revision);assert.equal(S.savedFor(loaded.state,'painter').snapshot.rows[0].remaining,4375);
+  state=A.release(loaded.state,S.savedFor(loaded.state,'painter').id,'itemized-released','2026-12-05');loaded=await persist(state,loaded.revision,[{id:'itemized-released',kind:'pdf',dataUrl:'data:application/pdf;base64,JVBERi0xLjQ='}]);
+  const changed=structuredClone(loaded.state),rw=changed.painterTestSheets.at(-1).snapshot.rows[0];rw.workItems[0].description='Cannot rewrite released job';rw.job.work=rw.workItems[0].description;changed.painterTestSheets.at(-1).snapshot.jobs=changed.painterTestSheets.at(-1).snapshot.rows.map(r=>r.job);
+  await assert.rejects(persist(changed,loaded.revision),/Released|released|locked/);
+  assert.equal((await db.query("select has_function_privilege('authenticated','payroll_v2_check_job_items(jsonb,jsonb)','execute') allowed")).rows[0].allowed,false);
  });
  await db.close();
 });

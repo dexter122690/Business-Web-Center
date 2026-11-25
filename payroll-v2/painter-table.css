@@ -75,3 +75,14 @@
 .painter-table .pending-contract input[type=checkbox]{width:14px;min-width:14px;height:14px;margin:1px 0;padding:0;flex:0 0 14px}
 .painter-table input[readonly]{background:#f2f4f6;color:#64748b}
 #painterExistingJob{max-width:100%;margin:0 0 10px;font:inherit}
+.painter-table .sheet-jobs{padding:0}
+.painter-table .job-item{display:grid;grid-template-columns:minmax(0,1fr) 68px 22px;border-bottom:1px solid #e1e6eb;align-items:start}
+.painter-table .job-item textarea{font-size:12px;height:64px;min-height:48px;padding:6px}
+.painter-table .job-item label{min-width:0;border-left:1px solid #e1e6eb;margin:0}
+.painter-table .job-item label span{display:block;font-size:9px;color:#617080;padding:3px 3px 0;text-align:right}
+.painter-table .job-item input{font-size:12px;padding:5px 3px;text-align:right}
+.painter-table .job-add,.painter-table .job-remove{border:0;background:transparent;color:#365a70;min-height:28px;padding:3px 6px;font-size:12px;cursor:pointer}
+.painter-table .job-remove{color:#9a3a2b;padding:3px;font-size:16px}
+.painter-table .job-add:disabled,.painter-table .job-remove:disabled{opacity:.45;cursor:not-allowed}
+.painter-table .sheet-pay input[readonly]{background:transparent;color:#1d2730}
+@media screen{.painter-table th:nth-child(1){width:14%}.painter-table th:nth-child(2){width:12%}.painter-table th:nth-child(3){width:7%}.painter-table th:nth-child(4){width:22%}.painter-table th:nth-child(8){width:11%}}

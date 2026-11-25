@@ -15,7 +15,7 @@
     if(c.simpleTest){
       const headings=['Unit / year','Invoice / plate','Color','Job order','Agreed labor','Previous recorded','Balance before','This week'];
       const visible=window.SimplePainter.mainRows(c);
-      for(const r of visible)out.push(tableRow('WEEKLY LABOR — AMOUNTS IN ₱',headings,[r.job.unit+'\n'+(r.job.year||''),[r.job.invoice?'INV '+r.job.invoice:'',r.job.plate].filter(Boolean).join('\n'),r.job.color||'',r.job.work||'',r.job.contractPending?'Pending confirmation':peso(r.job.contract),peso(r.previousRecorded??(r.job.contract-r.opening)),r.job.contractPending?'Pending confirmation':peso(r.opening),peso(r.weekly)],'labor-grid'));
+      for(const r of visible)out.push(tableRow('WEEKLY LABOR — AMOUNTS IN ₱',headings,[r.job.unit+'\n'+(r.job.year||''),[r.job.invoice?'INV '+r.job.invoice:'',r.job.plate].filter(Boolean).join('\n'),r.job.color||'',window.SimplePainter.itemizedWorkText(r,peso),r.job.contractPending?'Pending confirmation':peso(r.job.contract),peso(r.previousRecorded??(r.job.contract-r.opening)),r.job.contractPending?'Pending confirmation':peso(r.opening),peso(r.weekly)],'labor-grid'));
       if(!visible.length)out.push(textBlock('No ongoing units entered for this week.'));
       for(const r of c.rows.filter(r=>r.job.priorSettlement>0))out.push(tableRow('PRE-BWC SETTLEMENTS - INCLUDED IN PREVIOUS RECORDED, NOT THIS WEEK’S PAY',['Unit / plate','Before first BWC week','Already settled'],[r.job.unit+' · '+(r.job.plate||''),date(r.job.payrollStart),peso(r.job.priorSettlement)],'previous-grid'));
       const balances=window.SimplePainter.balanceRows(c,c.retentionReceipts,previousPayday);
