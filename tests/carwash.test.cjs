@@ -28,6 +28,18 @@ test('arrival entry validates optional charge but cannot mark itself paid',()=>{
 function fakeDB(rows,modify){const calls=[];return {calls,from(){let q={};return {select(c,o){q.count=o.count;return this},eq(k,v){q[k]=v;return this},is(k,v){q[k]=v;return this},gte(){return this},lte(){return this},order(){return this},async range(a,b){calls.push({...q,a,b});return modify?modify(a):{count:rows.length,data:rows.slice(a,Math.min(b+1,a+200))}}}}}}
 const record=i=>({id:String(i),business_id:'b',branch_id:'rosa',service_date:'2026-11-25',price:150,status:'ongoing',payment_date:null,voided_at:null});
 
+test('work monitoring counts follow month and status, exclude voids, and do not depend on payment',async()=>{
+ const rows=[{...record(1),price:null},{...record(2),payment_date:'2026-11-25'},{...record(3),status:'done',price:null},{...record(4),status:'done',payment_date:'2026-11-25'},{...record(5),voided_at:'2026-11-25'},{...record(6),status:'done',voided_at:'2026-11-25'},{...record(7),service_date:'2026-10-31'},{...record(8),status:'done',service_date:'2026-12-01'}];
+ const counts=(month=11)=>{const s=api.summarize(rows,2026,month);return [s.ongoingCount,s.doneCount]};
+ assert.deepEqual(counts(),[2,2]);assert.deepEqual(counts(10),[1,0]);assert.deepEqual(counts(12),[0,1]);assert.deepEqual(counts(9),[0,0]);
+ rows.push({...record(9),price:null});assert.deepEqual(counts(),[3,2]);
+ rows.at(-1).status='done';assert.deepEqual(counts(),[2,3]);
+ rows.at(-1).status='ongoing';assert.deepEqual(counts(),[3,2]);
+ rows.at(-1).voided_at='2026-11-25';assert.deepEqual(counts(),[2,2]);
+ await assert.rejects(api.read(fakeDB([{...record(10),branch_id:'tomas'}]),{businessId:'b',branchId:'rosa'}));
+ assert.match(source,/id="cwOngoingCount"/);assert.match(source,/id="cwDoneCount"/);assert.match(source,/aria-label="Carwash work status"/);
+});
+
 test('blank price is optional, not zero paid income; ongoing and done remain independent',async()=>{
  const value={service_date:'2026-11-25',unit:'Test car',plate_number:'QA',price:''};
  for(const price of ['',null,undefined,'   '])assert.equal(api.payload({...value,price},'2026-11-25').price,null);
@@ -136,7 +148,7 @@ test('carwash database transactions and permissions',{skip:!process.env.BWC_PGLI
 });
 test('app assets and income reports include CARWASH without printing, invoicing, or cash mutation',()=>{
  const html=fs.readFileSync(path.join(root,'index.html'),'utf8'),worker=fs.readFileSync(path.join(root,'sw.js'),'utf8');
- for(const asset of ['carwash.js?v=20261125-carwash-timer','reporting-online.js?v=20261125-carwash-payment','executive-print.js?v=20261125-carwash','vertical-layout.js?v=20261125-carwash']){assert.ok(html.includes(asset));assert.ok(worker.includes(asset))}
+ for(const asset of ['carwash.js?v=20261125-carwash-counts','reporting-online.js?v=20261125-carwash-payment','executive-print.js?v=20261125-carwash','vertical-layout.js?v=20261125-carwash']){assert.ok(html.includes(asset));assert.ok(worker.includes(asset))}
  assert.doesNotMatch(source,/\.print\(|create_invoice|cash_transactions|invoice_payments/);assert.match(source,/bwc:carwash-updated/);assert.match(source,/save_carwash_record/);
  new vm.Script(source);new vm.Script(worker);
  const reporting=fs.readFileSync(path.join(root,'reporting-online.js'),'utf8');assert.doesNotMatch(reporting,/paid=paid\.concat\(carwash/);assert.match(reporting,/var sales=receiptRows\.filter/);

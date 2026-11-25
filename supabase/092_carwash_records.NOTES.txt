@@ -24,6 +24,13 @@ the previous Done timestamp/duration remains in audit history. Timed arrival
 dates cannot be edited. No exact arrival time is invented for old/backdated rows;
 they show Not recorded. Timing never changes price, payment date, or income.
 
+Monitoring cards above the entry table show Ongoing and Done counts for the
+selected branch and arrival month. Counts follow saved work status, including
+both paid and unpaid units, and exclude voided records. They refresh after
+save/done/reopen/void, period changes, and branch changes; loading or unavailable
+data shows a dash rather than a misleading zero. No new database writes are
+needed for these counts.
+
 Migration 092 adds only carwash_records and carwash_events, their RLS/select grants,
 and two carwash RPCs. No existing records, invoice numbers, cash transactions,
 inventory, payroll, expense or remittance records are changed. No imports occur.
