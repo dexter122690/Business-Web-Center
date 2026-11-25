@@ -17,7 +17,18 @@ test('paid entry validation uses the entered payment date, typed unit/plate and 
  for(const change of [{price:'0'},{price:'-1'},{price:'1.001'},{price:'NaN'},{price:'1e3'},{service_date:'2026-02-30'},{service_date:'2026-11-26'},{unit:''},{plate_number:''}])assert.throws(()=>api.payload({...value,...change},'2026-11-25'));
 });
 function fakeDB(rows,modify){const calls=[];return {calls,from(){let q={};return {select(c,o){q.count=o.count;return this},eq(k,v){q[k]=v;return this},is(k,v){q[k]=v;return this},gte(){return this},lte(){return this},order(){return this},async range(a,b){calls.push({...q,a,b});return modify?modify(a):{count:rows.length,data:rows.slice(a,Math.min(b+1,a+200))}}}}}}
-const record=i=>({id:String(i),business_id:'b',branch_id:'rosa',service_date:'2026-11-25',price:150,voided_at:null});
+const record=i=>({id:String(i),business_id:'b',branch_id:'rosa',service_date:'2026-11-25',price:150,status:'ongoing',voided_at:null});
+
+test('blank price is optional, not zero paid income; ongoing and done remain independent',async()=>{
+ const value={service_date:'2026-11-25',unit:'Test car',plate_number:'QA',price:''};
+ for(const price of ['',null,undefined,'   '])assert.equal(api.payload({...value,price},'2026-11-25').price,null);
+ assert.throws(()=>api.payload({...value,price:0},'2026-11-25'));
+ const rows=[{...record(1),price:null},{...record(2),price:null,status:'done'},{...record(3),price:100},{...record(4),price:200,status:'done'}];
+ assert.equal((await api.read(fakeDB(rows),{businessId:'b',branchId:'rosa'})).length,4);
+ const summary=api.summarize(rows,2026,11);assert.equal(summary.total,300);assert.equal(summary.count,4);
+ for(const bad of [{price:''},{price:0},{price:undefined},{status:'unknown'}])await assert.rejects(api.read(fakeDB([{...record(1),...bad}]),{businessId:'b'}));
+ assert.match(source,/Mark done/);assert.match(source,/Not yet paid/);assert.doesNotMatch(source,/name="price"[^>]*required/);
+});
 test('complete scoped reads page through more than 1,000 carwashes and smaller server caps',async()=>{
  const db=fakeDB(Array.from({length:1205},(_,i)=>record(i))),rows=await api.read(db,{businessId:'b',branchId:'rosa'},'2026-11-01','2026-11-30');assert.equal(rows.length,1205);assert.deepEqual(db.calls.map(c=>c.a),[0,200,400,600,800,1000,1200]);assert.ok(db.calls.every(c=>c.branch_id==='rosa'&&c.business_id==='b'&&c.voided_at===null&&c.count==='exact'));
 });
@@ -29,7 +40,9 @@ test('dashboard combines separate carwash receipts once without changing invoice
  const sandbox={window:{},document:{addEventListener(){}},setTimeout(){},setInterval(){}};vm.runInNewContext(fs.readFileSync(path.join(root,'reporting-online.js'),'utf8'),sandbox);
  const invoice={invoice_date:'2026-10-01',total_amount:1000,amount_paid:500,invoice_services:[{service_name:'Repair',amount:1000}],invoice_payments:[{amount:500,payment_date:'2026-11-25'}]};
  const data={invoices:[invoice],payments:[{payment_date:'2026-11-25',amount:500,invoices:invoice}],expenses:[{expense_date:'2026-11-25',category:'Cost of Sales',quantity:1,unit_amount:100}],carwash:[{service_date:'2026-11-25',price:150},{service_date:'2026-10-31',price:900},{service_date:'2026-11-25',price:800,voided_at:'now'}]};
+ data.carwash.push({service_date:'2026-11-25',price:null,status:'done'},{service_date:'2026-11-25',price:null,status:'ongoing'});
  const r=sandbox.window.BWCDashboardReport.calculate(data,{month:'10',year:'2026'});assert.equal(r.sales,650);assert.equal(r.net,550);assert.equal(r.carwashIncome,150);assert.equal(r.paymentCount,1);assert.equal(r.carwashCount,1);assert.equal(r.outsideInvoicePeriod,500);assert.equal(r.invoiceCount,0);assert.equal(r.unpaid,0);assert.equal(r.salesRows.reduce((n,r)=>n+r[1],0),650);assert.equal(r.serviceMix['Carwash income (separate register)'],150);
+ data.carwash[0].status='done';assert.equal(sandbox.window.BWCDashboardReport.calculate(data,{month:'10',year:'2026'}).sales,650);
  const all=sandbox.window.BWCDashboardReport.calculate(data,{from:'2026-10-31',to:'2026-11-25'});assert.equal(all.carwashIncome,1050);
 });
 test('carwash database transactions and permissions',{skip:!process.env.BWC_PGLITE_PATH},async t=>{
@@ -44,13 +57,33 @@ test('carwash database transactions and permissions',{skip:!process.env.BWC_PGLI
    await user(ids.viewer);await assert.rejects(save(row()),/edit access/);await user(null);await assert.rejects(save(row()),/edit access/);await user(ids.owner);
   });
   await t.test('owner void excludes income but preserves the record and audit',async()=>{const v=await save({action:'void',id:saved.id,revision:2});assert.ok(v.voided_at);assert.equal(v.revision,3);assert.equal((await db.query('select count(*) n from carwash_records where id=$1',[saved.id])).rows[0].n,1);await assert.rejects(save({...p,revision:3}),/Record changed/)});
+  await t.test('unpriced units default ongoing, can finish, be paid later and reopen without changing income',async()=>{
+   await user(ids.editor);let entry=await save({...row(),price:null,status:'done'});assert.equal(entry.status,'ongoing');assert.equal(entry.price,null);assert.equal(entry.completed_at,null);
+   const request=crypto.randomUUID(),operation={action:'done',id:entry.id,revision:entry.revision};
+   let done=await save(operation,request);assert.equal(done.status,'done');assert.equal(done.price,null);assert.ok(done.completed_at);assert.deepEqual(await save(operation,request),done);
+   await assert.rejects(save(operation),/Record changed/);await assert.rejects(save({...operation,revision:done.revision}),/already changed/);
+   await assert.rejects(save({...operation,revision:done.revision},crypto.randomUUID(),ids.other),/edit access/);
+   const paid=await save({...row(),id:done.id,revision:done.revision,price:'175.50',status:'ongoing'});assert.equal(paid.status,'done');assert.equal(paid.price,175.5);assert.equal(paid.completed_at,done.completed_at);
+   await user(ids.viewer);await assert.rejects(save({action:'reopen',id:paid.id,revision:paid.revision}),/edit access/);await user(ids.editor);
+   const reopened=await save({action:'reopen',id:paid.id,revision:paid.revision});assert.equal(reopened.status,'ongoing');assert.equal(reopened.price,175.5);assert.equal(reopened.completed_at,null);
+   const finished=await save({action:'done',id:paid.id,revision:reopened.revision});assert.equal(finished.price,175.5);assert.equal(finished.status,'done');
+   const audit=(await db.query('select before_record,after_record from carwash_events where request_id=$1',[request])).rows[0];assert.equal(audit.before_record.status,'ongoing');assert.equal(audit.after_record.status,'done');
+   await user(ids.owner);await assert.rejects(save({...operation,revision:finished.revision},crypto.randomUUID(),ids.other),/unavailable in this branch/);
+   await assert.rejects(save({...operation,id:crypto.randomUUID(),revision:0}),/unavailable/);
+   const blank=await save({...row(),price:''});assert.equal(blank.price,null);
+  });
+  await t.test('preview migration can be re-run without clearing entries or completion state',async()=>{
+   const before=(await db.query('select * from carwash_records order by id')).rows;
+   await db.exec(fs.readFileSync(path.join(root,'supabase/092_carwash_records.sql'),'utf8'));
+   assert.deepEqual((await db.query('select * from carwash_records order by id')).rows,before);
+  });
   await t.test('RLS filters branch reads and anonymous access stays closed',async()=>{await save(row(),crypto.randomUUID(),ids.other);await user(ids.viewer);await db.exec('set role authenticated');const rows=(await db.query('select * from carwash_records')).rows;assert.ok(rows.every(r=>r.branch_id===ids.branch));assert.equal((await db.query('select * from carwash_events')).rows.length,0);await db.exec('reset role;set role anon');await assert.rejects(db.query('select * from carwash_records'),/permission denied/);await db.exec('reset role')});
   await t.test('unrelated business records remain unchanged',async()=>assert.deepEqual((await db.query('select * from existing_records order by kind')).rows,f.before));
  }finally{await db.close()}
 });
 test('app assets and income reports include CARWASH without printing, invoicing, or cash mutation',()=>{
  const html=fs.readFileSync(path.join(root,'index.html'),'utf8'),worker=fs.readFileSync(path.join(root,'sw.js'),'utf8');
- for(const asset of ['carwash.js?v=20261125-carwash','reporting-online.js?v=20261125-carwash','executive-print.js?v=20261125-carwash','vertical-layout.js?v=20261125-carwash']){assert.ok(html.includes(asset));assert.ok(worker.includes(asset))}
+ for(const asset of ['carwash.js?v=20261125-carwash-status','reporting-online.js?v=20261125-carwash-status','executive-print.js?v=20261125-carwash','vertical-layout.js?v=20261125-carwash']){assert.ok(html.includes(asset));assert.ok(worker.includes(asset))}
  assert.doesNotMatch(source,/\.print\(|create_invoice|cash_transactions|invoice_payments/);assert.match(source,/bwc:carwash-updated/);assert.match(source,/save_carwash_record/);
  new vm.Script(source);new vm.Script(worker);
  const reporting=fs.readFileSync(path.join(root,'reporting-online.js'),'utf8');assert.doesNotMatch(reporting,/paid=paid\.concat\(carwash/);assert.match(reporting,/var sales=receiptRows\.filter/);

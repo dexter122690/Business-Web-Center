@@ -1,4 +1,4 @@
--- Separate paid carwash records. Does not modify invoices, payroll, stock or CIB.
+-- Separate carwash monitoring and receipts. LOCAL PREVIEW ONLY; not yet deployed.
 begin;
 
 create table if not exists public.carwash_records (
@@ -8,7 +8,9 @@ create table if not exists public.carwash_records (
   service_date date not null,
   unit text not null check(length(btrim(unit)) between 1 and 160),
   plate_number text not null check(length(btrim(plate_number)) between 1 and 40),
-  price numeric(12,2) not null check(price > 0),
+  price numeric(12,2) check(price > 0),
+  status text not null default 'ongoing' check(status in ('ongoing','done')),
+  completed_at timestamptz,
   revision integer not null default 1 check(revision > 0),
   created_by uuid not null references auth.users(id),
   created_at timestamptz not null default now(),
@@ -16,6 +18,10 @@ create table if not exists public.carwash_records (
   voided_at timestamptz,
   voided_by uuid references auth.users(id)
 );
+-- Permit upgrading the earlier local preview without clearing its records.
+alter table public.carwash_records alter column price drop not null;
+alter table public.carwash_records add column if not exists status text not null default 'ongoing' check(status in ('ongoing','done'));
+alter table public.carwash_records add column if not exists completed_at timestamptz;
 create index if not exists carwash_branch_date_idx on public.carwash_records(business_id,branch_id,service_date,id) where voided_at is null;
 
 create table if not exists public.carwash_events (
@@ -66,7 +72,7 @@ begin
     return event.after_record;
   end if;
   record_id:=(p_payload->>'id')::uuid; expected:=(p_payload->>'revision')::integer; action:=p_payload->>'action';
-  if record_id is null or expected is null or expected<0 or action is null or action not in ('save','void') then raise exception 'Invalid record request'; end if;
+  if record_id is null or expected is null or expected<0 or action is null or action not in ('save','void','done','reopen') then raise exception 'Invalid record request'; end if;
   perform pg_advisory_xact_lock(hashtextextended(record_id::text,1));
   select * into previous from public.carwash_records where id=record_id for update;
   if found then
@@ -79,15 +85,24 @@ begin
     if not coalesce(public.is_business_owner(p_business_id),false) then raise exception 'Only the owner can void a carwash record'; end if;
     update public.carwash_records set voided_at=clock_timestamp(),voided_by=auth.uid(),updated_at=clock_timestamp(),revision=revision+1
       where id=record_id returning * into saved;
+  elsif action in ('done','reopen') then
+    if (action='done' and previous.status='done') or (action='reopen' and previous.status='ongoing') then raise exception 'Status already changed. Reload before editing'; end if;
+    update public.carwash_records set status=case when action='done' then 'done' else 'ongoing' end,
+      completed_at=case when action='done' then clock_timestamp() else null end,
+      updated_at=clock_timestamp(),revision=revision+1 where id=record_id returning * into saved;
   else
     unit_value:=btrim(p_payload->>'unit'); plate_value:=upper(btrim(p_payload->>'plate_number'));
     if unit_value is null or length(unit_value) not between 1 and 160 or plate_value is null or length(plate_value) not between 1 and 40 then raise exception 'Enter the unit and plate number'; end if;
-    if coalesce(p_payload->>'service_date','') !~ '^\d{4}-\d{2}-\d{2}$' then raise exception 'Enter a valid payment date'; end if;
+    if coalesce(p_payload->>'service_date','') !~ '^\d{4}-\d{2}-\d{2}$' then raise exception 'Enter a valid carwash date'; end if;
     date_value:=(p_payload->>'service_date')::date;
-    if date_value>(clock_timestamp() at time zone 'Asia/Manila')::date then raise exception 'Future paid carwash records are not allowed'; end if;
-    if coalesce(p_payload->>'price','') !~ '^\d+(\.\d{1,2})?$' then raise exception 'Enter a valid price with at most two decimal places'; end if;
-    price_value:=(p_payload->>'price')::numeric;
-    if price_value<=0 or price_value>9999999999.99 then raise exception 'Price must be greater than zero'; end if;
+    if date_value>(clock_timestamp() at time zone 'Asia/Manila')::date then raise exception 'Future carwash records are not allowed'; end if;
+    if nullif(btrim(p_payload->>'price'),'') is null then
+      price_value:=null;
+    else
+      if (p_payload->>'price') !~ '^\d+(\.\d{1,2})?$' then raise exception 'Enter a valid price with at most two decimal places'; end if;
+      price_value:=(p_payload->>'price')::numeric;
+      if price_value<=0 or price_value>9999999999.99 then raise exception 'Price must be greater than zero'; end if;
+    end if;
     if previous.id is null then
       insert into public.carwash_records(id,business_id,branch_id,service_date,unit,plate_number,price,created_by)
       values(record_id,p_business_id,p_branch_id,date_value,unit_value,plate_value,price_value,auth.uid()) returning * into saved;

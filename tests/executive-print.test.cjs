@@ -207,5 +207,5 @@ test('invalid model amounts stop report preparation',()=>{
 test('print button follows export and updated modules are versioned',()=>{
   assert.match(current,/Export Executive Excel<\/button><button[^>]*id="printFinancialReport"/);
   assert.match(current,/executive-print\.js\?v=20261125-carwash/);
-  assert.match(current,/reporting-online\.js\?v=20261125-carwash/);
+  assert.match(current,/reporting-online\.js\?v=20261125-carwash-status/);
 });
