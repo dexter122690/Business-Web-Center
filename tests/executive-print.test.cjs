@@ -8,7 +8,7 @@ function inline(html){const start=html.indexOf('/* Keep the Excel exporter inlin
 const json=value=>JSON.parse(JSON.stringify(value));
 test('carwash receipts flow through Dashboard, Executive Excel and print once',async()=>{
   const s=setup();await s.start();const before=await s.api.prepare();
-  s.window.BWCCarwash={reportRows:async()=>({available:true,rows:[{service_date:'2026-11-25',price:150},{service_date:'2026-10-31',price:900}]})};
+  s.window.BWCCarwash={reportRows:async()=>({available:true,rows:[{service_date:'2026-10-31',payment_date:'2026-11-25',price:150},{service_date:'2026-10-31',payment_date:'2026-10-31',price:900},{service_date:'2026-11-25',payment_date:null,price:5000,status:'done'}]})};
   const report=await s.api.prepare();assert.equal(report.sales,before.sales+150);assert.equal(report.net,before.net+150);assert.equal(report.carwashCount,1);assert.equal(report.invoiceCount,before.invoiceCount);assert.equal(report.paymentCount,before.paymentCount);
   assert.equal(report.salesRows.reduce((sum,row)=>sum+row[1],0),report.sales);assert.match(s.api.workbook(report),/Carwash income \(separate register\)/);assert.match(printer.html(report,'a4'),/Carwash income \(separate register\)/);assert.match(printer.html(report,'a4'),/1 paid carwashes/);
 });
@@ -207,5 +207,5 @@ test('invalid model amounts stop report preparation',()=>{
 test('print button follows export and updated modules are versioned',()=>{
   assert.match(current,/Export Executive Excel<\/button><button[^>]*id="printFinancialReport"/);
   assert.match(current,/executive-print\.js\?v=20261125-carwash/);
-  assert.match(current,/reporting-online\.js\?v=20261125-carwash-status/);
+  assert.match(current,/reporting-online\.js\?v=20261125-carwash-payment/);
 });

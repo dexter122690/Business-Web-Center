@@ -11,6 +11,9 @@ create table if not exists public.carwash_records (
   price numeric(12,2) check(price > 0),
   status text not null default 'ongoing' check(status in ('ongoing','done')),
   completed_at timestamptz,
+  payment_date date,
+  paid_at timestamptz,
+  paid_by uuid references auth.users(id),
   revision integer not null default 1 check(revision > 0),
   created_by uuid not null references auth.users(id),
   created_at timestamptz not null default now(),
@@ -22,6 +25,15 @@ create table if not exists public.carwash_records (
 alter table public.carwash_records alter column price drop not null;
 alter table public.carwash_records add column if not exists status text not null default 'ongoing' check(status in ('ongoing','done'));
 alter table public.carwash_records add column if not exists completed_at timestamptz;
+alter table public.carwash_records add column if not exists payment_date date;
+alter table public.carwash_records add column if not exists paid_at timestamptz;
+alter table public.carwash_records add column if not exists paid_by uuid references auth.users(id);
+-- No automatic conversion from quoted price to payment. Staff must confirm paid.
+alter table public.carwash_records drop constraint if exists carwash_payment_valid;
+alter table public.carwash_records add constraint carwash_payment_valid check (
+  (payment_date is null and paid_at is null and paid_by is null) or
+  (payment_date is not null and price is not null and price > 0 and payment_date >= service_date and paid_at is not null and paid_by is not null)
+);
 create index if not exists carwash_branch_date_idx on public.carwash_records(business_id,branch_id,service_date,id) where voided_at is null;
 
 create table if not exists public.carwash_events (
@@ -72,7 +84,7 @@ begin
     return event.after_record;
   end if;
   record_id:=(p_payload->>'id')::uuid; expected:=(p_payload->>'revision')::integer; action:=p_payload->>'action';
-  if record_id is null or expected is null or expected<0 or action is null or action not in ('save','void','done','reopen') then raise exception 'Invalid record request'; end if;
+  if record_id is null or expected is null or expected<0 or action is null or action not in ('save','void','done','reopen','paid') then raise exception 'Invalid record request'; end if;
   perform pg_advisory_xact_lock(hashtextextended(record_id::text,1));
   select * into previous from public.carwash_records where id=record_id for update;
   if found then
@@ -85,6 +97,14 @@ begin
     if not coalesce(public.is_business_owner(p_business_id),false) then raise exception 'Only the owner can void a carwash record'; end if;
     update public.carwash_records set voided_at=clock_timestamp(),voided_by=auth.uid(),updated_at=clock_timestamp(),revision=revision+1
       where id=record_id returning * into saved;
+  elsif action='paid' then
+    if previous.payment_date is not null then raise exception 'Already paid. Reload before editing'; end if;
+    if previous.price is null or previous.price<=0 then raise exception 'Save the price first before marking paid'; end if;
+    if coalesce(p_payload->>'payment_date','') !~ '^\d{4}-\d{2}-\d{2}$' then raise exception 'Enter a valid payment date'; end if;
+    date_value:=(p_payload->>'payment_date')::date;
+    if date_value<previous.service_date or date_value>(clock_timestamp() at time zone 'Asia/Manila')::date then raise exception 'Payment date must be between arrival date and today'; end if;
+    update public.carwash_records set payment_date=date_value,paid_at=clock_timestamp(),paid_by=auth.uid(),
+      updated_at=clock_timestamp(),revision=revision+1 where id=record_id returning * into saved;
   elsif action in ('done','reopen') then
     if (action='done' and previous.status='done') or (action='reopen' and previous.status='ongoing') then raise exception 'Status already changed. Reload before editing'; end if;
     update public.carwash_records set status=case when action='done' then 'done' else 'ongoing' end,
@@ -107,6 +127,7 @@ begin
       insert into public.carwash_records(id,business_id,branch_id,service_date,unit,plate_number,price,created_by)
       values(record_id,p_business_id,p_branch_id,date_value,unit_value,plate_value,price_value,auth.uid()) returning * into saved;
     else
+      if previous.payment_date is not null and (previous.price is distinct from price_value or previous.service_date is distinct from date_value) then raise exception 'Paid price and arrival date are locked. Ask the owner to correct the record'; end if;
       update public.carwash_records set service_date=date_value,unit=unit_value,plate_number=plate_value,price=price_value,
         revision=revision+1,updated_at=clock_timestamp() where id=record_id returning * into saved;
     end if;

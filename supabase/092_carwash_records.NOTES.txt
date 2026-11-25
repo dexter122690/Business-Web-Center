@@ -3,11 +3,15 @@ Status: LOCAL PREVIEW ONLY. Owner chose "Local preview muna" on 2026-11-25.
 Do not apply to production or publish this frontend without new approval.
 
 Owner decision: carwash services are NOT entered again in Invoice Making.
-New units default to Ongoing and may have a blank price (not paid / no income).
+New units default to Ongoing + Unpaid and may have a blank price.
 Mark done works with or without a price. Reopen corrects accidental completion.
 Work status never changes the receipt amount; editing a price preserves status.
-Any entered positive price means paid, regardless of Ongoing/Done. The row date
-remains the income date. Separate service/payment dates are not yet supported.
+An entered price is only a charge; it does not create income. Mark paid requires
+a saved positive price and confirmation of the actual full-payment date, default
+today (Asia/Manila). No payment before arrival or in the future is allowed.
+The original row date remains arrival date. Paid price and arrival date are locked
+to prevent silent changes to recorded income. Owner void remains audit-preserving.
+Existing preview prices are NOT automatically converted to paid records.
 This monitoring update is part of the unshipped 092 local-preview migration.
 
 Migration 092 adds only carwash_records and carwash_events, their RLS/select grants,
@@ -15,8 +19,9 @@ and two carwash RPCs. No existing records, invoice numbers, cash transactions,
 inventory, payroll, expense or remittance records are changed. No imports occur.
 Existing Invoice Making branch view/edit permissions are reused; only the owner
 can void rows. Voided records are retained with before/after audit history.
-Dashboard, executive Excel and print count only priced active receipts once, grouped
-as Carwash income, based on the saved date and selected branch/period.
+Dashboard, daily/weekly/monthly income, executive Excel and print count only
+explicitly confirmed active payments once, grouped as Carwash income, based on
+payment date and selected branch/period. Arrival-month lists remain separate.
 It does not add to the CIB cash-in-hand card (payment method is not collected).
 
 Apply the additive migration before publishing the new frontend. Review the

@@ -80,5 +80,5 @@ test('empty view, escaping, branch labels and no invoice access are clear',()=>{
 test('UI is read-only, keyboard accessible and app shell versions match',()=>{
   const code=fs.readFileSync(path.join(root,'dashboard-unpaid.js'),'utf8'),html=fs.readFileSync(path.join(root,'index.html'),'utf8'),sw=fs.readFileSync(path.join(root,'sw.js'),'utf8');new vm.Script(code);
   assert.doesNotMatch(code,/\.(insert|update|delete|upsert|rpc)\s*\(/);assert.match(code,/event.key==='Enter'/);assert.match(code,/event.key===' '/);assert.match(code,/showModal\(\)/);assert.match(code,/bwc:open-invoice/);assert.match(code,/show\('invoices'\)/);
-  for(const [name,version] of [['dashboard-unpaid','20261122-unpaid-details'],['reporting-online','20261125-carwash-status']]){assert.ok(html.includes(name+'.js?v='+version));assert.ok(sw.includes(name+'.js?v='+version))}
+  for(const [name,version] of [['dashboard-unpaid','20261122-unpaid-details'],['reporting-online','20261125-carwash-payment']]){assert.ok(html.includes(name+'.js?v='+version));assert.ok(sw.includes(name+'.js?v='+version))}
 });
