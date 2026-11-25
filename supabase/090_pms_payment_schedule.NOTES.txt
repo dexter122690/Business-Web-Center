@@ -1,0 +1,42 @@
+PMS payment-based schedule - 2026-11-25
+
+Applied 090_pms_payment_schedule.sql to the BWC Supabase project successfully.
+Deploy the matching frontend commit through the normal Push origin workflow.
+
+Behavior
+- Assigned technician is free text, not a payroll employee dropdown.
+- Both odometer readings are required for new/edited PMS invoices; zero is valid.
+- Next PMS date is read-only: six calendar months after dated payments first
+  cover the invoice total. Month-end dates clamp to the last valid day.
+- Partial payment or insufficient dated payment history leaves the date pending.
+- Later payments, payment corrections and invoice total edits recalculate it.
+- Invoice lines and PMS details save together in one transaction.
+- New offline PMS requests use the same validation. Existing immutable outbox
+  requests/backups are not rewritten or deleted. An old queued PMS request with
+  missing odometers will remain queued for owner review instead of saving an
+  incomplete record. Keep its recovery backup; do not recreate it blindly.
+
+Live verification
+- 44 PMS records retained. 40 next-visit dates recalculated, with their original
+  dates preserved in the private/RLS-protected pms_schedule_090_backup table.
+- Zero remaining schedule mismatches against the payment-history calculation.
+- Invoice, payment, cash transaction, cash collection and payroll workspace
+  checksums were identical before/after migration.
+- PMS fields other than next_pms_date/updated_at were also identical.
+- 35 legacy PMS records have at least one missing odometer. No readings were
+  guessed or inserted; staff must supply them when editing those PMS invoices.
+
+Verification
+- Full automated suite: 345 passing, zero failing, zero skipped.
+- Database tests include atomic save failures, scoped technician references,
+  date override protection, installments/corrections/deletion, invoice edits,
+  end-of-month/leap-year dates, restricted helper access and repeat migration.
+- Isolated browser test used fictional data only: both missing-odometer blocks,
+  manual technician entry, Aug 31 -> Feb 28, new save and existing-detail reload.
+- No live test invoice or payment was created.
+
+Recovery
+The private backup stores original dates only; it is not an invoice/payment
+backup. Restoring a manual date requires deliberately revising the date guard
+as well. Do not disable these rules or change financial records just to restore
+an old manually entered schedule.

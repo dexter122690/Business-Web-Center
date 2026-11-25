@@ -69,7 +69,7 @@ test('early pause guard and cache versions are wired without changing shared rea
   assert.ok(Number(sw.match(/bwc-invoice-offline-v(\d+)/)[1])>=25);
   assert.match(index,/payroll-online\.js\?v=20261123-pause/);
   assert.match(read('invoice-online.js'),/from\('payroll_workers'\)\.select/);
-  assert.match(read('pms-client-history.js'),/from\('payroll_workers'\)\.select/);
+  assert.doesNotMatch(read('pms-client-history.js'),/from\('payroll_workers'\)/); // PMS technician is manual; invoice admin still reads shared names.
   const issue=read('payroll-online.js').split('async function issuePayroll(button){')[1].split('async function approveOvertime')[0];
   assert.ok(issue.indexOf('if(slipResult.error)throw slipResult.error')<issue.indexOf("db.from('expenses')"));
 });

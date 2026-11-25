@@ -180,6 +180,7 @@
     /* The edit RPC ignores client totals, payment totals, status, and creator;
        it derives those values from the locked invoice and submitted lines. */
     delete payload.total_amount;delete payload.amount_paid;delete payload.status;delete payload.created_by;
+    payload.pms=x.pms;
     return payload;
   }
   async function syncOfflineQueue(){
@@ -206,11 +207,13 @@
        New money is recorded only through the installment history. */
     if(existing){x.paid=paidFromHistory(existing);x.status=existing.writtenOff>0?existing.status:(x.paid>=x.total?'Paid':x.paid?'Partially paid':'Pending')}
     x.balance=Math.max(0,x.total-x.paid);x.status=x.paid>=x.total?'Paid':x.paid?'Partially paid':x.status||'Pending';
+    x.pms={};
+    if(x.services.some(function(row){return /\bpms\b/i.test(row.n||'')})){
+      if(!window.BwcPmsForm){alert('PMS details are not ready. Reload BWC while online; your form has not been cleared.');return}
+      try{x.pms=window.BwcPmsForm.collect(x)}catch(error){alert(error.message);return}
+    }
     if(x.isNewInvoice){
       if(!window.BwcInvoiceOffline){alert('Safe invoice saving is not ready. Reload BWC while online; your form has not been cleared.');return}
-      function pmsValue(id){var field=document.getElementById(id);return field?String(field.value||'').trim():''}
-      var technician=pmsValue('pmsTechnician'),techField=document.getElementById('pmsTechnician'),techOption=techField&&techField.options[techField.selectedIndex];
-      x.pms={odometer_km:pmsValue('pmsOdometer'),technician_worker_id:technician.indexOf('v2:')===0?'':technician,technician_employee_id:technician.indexOf('v2:')===0?technician.slice(3):'',technician_name:techOption&&(techOption.dataset.name||techOption.textContent)||'',next_pms_date:pmsValue('pmsNextDate'),next_pms_odometer_km:pmsValue('pmsNextOdometer'),notes:pmsValue('pmsNotes')};
       try{var queued=await window.BwcInvoiceOffline.saveNew(x);resetInvoice();setInvoiceFormMode(false);show('invoices');message(queued.invoice.number+' saved on this device. See the upload status above; its permanent invoice number is assigned after upload.');syncOfflineQueue()}catch(error){message(error.message);alert(error.message)}return;
     }
     if(!businessId||!localStorage.getItem('bwc-active-branch')){alert('The selected branch is still loading. Please wait a few seconds, then create the invoice again.');return}
@@ -225,7 +228,8 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
         var result=updated.data||{};saved={id:x.remoteId,invoice_number:result.invoice_number};
       }else{throw new Error('Reopen the existing online invoice before saving changes.')}
       savedInvoiceNumber=saved.invoice_number;
-      var pmsWarning='';if(window.bwcSyncPmsRecord){try{await window.bwcSyncPmsRecord(saved.id,x)}catch(pmsError){console.warn('PMS history was not saved:',pmsError);pmsWarning=' The invoice is saved; PMS history could not be updated.'}}saveStep='refreshing the saved invoice screen';await loadRemote();
+      /* PMS and line items are now saved in the same database transaction. */
+      saveStep='refreshing the saved invoice screen';await loadRemote();
       /* loadRemote refreshes the invoice register and emits
          bwc:invoices-loaded.  These follow-up signals fan the completed save
          out to cash/reporting cards and client/PDF views.  They are refresh-
@@ -233,7 +237,7 @@ message('Saving invoice securely…');var savedInvoiceNumber=null;try{
       document.dispatchEvent(new Event('bwc:cash-updated'));
       document.dispatchEvent(new CustomEvent('bwc:invoice-saved',{detail:{remoteId:saved.id,invoiceNumber:saved.invoice_number,edited:!x.isNewInvoice}}));
       publishCrossTabRefresh('invoice-saved',{remoteId:saved.id,invoiceNumber:saved.invoice_number,edited:!x.isNewInvoice});
-      resetInvoice();setInvoiceFormMode(false);show('invoices');message('Invoice '+('INV-'+String(saved.invoice_number).padStart(5,'0'))+' saved securely online.'+pmsWarning);
+      resetInvoice();setInvoiceFormMode(false);show('invoices');message('Invoice '+('INV-'+String(saved.invoice_number).padStart(5,'0'))+' saved securely online.');
     }catch(error){var detail=String((error&&error.message)||'Unknown database error');if(savedInvoiceNumber!==null){console.error('Invoice was saved but the page could not finish updating:',error);message('Invoice INV-'+String(savedInvoiceNumber).padStart(5,'0')+' was saved, but the page could not finish refreshing.');alert('Invoice INV-'+String(savedInvoiceNumber).padStart(5,'0')+' was saved. Please reload the page before creating another invoice. Reason: '+detail);return}message('Invoice was not saved during '+saveStep+': '+detail);alert('The invoice could not be saved during '+saveStep+'. Reason: '+detail)}
     }finally{invoiceSaving=false}
   };

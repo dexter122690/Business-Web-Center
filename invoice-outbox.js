@@ -1,7 +1,7 @@
 /* Durable, immutable invoice requests. One storage key per request prevents
    different tabs from overwriting each other's queue. Server receipts make
    retries (including a lost response) safe. Never infer a legacy row's branch. */
-(function(root,factory){var api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.BwcInvoiceOutbox=api})(typeof window!=='undefined'?window:this,function(){
+(function(root,factory){var api=factory(typeof module==='object'&&module.exports?require('./pms-rules.js'):root.BwcPmsRules);if(typeof module==='object'&&module.exports)module.exports=api;else root.BwcInvoiceOutbox=api})(typeof window!=='undefined'?window:this,function(PMS){
  'use strict';
  var PREFIX='bwc-invoice-outbox-v2:',LEGACY='15m-offline-invoice-queue';
  function clone(x){return JSON.parse(JSON.stringify(x))}
@@ -25,7 +25,10 @@
  }
  function request(scope,invoice,crypto){
   if(!crypto||typeof crypto.randomUUID!=='function')throw Error('Secure offline saving is unavailable in this browser. Use the HTTPS BWC page.');
-  var id=crypto.randomUUID(),x=clone(invoice);x.id='offline:'+id;x.number='OFF-'+id.slice(0,13).toUpperCase();x.offlinePending=true;
+  var id=crypto.randomUUID(),x=clone(invoice);
+  if(!PMS)throw Error('PMS invoice safeguards are not ready. Reload BWC while online.');
+  if(PMS.hasPms(x.services)){x.pms=PMS.details(x.pms);x.pms.next_pms_date=PMS.schedule(x.total,[{date:x.paymentDate,amount:x.paid}])||null}
+  x.id='offline:'+id;x.number='OFF-'+id.slice(0,13).toUpperCase();x.offlinePending=true;
   return valid({version:2,requestId:id,createdAt:new Date().toISOString(),scope:clone(scope),invoice:x});
  }
  function args(record){valid(record);var x=record.invoice,s=record.scope;return {p_business_id:s.businessId,p_branch_id:s.branchId,p_request_id:record.requestId,p_payload:{client_name:x.client,contact_number:x.contact,client_address:x.address,client_email:x.email||null,vehicle_make:x.make,vehicle_year_model:x.yearModel,vehicle_color:x.color,plate_number:x.plate,invoice_date:x.date,release_date:x.release||null,assigned_admin:x.admin,payment_method:x.method,client_source:x.source,discount_amount:x.discount||0},p_services:x.services.map(function(v){return {service_name:v.n,service_detail:v.d||null,amount:Number(v.a)}}),p_parts:x.parts.map(function(v){return {part_name:v.n,quantity:Number(v.q),unit_price:Number(v.p)}}),p_payment:{amount:Number(x.paid||0),date:x.paymentDate||null},p_pms:x.pms||{}}}

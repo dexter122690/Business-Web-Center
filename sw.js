@@ -1,7 +1,7 @@
 /* Rotate this cache whenever app-shell JavaScript changes.  The previous
    worker ignored query strings, so a request for a newer versioned script
    could incorrectly receive an older cached file. */
-const CACHE_NAME = 'bwc-invoice-offline-v40';
+const CACHE_NAME = 'bwc-invoice-offline-v41';
 const OFFLINE_TOOLS = ['https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2','https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js','https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'];
 const APP_SHELL = [
   '/index.html',
@@ -17,10 +17,11 @@ const APP_SHELL = [
   '/auth.html',
   '/app-config.js',
   '/site.webmanifest',
-  '/invoice-outbox.js?v=20261123-offline-safe',
+  '/pms-rules.js?v=20261125-pms-payment',
+  '/invoice-outbox.js?v=20261125-pms-payment',
   '/global-search.js?v=20261123-single-search',
   '/invoice-offline.js?v=20261123-offline-safe',
-  '/invoice-online.js?v=20261123-offline-print',
+  '/invoice-online.js?v=20261125-pms-payment',
   '/service-category-report.js?v=20261122-service-categories',
   '/payroll-v2-online.js?v=20261125-job-items',
   '/staff-permissions.js?v=20261123-payroll-v2',
@@ -31,7 +32,7 @@ const APP_SHELL = [
   '/invoice-payment-print.js?v=20261123-offline-print',
   '/invoice-pdf-actions.js?v=20260829',
   '/client-source-options.js?v=20260920-specific-sources',
-  '/pms-client-history.js?v=20261123-payroll-directory',
+  '/pms-client-history.js?v=20261125-pms-payment',
   '/forms-folder-online.js?v=20261024',
   '/vertical-layout.css?v=20261117-account-footer',
   '/vertical-layout.js?v=20261124-invoice-home',
@@ -82,5 +83,5 @@ self.addEventListener('fetch', function(event) {
   }));
 });
 self.addEventListener('message',function(event){
- if(event.data&&event.data.type==='BWC_OFFLINE_STATUS')event.waitUntil(caches.open(CACHE_NAME).then(async function(cache){var checks=await Promise.all(APP_SHELL.concat(OFFLINE_TOOLS).map(function(url){return cache.match(url)}));if(event.source)event.source.postMessage({type:'BWC_OFFLINE_STATUS',ready:checks.every(Boolean),version:40})}));
+ if(event.data&&event.data.type==='BWC_OFFLINE_STATUS')event.waitUntil(caches.open(CACHE_NAME).then(async function(cache){var checks=await Promise.all(APP_SHELL.concat(OFFLINE_TOOLS).map(function(url){return cache.match(url)}));if(event.source)event.source.postMessage({type:'BWC_OFFLINE_STATUS',ready:checks.every(Boolean),version:41})}));
 });
