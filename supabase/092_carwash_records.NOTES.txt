@@ -1,0 +1,22 @@
+CARWASH — deployment notes
+Status: LOCAL PREVIEW ONLY. Owner chose "Local preview muna" on 2026-11-25.
+Do not apply to production or publish this frontend without new approval.
+
+Owner decision: entries represent paid carwash services that are NOT entered again
+in Invoice Making. The date is both service date and payment-received date.
+If unpaid or invoice-linked carwash is needed, do not use this paid-only workflow.
+
+Migration 092 adds only carwash_records and carwash_events, their RLS/select grants,
+and two carwash RPCs. No existing records, invoice numbers, cash transactions,
+inventory, payroll, expense or remittance records are changed. No imports occur.
+Existing Invoice Making branch view/edit permissions are reused; only the owner
+can void rows. Voided records are retained with before/after audit history.
+Dashboard, executive Excel and print count active carwash receipts once, grouped
+as Carwash income, based on the saved date and selected branch/period.
+It does not add to the CIB cash-in-hand card (payment method is not collected).
+
+Apply the additive migration before publishing the new frontend. Review the
+production scope with the owner before running it. If not installed, the CARWASH
+screen stays read-only with a setup message and old dashboard receipts continue.
+To roll back the UI, deploy the previous frontend; preserve these new tables.
+Never drop the tables to roll back once real records exist.

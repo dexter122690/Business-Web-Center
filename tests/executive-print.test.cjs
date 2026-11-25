@@ -6,6 +6,15 @@ const current=fs.readFileSync(path.join(root,'index.html'),'utf8');
 const reporting=fs.readFileSync(path.join(root,'reporting-online.js'),'utf8');
 function inline(html){const start=html.indexOf('/* Keep the Excel exporter inline.');assert.ok(start>=0);return html.slice(start,html.indexOf('</script>',start));}
 const json=value=>JSON.parse(JSON.stringify(value));
+test('carwash receipts flow through Dashboard, Executive Excel and print once',async()=>{
+  const s=setup();await s.start();const before=await s.api.prepare();
+  s.window.BWCCarwash={reportRows:async()=>({available:true,rows:[{service_date:'2026-11-25',price:150},{service_date:'2026-10-31',price:900}]})};
+  const report=await s.api.prepare();assert.equal(report.sales,before.sales+150);assert.equal(report.net,before.net+150);assert.equal(report.carwashCount,1);assert.equal(report.invoiceCount,before.invoiceCount);assert.equal(report.paymentCount,before.paymentCount);
+  assert.equal(report.salesRows.reduce((sum,row)=>sum+row[1],0),report.sales);assert.match(s.api.workbook(report),/Carwash income \(separate register\)/);assert.match(printer.html(report,'a4'),/Carwash income \(separate register\)/);assert.match(printer.html(report,'a4'),/1 paid carwashes/);
+});
+test('carwash loading failure stops refreshed financial report rather than omitting known income',async()=>{
+  const s=setup();await s.start();s.window.BWCCarwash={reportRows:async()=>{throw Error('Carwash connection unavailable')}};await assert.rejects(s.api.prepare(),/Carwash connection unavailable/);
+});
 const data={invoices:[
   {id:'a',invoice_date:'2026-11-01',amount_paid:1000.25,total_amount:1500,invoice_services:[{service_name:'Dent repair'},{service_name:'Panel repaint'}]},
   {id:'b',invoice_date:'2026-11-14',amount_paid:2000.50,total_amount:3000,invoice_services:[{service_name:'Dent repair'},{service_name:'Panel repaint'}]},
@@ -197,6 +206,6 @@ test('invalid model amounts stop report preparation',()=>{
 });
 test('print button follows export and updated modules are versioned',()=>{
   assert.match(current,/Export Executive Excel<\/button><button[^>]*id="printFinancialReport"/);
-  assert.match(current,/executive-print\.js\?v=20261121-payment-date-report/);
-  assert.match(current,/reporting-online\.js\?v=20261122-unpaid-details/);
+  assert.match(current,/executive-print\.js\?v=20261125-carwash/);
+  assert.match(current,/reporting-online\.js\?v=20261125-carwash/);
 });
