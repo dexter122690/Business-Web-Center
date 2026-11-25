@@ -1,8 +1,13 @@
 SIMPLIFIED INVENTORY PRICES
 
-DEPLOYMENT STATUS (2026-11-25): NOT APPLIED TO LIVE BWC.
-Production execution was stopped by safety review and needs owner approval.
-Do not deploy the new frontend until this migration is approved and applied.
+DEPLOYMENT STATUS (2026-11-25): APPLIED AND VERIFIED ON LIVE BWC.
+Owner requested the live repair of unavailable prices and disabled +/- controls.
+Migration 091 completed successfully. Live Liha 120 shows PHP 12.00 / 1PC,
+the saved reference-price list loads, and the material controls are enabled.
+Before/after fingerprints matched for all 49 materials, 43 prices, 34 vehicles,
+429 adjustments, and the usage/usage-line tables. No test usage was added live.
+All 95 inventory tests passed. Isolated browser verification: +1 adds PHP 12
+and deducts one stock item; -1 restores the item and reverses the same cost.
 Only new tables/columns/functions/policies are installed; no existing rows are
 rewritten or deleted. Existing inventory branch/edit permission checks apply.
 
