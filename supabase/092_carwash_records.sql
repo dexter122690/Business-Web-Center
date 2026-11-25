@@ -24,6 +24,7 @@ create table if not exists public.carwash_records (
   voided_by uuid references auth.users(id)
 );
 -- Permit upgrading the earlier local preview without clearing its records.
+-- Preserve older unpriced preview rows; all new saves/edits require a price in the RPC.
 alter table public.carwash_records alter column price drop not null;
 alter table public.carwash_records add column if not exists status text not null default 'ongoing' check(status in ('ongoing','done'));
 alter table public.carwash_records add column if not exists completed_at timestamptz;
@@ -131,13 +132,10 @@ begin
     if coalesce(p_payload->>'service_date','') !~ '^\d{4}-\d{2}-\d{2}$' then raise exception 'Enter a valid carwash date'; end if;
     date_value:=(p_payload->>'service_date')::date;
     if date_value>(clock_timestamp() at time zone 'Asia/Manila')::date then raise exception 'Future carwash records are not allowed'; end if;
-    if nullif(btrim(p_payload->>'price'),'') is null then
-      price_value:=null;
-    else
-      if (p_payload->>'price') !~ '^\d+(\.\d{1,2})?$' then raise exception 'Enter a valid price with at most two decimal places'; end if;
-      price_value:=(p_payload->>'price')::numeric;
-      if price_value<=0 or price_value>9999999999.99 then raise exception 'Price must be greater than zero'; end if;
-    end if;
+    if nullif(btrim(p_payload->>'price'),'') is null then raise exception 'Enter the price upon arrival before saving this unit'; end if;
+    if (p_payload->>'price') !~ '^\d+(\.\d{1,2})?$' then raise exception 'Enter a valid price with at most two decimal places'; end if;
+    price_value:=(p_payload->>'price')::numeric;
+    if price_value<=0 or price_value>9999999999.99 then raise exception 'Price must be greater than zero'; end if;
     if previous.id is null then
       insert into public.carwash_records(id,business_id,branch_id,service_date,unit,plate_number,price,created_by,arrived_at)
       values(record_id,p_business_id,p_branch_id,date_value,unit_value,plate_value,price_value,auth.uid(),

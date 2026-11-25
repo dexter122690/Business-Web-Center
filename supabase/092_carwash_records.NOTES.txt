@@ -3,8 +3,11 @@ Status: LOCAL PREVIEW ONLY. Owner chose "Local preview muna" on 2026-11-25.
 Do not apply to production or publish this frontend without new approval.
 
 Owner decision: carwash services are NOT entered again in Invoice Making.
-New units default to Ongoing + Unpaid and may have a blank price.
-Mark done works with or without a price. Reopen corrects accidental completion.
+New units require a positive price upon arrival and default to Ongoing + Unpaid.
+The form and RPC reject missing, blank, zero or negative prices on save/edit.
+Older unpriced preview rows remain readable without inventing a price or payment;
+editing them requires a price. Mark done can still finish these older rows.
+Reopen corrects accidental completion.
 Work status never changes the receipt amount; editing a price preserves status.
 An entered price is only a charge; it does not create income. Mark paid requires
 a saved positive price and confirmation of the actual full-payment date, default

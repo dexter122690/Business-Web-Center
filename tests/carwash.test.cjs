@@ -20,7 +20,7 @@ test('daily/month totals exclude neighboring dates while full weeks include them
  const s=api.summarize(rows,2026,11);assert.equal(s.total,650);assert.equal(s.count,4);assert.deepEqual(s.days[0],{date:'2026-11-01',count:2,total:250});assert.equal(s.weeks[0].total,350);assert.equal(s.weeks.at(-1).total,550);
  assert.equal(api.summarize([],2026,11).total,0);assert.equal(api.sum([{price:.1},{price:.2}]),.3);
 });
-test('arrival entry validates optional charge but cannot mark itself paid',()=>{
+test('arrival entry requires a valid charge but cannot mark itself paid',()=>{
  const value={id:'id',revision:0,service_date:'2026-09-05',unit:' Honda City ',plate_number:' abc 123 ',price:'150.25'};
  const p=api.payload({...value,payment_date:'2026-11-25'},'2026-11-25');assert.equal(p.plate_number,'ABC 123');assert.equal(p.unit,'Honda City');assert.equal(p.price,'150.25');assert.equal(p.payment_date,undefined);
  for(const change of [{price:'0'},{price:'-1'},{price:'1.001'},{price:'NaN'},{price:'1e3'},{service_date:'2026-02-30'},{service_date:'2026-11-26'},{unit:''},{plate_number:''}])assert.throws(()=>api.payload({...value,...change},'2026-11-25'));
@@ -40,15 +40,15 @@ test('work monitoring counts follow month and status, exclude voids, and do not 
  assert.match(source,/id="cwOngoingCount"/);assert.match(source,/id="cwDoneCount"/);assert.match(source,/aria-label="Carwash work status"/);
 });
 
-test('blank price is optional, not zero paid income; ongoing and done remain independent',async()=>{
+test('blank prices are rejected on save while older unpriced rows remain readable and unpaid',async()=>{
  const value={service_date:'2026-11-25',unit:'Test car',plate_number:'QA',price:''};
- for(const price of ['',null,undefined,'   '])assert.equal(api.payload({...value,price},'2026-11-25').price,null);
+ for(const price of ['',null,undefined,'   '])assert.throws(()=>api.payload({...value,price},'2026-11-25'),/Enter the price upon arrival/);
  assert.throws(()=>api.payload({...value,price:0},'2026-11-25'));
  const rows=[{...record(1),price:null},{...record(2),price:null,status:'done'},{...record(3),price:100},{...record(4),price:200,status:'done'}];
  assert.equal((await api.read(fakeDB(rows),{businessId:'b',branchId:'rosa'})).length,4);
  const summary=api.summarize(rows,2026,11);assert.equal(summary.total,0);assert.equal(summary.count,4);assert.equal(summary.paidCount,0);
  for(const bad of [{price:''},{price:0},{price:undefined},{status:'unknown'},{payment_date:undefined},{payment_date:'2026-11-24'},{price:null,payment_date:'2026-11-25'}])await assert.rejects(api.read(fakeDB([{...record(1),...bad}]),{businessId:'b'}));
- assert.match(source,/Mark done/);assert.match(source,/Mark paid/);assert.match(source,/Unpaid/);assert.doesNotMatch(source,/name="price"[^>]*required/);
+ assert.match(source,/Mark done/);assert.match(source,/Mark paid/);assert.match(source,/Unpaid/);assert.match(source,/name="price"[^>]*required/);assert.doesNotMatch(source,/Optional for now|Leave price blank/);
 });
 test('receipt summaries use confirmation date across months while unit register keeps arrival date',()=>{
  const rows=[{service_date:'2026-10-31',payment_date:'2026-11-25',price:150,status:'ongoing'},{service_date:'2026-11-25',payment_date:null,price:900,status:'done'},{service_date:'2026-11-25',payment_date:'2026-12-01',price:200,status:'done'}];
@@ -85,10 +85,10 @@ test('carwash database transactions and permissions',{skip:!process.env.BWC_PGLI
    await user(ids.viewer);await assert.rejects(save(row()),/edit access/);await user(null);await assert.rejects(save(row()),/edit access/);await user(ids.owner);
   });
   await t.test('owner void excludes income but preserves the record and audit',async()=>{const v=await save({action:'void',id:saved.id,revision:2});assert.ok(v.voided_at);assert.equal(v.revision,3);assert.equal((await db.query('select count(*) n from carwash_records where id=$1',[saved.id])).rows[0].n,1);await assert.rejects(save({...p,revision:3}),/Record changed/)});
-  await t.test('unpriced units default ongoing, can finish, be priced later and reopen without payment',async()=>{
-   await user(ids.editor);let entry=await save({...row(),price:null,status:'done'});assert.equal(entry.status,'ongoing');assert.equal(entry.price,null);assert.equal(entry.completed_at,null);
+  await t.test('priced units default ongoing, can finish, be repriced and reopen without payment',async()=>{
+   await user(ids.editor);let entry=await save({...row(),status:'done'});assert.equal(entry.status,'ongoing');assert.equal(entry.price,150);assert.equal(entry.completed_at,null);
    const request=crypto.randomUUID(),operation={action:'done',id:entry.id,revision:entry.revision};
-   let done=await save(operation,request);assert.equal(done.status,'done');assert.equal(done.price,null);assert.ok(done.completed_at);assert.deepEqual(await save(operation,request),done);
+   let done=await save(operation,request);assert.equal(done.status,'done');assert.equal(done.price,150);assert.ok(done.completed_at);assert.deepEqual(await save(operation,request),done);
    await assert.rejects(save(operation),/Record changed/);await assert.rejects(save({...operation,revision:done.revision}),/already changed/);
    await assert.rejects(save({...operation,revision:done.revision},crypto.randomUUID(),ids.other),/edit access/);
    const paid=await save({...row(),id:done.id,revision:done.revision,price:'175.50',status:'ongoing'});assert.equal(paid.status,'done');assert.equal(paid.price,175.5);assert.equal(paid.payment_date,null);assert.equal(paid.completed_at,done.completed_at);
@@ -98,17 +98,34 @@ test('carwash database transactions and permissions',{skip:!process.env.BWC_PGLI
    const audit=(await db.query('select before_record,after_record from carwash_events where request_id=$1',[request])).rows[0];assert.equal(audit.before_record.status,'ongoing');assert.equal(audit.after_record.status,'done');
    await user(ids.owner);await assert.rejects(save({...operation,revision:finished.revision},crypto.randomUUID(),ids.other),/unavailable in this branch/);
    await assert.rejects(save({...operation,id:crypto.randomUUID(),revision:0}),/unavailable/);
-   const blank=await save({...row(),price:''});assert.equal(blank.price,null);
+   await assert.rejects(save({...row(),price:''}),/Enter the price upon arrival/);
+  });
+  await t.test('blank price attempts cannot create records, clear prices, or add audit events',async()=>{
+   await user(ids.editor);const existing=await save(row());
+   const snapshot=async()=>({rows:(await db.query('select * from carwash_records order by id')).rows,events:(await db.query('select * from carwash_events order by request_id')).rows});
+   const before=await snapshot();
+   for(const price of [null,'','  ',undefined]){
+    await assert.rejects(save({...row(),price}),/Enter the price upon arrival/);
+    await assert.rejects(save({...row(),id:existing.id,revision:existing.revision,price}),/Enter the price upon arrival/);
+   }
+   assert.deepEqual(await snapshot(),before);
+   // Simulate an older preview row without inventing its missing price.
+   await db.query('update carwash_records set price=null where id=$1',[existing.id]);
+   await assert.rejects(save({action:'paid',id:existing.id,revision:existing.revision,payment_date:existing.service_date}),/Save the price first/);
+   const done=await save({action:'done',id:existing.id,revision:existing.revision});assert.equal(done.price,null);assert.equal(done.payment_date,null);
+   const corrected=await save({...row(),id:existing.id,revision:done.revision,price:'125'});assert.equal(corrected.price,125);assert.equal(corrected.status,'done');assert.equal(corrected.payment_date,null);
+   await user(ids.owner);
   });
   await t.test('only Mark paid records a full receipt; retries, stale clicks, edits and void are safe',async()=>{
    await user(ids.editor);const entry=await save(row());const op={action:'paid',id:entry.id,revision:entry.revision,payment_date:'2025-12-01'};
    for(const d of ['', '2025-02-30', '2025-11-20', '9999-12-01'])await assert.rejects(save({...op,payment_date:d}));
-   const blank=await save({...row(),price:null});await assert.rejects(save({...op,id:blank.id}),/Save the price first/);
+   const blank=await save(row());await db.query('update carwash_records set price=null where id=$1',[blank.id]);await assert.rejects(save({...op,id:blank.id}),/Save the price first/);
    await user(ids.viewer);await assert.rejects(save(op),/edit access/);await user(ids.editor);
    const req=crypto.randomUUID(),paid=await save(op,req);assert.equal(paid.payment_date,'2025-12-01');assert.ok(paid.paid_at);assert.equal(paid.paid_by,ids.editor);assert.equal(paid.status,'ongoing');assert.deepEqual(await save(op,req),paid);
    await assert.rejects(save(op),/Record changed/);await assert.rejects(save({...op,revision:paid.revision}),/Already paid/);
    const audit=(await db.query('select before_record,after_record from carwash_events where request_id=$1',[req])).rows[0];assert.equal(audit.before_record.payment_date,null);assert.equal(audit.after_record.payment_date,'2025-12-01');
-   for(const change of [{price:200},{price:null},{service_date:'2025-11-20'}])await assert.rejects(save({...row(),id:paid.id,revision:paid.revision,...change}),/locked/);
+   for(const change of [{price:200},{service_date:'2025-11-20'}])await assert.rejects(save({...row(),id:paid.id,revision:paid.revision,...change}),/locked/);
+   await assert.rejects(save({...row(),id:paid.id,revision:paid.revision,price:null}),/Enter the price upon arrival/);
    const updated=await save({...row(),id:paid.id,revision:paid.revision,unit:'Corrected unit',payment_date:null});assert.equal(updated.payment_date,paid.payment_date);
    const done=await save({action:'done',id:paid.id,revision:updated.revision});assert.equal(done.payment_date,paid.payment_date);assert.equal(done.status,'done');
    const reopened=await save({action:'reopen',id:paid.id,revision:done.revision});assert.equal(reopened.payment_date,paid.payment_date);
@@ -148,7 +165,7 @@ test('carwash database transactions and permissions',{skip:!process.env.BWC_PGLI
 });
 test('app assets and income reports include CARWASH without printing, invoicing, or cash mutation',()=>{
  const html=fs.readFileSync(path.join(root,'index.html'),'utf8'),worker=fs.readFileSync(path.join(root,'sw.js'),'utf8');
- for(const asset of ['carwash.js?v=20261125-carwash-counts','reporting-online.js?v=20261125-carwash-payment','executive-print.js?v=20261125-carwash','vertical-layout.js?v=20261125-carwash']){assert.ok(html.includes(asset));assert.ok(worker.includes(asset))}
+ for(const asset of ['carwash.js?v=20261125-carwash-required-price','reporting-online.js?v=20261125-carwash-payment','executive-print.js?v=20261125-carwash','vertical-layout.js?v=20261125-carwash']){assert.ok(html.includes(asset));assert.ok(worker.includes(asset))}
  assert.doesNotMatch(source,/\.print\(|create_invoice|cash_transactions|invoice_payments/);assert.match(source,/bwc:carwash-updated/);assert.match(source,/save_carwash_record/);
  new vm.Script(source);new vm.Script(worker);
  const reporting=fs.readFileSync(path.join(root,'reporting-online.js'),'utf8');assert.doesNotMatch(reporting,/paid=paid\.concat\(carwash/);assert.match(reporting,/var sales=receiptRows\.filter/);
