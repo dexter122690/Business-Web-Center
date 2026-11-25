@@ -1,0 +1,37 @@
+SIMPLIFIED INVENTORY PRICES
+
+DEPLOYMENT STATUS (2026-11-25): NOT APPLIED TO LIVE BWC.
+Production execution was stopped by safety review and needs owner approval.
+Do not deploy the new frontend until this migration is approved and applied.
+Only new tables/columns/functions/policies are installed; no existing rows are
+rewritten or deleted. Existing inventory branch/edit permission checks apply.
+
+Apply 091_inventory_simple_prices.sql after 073 and 074, before deploying the
+matching inventory-costing.js, index.html and sw.js. Transactional/rerunnable.
+Installation does not update any existing stock, prices, usage or other tabs.
+
+One price list (existing reference prices) now drives new material usage.
+Each + deducts one stock item/package and saves that price on the usage entry.
+No opening valuation is required. Prices are not converted between packages:
+the saved label describes one counted stock item (e.g. 1PC, 1L or 500mL can).
+Missing prices, insufficient stock and stale price/stock revisions fail closed.
+Minus reverses an original saved usage and restores stock at its original cost,
+not the current price. Old unpriced usage is preserved, not silently repriced.
+Material totals and the total including custom base coat are visible per unit.
+
+Stock & purchase costs is no longer displayed. General inventory quantity
+updates use one stock-count form, with no second price to enter. These stock
+changes have an audit trail and do not create purchases, expenses or invoices.
+Old receipt valuation columns remain internal, proportionally maintained where
+possible. No invented opening cost is assigned to unvalued stock.
+
+Custom base coat: quantity in L or mL, plus TOTAL cost of the quantity used.
+This is one editable line per vehicle. Editing replaces it, with before/after
+audit history, rather than adding its value again. Removing it keeps the audit.
+Custom base coat does not deduct general stock: it is a per-unit mixed/bought
+quantity. UI warns not to duplicate it in a regular material row.
+
+New write/read RPCs enforce business, branch, edit permissions, active units,
+optimistic revisions and idempotent request IDs. All saves are atomic. Old
+receipt-based records and APIs remain available for historical compatibility.
+Released units show saved totals/base coat read-only.

@@ -8,7 +8,7 @@ const attach=(d=data())=>api.attachReferences(api.model(raw()),{data:d});
 
 test('reference prices display at zero stock without inventing stock valuation or usage',()=>{
  const r=attach(),html=api.referenceHTML(r);assert.match(html,/₱520.00/);assert.match(html,/500 mL/);
- assert.match(html,/do not change quantities/);assert.equal(r.total,0);assert.equal(r.rows[0].material.quantity,0);assert.equal(r.rows[0].material.cost_initialized,false);
+ assert.match(html,/do not change quantities/);assert.match(html,/Each \+ uses one/);assert.equal(r.total,0);assert.equal(r.rows[0].material.quantity,0);assert.equal(r.rows[0].material.cost_initialized,false);
  assert.match(api.stockHTML(r),/Cost not recorded/);assert.match(api.reportHTML(r),/No material usage/);
 });
 test('missing and zero reference prices are distinct',()=>{

@@ -2,11 +2,12 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),fs=requir
 const api=require('../inventory-costing.js');
 const material=(extra={})=>({id:'sand',item_name:'Liha 120',quantity:37,measure_unit:'sheet',cost_initialized:true,cost_value:573.5,stock_unit_cost:15.5,updated_at:'2026-11-22T01:00:00Z',new_qty:3,new_cost:46.5,old_adjustment_qty:0,old_adjustment_count:0,old_usage_qty:0,old_usage_count:0,baseline:null,...extra});
 const snapshot=(materials=[material()],extra={})=>({version:1,business_id:'business',branch_id:'branch',vehicle:{id:'car',vehicle_name:'HONDA CITY',plate_number:'ZFF 245'},can_edit:true,materials,history:[{id:'entry',material_id:'sand',delta:3,cost_amount:46.5,unit_cost:15.5,material_name:'Liha 120',measure_unit:'sheet',recorded_at:'2026-11-22T01:00:00Z',cost_note:'Used'}],purchases:[],...extra});
+const priced=(s=snapshot())=>api.attachReferences(api.model(s),{data:{version:1,business_id:'business',branch_id:'branch',prices:[{material_id:'sand',business_id:'business',branch_id:'branch',price:12,price_unit:'1PC',revision:'r1'}],history:[]}});
 test('unit total uses saved usage, never current stock or current supplier price',()=>{
  const s=snapshot([material({stock_unit_cost:50,cost_value:1850})]),r=api.model(s);assert.equal(r.total,46.5);assert.equal(r.rows[0].rate,15.5);assert.match(api.reportHTML(r),/₱46.50/);assert.doesNotMatch(api.reportHTML(r),/₱150.00/);
 });
 test('unpriced legacy sources stay separate and make totals explicitly incomplete',()=>{
- const r=api.model(snapshot([material({old_adjustment_count:2,old_adjustment_qty:3,old_usage_count:1,old_usage_qty:3})]));assert.equal(r.total,46.5);assert.equal(r.unknown,1);assert.equal(r.rows[0].quantity,3);assert.match(api.reportHTML(r),/Known materials cost · incomplete/);assert.match(api.reportHTML(r),/Not added together/);assert.match(api.reportHTML(r),/Verify past usage/);
+ const r=api.model(snapshot([material({old_adjustment_count:2,old_adjustment_qty:3,old_usage_count:1,old_usage_qty:3})]));assert.equal(r.total,46.5);assert.equal(r.unknown,1);assert.equal(r.rows[0].quantity,3);assert.match(api.reportHTML(r),/Known materials cost · incomplete/);assert.match(api.reportHTML(r),/Not added together/);assert.match(api.reportHTML(r),/older usage without a recorded cost/);
 });
 test('verified past usage is added once, not twice from historical sources',()=>{
  const r=api.model(snapshot([material({old_adjustment_count:1,old_usage_count:1,old_adjustment_qty:3,old_usage_qty:3,baseline:{quantity:3,amount:36,unit_cost:12,measure_unit:'sheet',note:'Receipt',recorded_at:'2026-11-22'}})]));assert.equal(r.total,82.5);assert.equal(r.rows[0].quantity,6);assert.equal(r.rows[0].rate,13.75);assert.equal(r.unknown,0);
@@ -34,7 +35,7 @@ test('read-only staff and released units do not get stock-usage controls',()=>{
  assert.doesNotMatch(api.reportHTML(api.model(snapshot()),true),/data-ic-action="use"|data-ic-action="return"/);
 });
 test('payload binds exact material, unit, branch-context vehicle and expected stock version',()=>{
- const r=api.model(snapshot()),state={action:'use',report:r,context:{vehicle:'car'}};
+ const r=priced(),state={action:'use',report:r,context:{vehicle:'car'}};
  const p=api.payloadFrom(state,{material_id:'sand',quantity:'0.25',note:'Prep'});assert.equal(p.vehicle_id,'car');assert.equal(p.quantity,0.25);assert.equal(p.expected_updated_at,r.rows[0].material.updated_at);
  for(const quantity of ['',null,-1,0,0.001,'bad'])assert.throws(()=>api.payloadFrom(state,{material_id:'sand',quantity,note:'Prep'}));
  assert.throws(()=>api.payloadFrom(state,{material_id:'otherbranch',quantity:1,note:'Prep'}));
@@ -50,18 +51,19 @@ test('new purchases require actual receipt information',()=>{
 test('new feature is versioned and no client directly changes stock tables',()=>{
  const root=path.join(__dirname,'..'),code=fs.readFileSync(path.join(root,'inventory-costing.js'),'utf8'),index=fs.readFileSync(path.join(root,'index.html'),'utf8'),sw=fs.readFileSync(path.join(root,'sw.js'),'utf8');new vm.Script(code);
  assert.doesNotMatch(code,/\.(insert|update|delete|upsert)\s*\(/);assert.match(code,/inventory_tracker_cost_action/);assert.match(code,/state\.retryPayload/);assert.match(code,/BroadcastChannel/);
- assert.ok(index.indexOf('inventory-costing.js?v=')<index.indexOf('inventory-tracker.js?v='));assert.match(sw,/inventory-costing.js\?v=20261122-reference-prices/);
+ assert.ok(index.indexOf('inventory-costing.js?v=')<index.indexOf('inventory-tracker.js?v='));assert.match(sw,/inventory-costing.js\?v=20261125-simple-prices/);
 });
 
 test('quick + records exactly one item with the same atomic costing writer',()=>{
- const report=api.model(snapshot()),p=api.quickPayload(report,{vehicle:'car'},'sand',1);
+ const report=priced(),p=api.quickPayload(report,{vehicle:'car'},'sand',1);
  assert.equal(p.action,'use');assert.equal(p.quantity,1);assert.equal(p.vehicle_id,'car');assert.equal(p.material_id,'sand');assert.equal(p.expected_updated_at,material().updated_at);
- assert.equal(p.unit_cost,undefined);assert.match(p.note,/Quick \+/);
+ assert.equal(p.unit_cost,undefined);assert.equal(p.expected_reference_revision,'r1');assert.match(p.note,/Quick \+/);
 });
 
 test('quick buttons reject missing prices, insufficient stock, released units and view-only access',()=>{
- assert.throws(()=>api.quickPayload(api.model(snapshot([material({cost_initialized:false})])),{vehicle:'car'},'sand',1),/opening cost/);
- assert.throws(()=>api.quickPayload(api.model(snapshot([material({quantity:0.5})])),{vehicle:'car'},'sand',1),/Not enough stock/);
+ assert.throws(()=>api.quickPayload(api.model(snapshot([material({cost_initialized:false})])),{vehicle:'car'},'sand',1),/Set the price/);
+ assert.equal(api.quickPayload(priced(snapshot([material({cost_initialized:false})])),{vehicle:'car'},'sand',1).quantity,1);
+ assert.throws(()=>api.quickPayload(priced(snapshot([material({quantity:0.5})])),{vehicle:'car'},'sand',1),/Not enough stock/);
  for(const extra of [{can_edit:false},{vehicle:{id:'car',released_at:'2026-11-22'}},{vehicle:null}])assert.throws(()=>api.quickPayload(api.model(snapshot(undefined,extra)),{vehicle:'car'},'sand',1));
  assert.throws(()=>api.quickPayload(api.model(snapshot()),{vehicle:'other'},'sand',1));
  assert.throws(()=>api.quickPayload(api.model(snapshot()),{vehicle:'car'},'other',1));
@@ -91,7 +93,7 @@ function quickHarness(){
  const context={business:'business',branch:'branch',vehicle:'car'},storage=new Map(),calls=[];
  const box={quickPending:null,quickMessage:null,saving:false,quickStorageKey:'test',current:null,Math,JSON,Number,Error,Promise,
   num:Number,qty:String,button:()=>'',esc:String,payloadFrom:api.payloadFrom,same:(a,b)=>JSON.stringify(a)===JSON.stringify(b),scope:()=>box.context,
-  context,read:async()=>api.model(snapshot()),changed:()=>{box.refreshed=(box.refreshed||0)+1},client:()=>({rpc:async(name,args)=>{calls.push(args);return box.response(args)}}),response:async()=>({data:{ok:true}}),
+  context,read:async()=>priced(),changed:()=>{box.refreshed=(box.refreshed||0)+1},client:()=>({rpc:async(name,args)=>{calls.push(args);return box.response(args)}}),response:async()=>({data:{ok:true}}),
   root:{document:{getElementById:()=>null},BWCInventoryTracker:{context:()=>box.context},sessionStorage:{setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},crypto:{randomUUID:()=> 'fixed-id'}}};
  vm.runInNewContext(code.slice(start,end),box);return {box,storage,calls};
 }

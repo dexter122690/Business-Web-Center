@@ -1,5 +1,5 @@
-/* Receipt-based inventory costing (073). Reference prices (074) are a separate
-   price list and never replace stock valuation or historical usage costs. */
+/* Simple material pricing (091): one saved price per stock item/package.
+   Each usage keeps its own price; existing history is never repriced. */
 (function(root,factory){
   var api=factory(root);if(typeof module==='object'&&module.exports)module.exports=api;
   else{root.BWCInventoryCosting=api;api.install()}
@@ -31,14 +31,17 @@
       return {material:m,id:m.id,name:m.item_name,quantity:q,cost:cost,rate:q>0?cost/q:null,unit:u,legacy:legacy,unpriced:unpriced,used:used};
     });
     rows.sort(function(a,b){return a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:'base'})});
-    return {data:data,rows:rows,used:rows.filter(function(r){return r.used}),unknown:unknown,total:totalCents/100,
+    var coat=data.basecoat||null;
+    if(coat&&(coat.vehicle_id!==(data.vehicle&&data.vehicle.id)||coat.business_id!==data.business_id||coat.branch_id!==data.branch_id||!coat.revision||!['L','mL'].includes(coat.measure_unit)||num(coat.quantity)<=0||num(coat.amount)<0))throw new Error('The saved base coat does not match this unit. Refresh before recording.');
+    return {data:data,rows:rows,used:rows.filter(function(r){return r.used}),unknown:unknown,basecoat:coat,materialsTotal:totalCents/100,total:totalCents/100+(coat?num(coat.amount):0),
       quantities:Object.keys(units).map(function(u){return qty(units[u]/100)+' '+u}).join(' · ')};
   }
   async function read(context){
     if(!context.business||!context.branch)throw new Error('Select a business and branch first.');
     var c=client();if(!c)throw new Error('The online connection is unavailable.');
-    var r=await c.rpc('inventory_tracker_cost_snapshot',{p_business_id:context.business,p_branch_id:context.branch,p_vehicle_id:context.vehicle});
-    if(r.error)throw new Error(/PGRST202|42883/.test(r.error.code||'')?'Costing setup is required: run Supabase migration 073, then refresh BWC.':r.error.message);
+    var r=await c.rpc('inventory_tracker_simple_snapshot',{p_business_id:context.business,p_branch_id:context.branch,p_vehicle_id:context.vehicle});
+    if(r.error)throw new Error(/PGRST202|42883/.test(r.error.code||'')?'The simplified inventory update (091) is not installed yet. Refresh after the update.':r.error.message);
+    if(!r.data||r.data.simple_pricing_version!==1)throw new Error('The simplified inventory update is unavailable. Refresh before recording.');
     if(!r.data||r.data.business_id!==context.business||r.data.branch_id!==context.branch||((r.data.vehicle&&r.data.vehicle.id)||null)!==context.vehicle)throw new Error('The costing response does not match the selected branch and unit.');
     var report=model(r.data),prices;
     try{prices=await c.rpc('inventory_tracker_reference_price_snapshot',{p_business_id:context.business,p_branch_id:context.branch});}
@@ -61,10 +64,10 @@
     return report;
   }
   function referenceHTML(report){
-    var head='<div class="ic-heading"><div><span class="ic-kicker">SAVED PRICE LIST</span><h3>Reference prices</h3></div></div><p class="ic-help">Your price per stated unit or package, even when stock is zero. Reference prices do not change quantities, receipt-based stock values, Expenses, or past unit costs. Actual purchases and usage keep their own recorded costs.</p>';
+    var head='<div class="ic-heading"><h3>Material prices</h3></div><p class="ic-help">One price per stock item / package. Each + uses one of the stated units at this saved price. Price edits do not change quantities, Expenses, or previously recorded usage costs.</p>';
     if(report.referenceError)return head+'<p class="ic-notice" role="alert">'+esc(report.referenceError)+'</p>'+button('refresh','Retry price list');
     var prices=report.referencePrices||{};
-    var rows=report.rows.map(function(r){var p=prices[r.id];return '<tr><th scope="row">'+esc(r.name)+'</th><td>'+(p?money(p.price,4):'Not set')+'</td><td>'+esc(p?p.price_unit:'—')+'</td><td>'+(p?esc(date(p.updated_at))+'<small>'+esc(p.note)+'</small>':'—')+'</td><td>'+(report.data.can_edit?button('reference',p?'Edit reference price':'Set reference price',r.id):'')+'</td></tr>';}).join('');
+    var rows=report.rows.map(function(r){var p=prices[r.id];return '<tr><th scope="row">'+esc(r.name)+'</th><td>'+(p?money(p.price,4):'Not set')+'</td><td>'+esc(p?p.price_unit:'—')+'</td><td>'+(p?esc(date(p.updated_at))+'<small>'+esc(p.note)+'</small>':'—')+'</td><td>'+(report.data.can_edit?button('reference',p?'Edit price':'Set price',r.id):'')+'</td></tr>';}).join('');
     var history=(report.referenceHistory||[]).map(function(e){var row=report.rows.find(function(r){return r.id===e.material_id}),before=e.previous_price,after=e.saved_price;return '<tr><td>'+esc(date(e.recorded_at))+'</td><td>'+esc(row?row.name:'Material')+'</td><td>'+(before?money(before.price,4)+' / '+esc(before.price_unit):'Not set')+'</td><td>'+money(after.price,4)+' / '+esc(after.price_unit)+'<small>'+esc(after.note)+'</small></td></tr>';}).join('');
     return head+'<div class="ic-scroll"><table class="ic-table" aria-label="Reference price list"><thead><tr><th>Material</th><th>Reference price</th><th>Per unit / package</th><th>Updated / source</th><th>Action</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+(history?'<details class="ic-history"><summary>Reference-price history (latest 100)</summary><div class="ic-scroll"><table class="ic-table"><thead><tr><th>Date</th><th>Material</th><th>Previous price</th><th>Saved price / reason</th></tr></thead><tbody>'+history+'</tbody></table></div></details>':'');
   }
@@ -74,13 +77,13 @@
     var summary='<div class="ic-summary"><div><span>'+(report.unknown?'Known materials cost · incomplete':'Direct materials cost')+'</span><strong>'+money(report.total)+'</strong><small>Materials only · excludes labor</small></div><div><span>Materials recorded</span><strong>'+report.used.length+'</strong><small>'+esc(report.quantities||'No priced usage yet')+(report.unknown?' · plus unverified past usage':'')+'</small></div></div>';
     var rows=report.used.map(function(r){var m=r.material;
       var old=r.unpriced?'<small class="ic-warning-text">Past records: '+qty(m.old_adjustment_qty)+' net adjustments / '+qty(m.old_usage_qty)+' recorded usage. Not added together.</small>':'';
-      var actions=can?(active?button('use','Add usage',r.id)+button('return','Return / correct',r.id):'')+(r.unpriced?button('baseline','Verify past usage',r.id):''):'';
+      var actions=can&&active?button('use','Add usage',r.id)+button('return','Return / correct',r.id):'';
       return '<tr><th scope="row">'+esc(r.name)+old+(m.baseline?'<small>Past usage verified: '+qty(m.baseline.quantity)+' '+esc(m.baseline.measure_unit)+' × '+money(m.baseline.unit_cost,4)+'<br>'+esc(m.baseline.note)+' · '+esc(date(m.baseline.recorded_at))+'</small>':'')+'</th><td>'+(r.unpriced?'<b>Past qty unverified</b><small>'+qty(r.quantity)+' '+esc(r.unit)+' priced since costing began</small>':qty(r.quantity)+' '+esc(r.unit))+'</td><td>'+(r.rate===null?'—':money(r.rate,4))+'</td><td><b>'+money(r.cost)+'</b>'+(r.unpriced?'<small class="ic-warning-text">+ past cost not recorded</small>':'')+'</td><td class="ic-row-actions">'+actions+'</td></tr>';
     }).join('');
     return '<div class="ic-heading"><div><span class="ic-kicker">UNIT COST RECORD</span><h3>Materials &amp; direct cost</h3></div>'+(active&&can?button('use','Record material usage'):button('refresh','Refresh'))+'</div>'+summary+
-      (report.unknown?'<p class="ic-notice">'+report.unknown+' material(s) have unpriced or unverified past usage. The amount above is a known subtotal, not the full unit cost. Use Verify past usage with supporting records; current stock will not be deducted again.</p>':'')+
+      (report.unknown?'<p class="ic-notice">'+report.unknown+' material(s) have older usage without a recorded cost. Those records are preserved; the total includes only recorded costs. New + entries use Material prices.</p>':'')+
       '<div class="ic-scroll"><table class="ic-table"><thead><tr><th>Material</th><th>Quantity used</th><th>Recorded cost / unit</th><th>Material total</th><th>Actions</th></tr></thead><tbody>'+ (rows||'<tr><td colspan="5">No material usage recorded for this unit yet.</td></tr>')+'</tbody></table></div>'+
-      '<p class="ic-help">Cost per unit is blended from saved usage prices, not today’s supplier price. Different measurement units are not added into one quantity. The total adds the displayed material totals, rounded to centavos.</p>'+historyHTML(report);
+      basecoatHTML(report,true)+'<p class="ic-help">Usage keeps the price saved at the time. Price edits affect future + entries only. Total includes custom base coat; quantities with different units are not added together.</p>'+historyHTML(report);
   }
   function historyHTML(report){
     var rows=report.data.history||[];
@@ -98,7 +101,8 @@
     var row=report.rows.find(function(r){return r.id===materialId});if(!row)throw new Error('This material is unavailable in the selected branch.');
     var m=row.material,values={material_id:materialId,quantity:1,note:delta===1?'Quick +: materials used on unit':'Quick −: reverse latest material usage'},action;
     if(delta===1){
-      if(!m.cost_initialized)throw new Error('Set the opening cost for '+row.name+' in Material pricing & purchases first. This is a one-time setup for existing stock.');
+      if(report.referenceError)throw new Error(report.referenceError);
+      if(!(report.referencePrices||{})[materialId])throw new Error('Set the price for '+row.name+' in Material prices first.');
       if(num(m.quantity)<1)throw new Error('Not enough stock for +1 '+(m.measure_unit||'unit')+'. Record a purchase, or use a fractional quantity in the cost section.');
       action='use';
     }else if(delta===-1){
@@ -125,7 +129,7 @@
   }
   async function runQuick(state){
     if(!same(state.context,selectedContext()))throw new Error('Return to the original branch and unit before retrying this save.');
-    var r=await client().rpc('inventory_tracker_cost_action',{p_business_id:state.context.business,p_branch_id:state.context.branch,p_request_id:state.requestId,p_payload:state.payload});
+    var r=await client().rpc(state.rpc||'inventory_tracker_cost_action',{p_business_id:state.context.business,p_branch_id:state.context.branch,p_request_id:state.requestId,p_payload:state.payload});
     if(r.error){if(r.error.code)persistQuick(null);throw new Error(r.error.message);}
     if(!r.data||!r.data.ok)throw new Error('The save result could not be confirmed.');
     persistQuick(null);
@@ -141,7 +145,7 @@
       if(!retry){
         var report=await read(context);if(!same(context,selectedContext()))throw new Error('The selected unit changed. No material was recorded.');
         var payload=quickPayload(report,context,materialId,delta),row=report.rows.find(function(r){return r.id===materialId});
-        state={context:context,requestId:root.crypto.randomUUID(),payload:payload,name:row.name,unit:row.material.measure_unit||'unit'};
+        state={context:context,requestId:root.crypto.randomUUID(),rpc:'inventory_tracker_simple_action',payload:payload,name:row.name,unit:((report.referencePrices||{})[row.id]||{}).price_unit||row.material.measure_unit||'unit'};
         persistQuick(state);
       }
       if(!state)throw new Error('There is no pending save to retry.');
@@ -152,6 +156,24 @@
   function showPricing(){
     var box=root.document.getElementById('inventoryMaterialPricing');if(!box)return;box.open=true;pricingExpanded=true;box.scrollIntoView({behavior:'smooth',block:'start'});box.querySelector('summary').focus();
   }
+  function basecoatHTML(report,readonly){
+    var c=report.basecoat,can=!readonly&&report.data.can_edit&&report.data.vehicle&&!report.data.vehicle.released_at;
+    return '<div class="ic-basecoat"><div><b>Base coat · custom</b><small>'+(c?qty(c.quantity)+' '+esc(c.measure_unit)+' used · <strong>'+money(c.amount)+'</strong>':'No base coat recorded')+'</small><small>Cost of the quantity used. Included in total; no General inventory deduction. Do not also record this same paint in a regular material row.</small></div>'+(can?button('basecoat',c?'Edit base coat':'Add base coat'):'')+'</div>';
+  }
+  function inlineCostHTML(row){
+    return '<strong>'+money(row.cost)+'</strong>'+(row.unpriced?'<small>+ older usage cost not recorded</small>':'');
+  }
+  function simpleTotalHTML(report){
+    return '<span>'+(report.unknown?'Recorded materials total':'Total materials cost')+'</span><strong>'+money(report.total)+'</strong><small>Includes base coat'+(report.unknown?' · older unpriced usage is not included':'')+'</small>';
+  }
+  function decorateUsage(list,report){
+    list.querySelectorAll('[data-it-unit-plus]').forEach(function(b){
+      var row=report.rows.find(function(r){return r.id===b.dataset.itUnitPlus}),el=b.closest('.it-material-row');if(!row||!el)return;
+      var cost=root.document.createElement('div');cost.className='ic-inline-cost';cost.innerHTML=inlineCostHTML(row);el.insertBefore(cost,el.querySelector('.it-material-actions'));
+      var label=el.querySelector('.it-small');if(label){label.textContent=qty(Math.max(0,num(row.material.old_adjustment_qty)+num(row.material.new_qty)))+' used';}
+      var ref=(report.referencePrices||{})[row.id],hint=root.document.createElement('small');hint.className='ic-price-hint';hint.textContent=ref?money(ref.price,4)+' / '+ref.price_unit:'Price not set';el.firstElementChild.appendChild(hint);
+    });
+  }
   async function render(context){
     var page=root.document.getElementById('inventoryTracker');if(!page)return;
     var version=++epoch;current=null;
@@ -160,21 +182,23 @@
     if(old){
       // Keep the original material rows, ordering, hide/add-row controls and +/- look.
       old.querySelectorAll('[data-it-unit-plus],[data-it-unit-minus]').forEach(function(b){b.disabled=true});
-      var toolbar=root.document.createElement('div');toolbar.className='ic-quick-help';toolbar.innerHTML='<span>+ uses 1 item · − reverses the latest use (up to 1). Prices are saved in the background.</span>'+button('pricing','Material prices');old.before(toolbar);
+      var toolbar=root.document.createElement('div');toolbar.className='ic-quick-help';toolbar.innerHTML='<span>+ uses 1 item at the saved price · − returns it and reverses its saved cost.</span>'+button('pricing','Material prices');old.before(toolbar);
       var status=root.document.createElement('p');status.className='ic-quick-status';status.dataset.icQuickStatus='';status.setAttribute('role','status');status.setAttribute('aria-live','polite');status.hidden=true;old.before(status);
       mount=root.document.createElement('details');mount.className='ic-unit ic-cost-panel';mount.open=costExpanded;old.after(mount);
+      var simple=root.document.createElement('div');simple.className='ic-simple-summary';old.after(simple);
       mount.addEventListener('toggle',function(){costExpanded=mount.open});
     }
     var stock=root.document.createElement('details');stock.id='inventoryMaterialPricing';stock.className='ic-stock ic-pricing';stock.open=pricingExpanded;page.appendChild(stock);
     stock.addEventListener('toggle',function(){pricingExpanded=stock.open});
     if(mount)mount.innerHTML='<summary>Unit material cost details</summary><p role="status">Loading complete material costs…</p>';
-    stock.innerHTML='<summary>Material pricing &amp; purchases</summary><p role="status">Loading stock valuation…</p>';quickStatus();
+    stock.innerHTML='<summary>Material prices</summary><p role="status">Loading saved prices…</p>';quickStatus();
     try{
       var report=await read(context);if(version!==epoch||!same(context,scope(context.vehicle)))return;
       current={context:context,report:report};if(mount)mount.innerHTML='<summary>Unit material cost details <span>'+(report.unknown?'Known cost ':'')+money(report.total)+(report.unknown?' · incomplete':'')+'</span></summary>'+reportHTML(report,false);
-      stock.innerHTML='<summary>Material pricing &amp; purchases <span>Reference prices · actual stock costs</span></summary>'+referenceHTML(report)+stockHTML(report);
+      if(old){decorateUsage(old,report);simple.innerHTML=basecoatHTML(report,false)+'<div class="ic-simple-total" role="status">'+simpleTotalHTML(report)+'</div>';}
+      stock.innerHTML='<summary>Material prices</summary>'+referenceHTML(report);
       page.querySelectorAll('[data-it-plus],[data-it-minus],[data-it-edit-stock],[data-it-toggle-manage]').forEach(function(b){b.disabled=!report.data.can_edit});quickStatus();
-    }catch(error){if(version!==epoch)return;var msg='<p class="ic-notice" role="alert">'+esc(error.message||'Costs could not load. No totals are shown.')+'</p>'+button('refresh','Try again');if(mount)mount.innerHTML='<summary>Unit material cost details — unavailable</summary>'+msg;stock.innerHTML='<summary>Material pricing &amp; purchases — unavailable</summary>'+msg;quickMessage={context:context,text:'Material buttons are paused because current stock and costs could not be verified. Refresh to try again.'};quickStatus();}
+    }catch(error){if(version!==epoch)return;var msg='<p class="ic-notice" role="alert">'+esc(error.message||'Costs could not load. No totals are shown.')+'</p>'+button('refresh','Try again');if(mount)mount.innerHTML='<summary>Unit material cost details — unavailable</summary>'+msg;stock.innerHTML='<summary>Material prices — unavailable</summary>'+msg;quickMessage={context:context,text:'Material buttons are paused because current stock and costs could not be verified. Refresh to try again.'};quickStatus();}
   }
   async function renderArchive(container,context){
     var mount=root.document.createElement('section');mount.className='ic-unit';container.prepend(mount);mount.innerHTML='<p role="status">Loading material costs…</p>';
@@ -206,17 +230,31 @@
     var titles={purchase:'Record material purchase',opening:'Value existing stock',count:'Correct stock count',use:'Record material usage',return:'Return unused material / correct usage',baseline:'Verify past usage cost',create:'Add a material'};
     var description={purchase:'Enter the actual receipt cost per measurement unit. This adds stock, not another expense entry.',opening:'Enter a supported average cost for the stock already on hand. Quantity does not increase.',count:'For a verified count discrepancy only—not a purchase or vehicle usage. Stock value changes at the current average cost.',use:'Stock and this unit’s material cost will be saved together at the current average cost.',return:'Select the original usage. The quantity and its original saved cost are reversed together; today’s price is not substituted.',baseline:'Review older records for overlap. Enter the verified TOTAL quantity and average historical cost for this material on this unit. This is a one-time historical valuation, does not move stock, and cannot be overwritten here.',create:'Create a separate material for each brand, grade and package/measurement size. It starts with zero stock; record a purchase next.'};
     titles.reference='Set reference price';description.reference='Save a price-list amount per stated unit or package. This is not a purchase, expense, stock revaluation, or a change to earlier vehicle costs.';
-    var selector=a==='create'?'': '<label>Material<select name="material_id" required><option value="">Choose a material</option>'+r.rows.map(function(x){return '<option value="'+esc(x.id)+'"'+(x.id===state.material?' selected':'')+'>'+esc(x.name)+'</option>'}).join('')+'</select></label>';
+    titles.reference='Material price';description.reference='This is the only price to encode. Each + uses one stock item / package at this price. Earlier usage keeps its saved cost.';
+    titles.stock='Update General inventory';description.stock='Enter the available quantity after your stock update. No additional price entry is needed; unit usage is unchanged.';
+    titles.basecoat='Base coat used on this unit';description.basecoat='Enter the quantity used and the TOTAL cost of that quantity, not the price of a larger batch. This custom line is included in the unit total and does not deduct General inventory. Do not record the same paint again in a regular material row.';
+    titles.basecoat_remove='Remove custom base coat';description.basecoat_remove='Remove this custom line from the unit total. Its previous entry stays in the audit history. General inventory is unchanged.';
+    description.use='Use the saved Material price. Stock and this unit’s quantity and cost are saved together.';
+    description.create='Add a material with zero stock. Set its price once in Material prices, then update its quantity in General inventory.';
+    var coatAction=a==='basecoat'||a==='basecoat_remove';
+    var selector=a==='create'||coatAction?'': '<label>Material<select name="material_id" required><option value="">Choose a material</option>'+r.rows.map(function(x){return '<option value="'+esc(x.id)+'"'+(x.id===state.material?' selected':'')+'>'+esc(x.name)+'</option>'}).join('')+'</select></label>';
     var body=selector;
     if(a==='create')body+=field('name','Material name / brand / grade','text','','maxlength="150"')+field('note','Reason','text','New material','maxlength="1000"');
+    else if(coatAction){
+      var coat=r.basecoat;
+      if(a==='basecoat')body+=field('quantity','Base coat used','number',coat?coat.quantity:'','min="0.01" step="0.01" max="999999999"')+'<label>Unit<select name="unit"><option value="L"'+(coat&&coat.measure_unit==='L'?' selected':'')+'>Liters (L)</option><option value="mL"'+(coat&&coat.measure_unit==='mL'?' selected':'')+'>Milliliters (mL)</option></select></label>'+field('amount','Total cost of this quantity (₱)','number',coat?coat.amount:'','min="0" step="0.01" max="999999999"');
+      body+=field('note','Note / reason','text',a==='basecoat'?'Custom base coat used on unit':'Remove custom base coat','minlength="3" maxlength="1000"');
+      if(coat&&a==='basecoat')body+=button('basecoat_remove','Remove saved base coat');
+    }
     else if(data&&a==='reference'){
       var ref=(r.referencePrices||{})[data.id];
-      body+=field('price','Reference price (PHP)','number',ref?ref.price:'','min="0" step="0.0001" max="999999999"')+
-        field('unit','Price unit / package size','text',ref?ref.price_unit:data.measure_unit||'','maxlength="50"')+
+      body+=field('price','Price for each + (₱)','number',ref?ref.price:'','min="0" step="0.0001" max="999999999"')+
+        field('unit','One stock item / package (e.g. 1PC, 1L)','text',ref?ref.price_unit:data.measure_unit||'','maxlength="50"')+
         field('note','Reason / price source','text','','minlength="3" maxlength="1000"');
     }
     else if(data){
-      body+='<div class="ic-form-stock">Available: <b>'+qty(data.quantity)+' '+esc(data.measure_unit||'unit unspecified')+'</b> · Average cost: <b>'+(data.stock_unit_cost==null?'Not available':money(data.stock_unit_cost,4))+'</b></div>';
+      var priceRef=(r.referencePrices||{})[data.id];
+      body+='<div class="ic-form-stock">Available: <b>'+qty(data.quantity)+' stock items</b> · Saved price: <b>'+(priceRef?money(priceRef.price,4)+' / '+esc(priceRef.price_unit):'Not set')+'</b></div>';
       if(['purchase','opening','baseline'].includes(a))body+=field('unit','Measurement unit (e.g. sheet, piece, liter, gallon)','text',data.measure_unit||'',data.measure_unit?'readonly':'maxlength="30"');
       if(a==='baseline')body+='<p class="ic-notice">Old net adjustments: '+qty(data.old_adjustment_qty)+' · Old recorded usage: '+qty(data.old_usage_qty)+'. These may refer to the same activity. Do not simply add them together.</p>';
       if(a==='return'){
@@ -224,21 +262,22 @@
         body+='<label>Original usage entry<select name="return_of" required><option value="">Select the entry being returned/corrected</option>'+entries.map(function(x){return '<option value="'+esc(x.row.id)+'">'+esc(date(x.row.recorded_at))+' · '+qty(x.remaining)+' remaining · '+money(x.row.unit_cost,4)+'</option>'}).join('')+'</select></label>';
         if(!entries.length)body+='<p class="ic-notice">No costed usage is available to reverse. Historical records must be reviewed separately.</p>';
       }
-      body+=field('quantity',a==='opening'?'Existing quantity to value':a==='count'?'Verified stock count':a==='baseline'?'Verified past quantity used':'Quantity','number',a==='opening'||a==='count'?data.quantity:a==='baseline'?'':1,'min="'+(['use','purchase','return'].includes(a)?'0.01':'0')+'" step="0.01" max="999999999"'+(a==='opening'?' readonly':''));
+      body+=field('quantity',a==='stock'?'Available stock after update':a==='opening'?'Existing quantity to value':a==='count'?'Verified stock count':a==='baseline'?'Verified past quantity used':'Quantity','number',a==='stock'||a==='opening'||a==='count'?data.quantity:a==='baseline'?'':1,'min="'+(['use','purchase','return'].includes(a)?'0.01':'0')+'" step="0.01" max="999999999"'+(a==='opening'?' readonly':''));
       if(['purchase','opening','baseline'].includes(a))body+=field('unit_cost','Actual / verified purchase cost per measurement unit (PHP)','number','','min="0" step="0.0001" max="999999999"');
       if(a==='purchase')body+=field('supplier','Supplier','text','','maxlength="200"')+field('receipt','Receipt / reference number','text','','maxlength="200"')+field('purchase_date','Actual purchase date','date',new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()));
-      body+=field('note',a==='use'?'Job / usage note':'Reason / supporting record reference','text',a==='use'?'Materials used on unit':'','minlength="3" maxlength="1000"');
+      body+=field('note',a==='use'?'Job / usage note':'Reason / supporting record reference','text',a==='use'?'Materials used on unit':a==='stock'?'General inventory quantity update':'','minlength="3" maxlength="1000"');
       if(a==='baseline')body+='<label class="ic-check"><input type="checkbox" name="confirmed" required>I verified the historical quantity, checked for duplicate records and have support for this cost.</label>';
     }
-    dialog.innerHTML='<form><div class="ic-heading"><h2 id="icFormTitle">'+titles[a]+'</h2><button type="button" class="ic-button" data-ic-cancel>Close</button></div><p class="ic-help">'+description[a]+'</p>'+(state.context.vehicle&&r.data.vehicle&&['use','return','baseline'].includes(a)?'<p><b>'+esc(r.data.vehicle.vehicle_name)+' · '+esc(r.data.vehicle.plate_number)+'</b></p>':'')+'<div class="ic-fields">'+body+'</div><p data-ic-preview class="ic-form-stock"></p><p data-ic-error role="alert"></p><div class="ic-form-footer"><button type="button" class="ic-button" data-ic-cancel>Cancel</button><button class="ic-button ic-primary" type="submit" '+(!data&&a!=='create'?'disabled':'')+'>Save '+(a==='use'?'usage':a==='purchase'?'purchase':a==='baseline'?'verified history':'record')+'</button></div></form>';
+    dialog.innerHTML='<form><div class="ic-heading"><h2 id="icFormTitle">'+titles[a]+'</h2><button type="button" class="ic-button" data-ic-cancel>Close</button></div><p class="ic-help">'+description[a]+'</p>'+(state.context.vehicle&&r.data.vehicle&&(['use','return','baseline'].includes(a)||coatAction)?'<p><b>'+esc(r.data.vehicle.vehicle_name)+' · '+esc(r.data.vehicle.plate_number)+'</b></p>':'')+'<div class="ic-fields">'+body+'</div><p data-ic-preview class="ic-form-stock"></p><p data-ic-error role="alert"></p><div class="ic-form-footer"><button type="button" class="ic-button" data-ic-cancel>Cancel</button><button class="ic-button ic-primary" type="submit" '+(!data&&a!=='create'&&!coatAction?'disabled':'')+'>'+(a==='basecoat_remove'?'Confirm removal':'Save '+(a==='use'?'usage':a==='basecoat'?'base coat':'record'))+'</button></div></form>';
     preview();
   }
   function preview(){
     if(!dialog||!formState)return;var f=dialog.querySelector('form'),el=dialog.querySelector('[data-ic-preview]');if(!f||!el)return;
     var d=new root.FormData(f),q=Number(d.get('quantity')),price=d.get('unit_cost'),m=formState.report.rows.find(function(r){return r.id===d.get('material_id')});
-    if(formState.action==='reference'){el.textContent='Reference only — stock quantity and actual costs will not change.';return;}
+    if(formState.action==='reference'){el.textContent='Used for future + entries. Existing quantities and past usage costs will not change.';return;}
+    if(formState.action==='basecoat'){el.textContent=d.get('amount')!==''&&Number.isFinite(Number(d.get('amount')))?qty(q)+' '+d.get('unit')+' used · '+money(Number(d.get('amount')))+' added to the unit total. This replaces any saved base coat line.':'';return;}
     if(price!==null&&price!==''&&Number.isFinite(q*Number(price)))el.textContent='Recorded value: '+money(q*Number(price));
-    else if(formState.action==='use'&&m&&m.material.stock_unit_cost!=null)el.textContent='Estimated usage cost: '+money(q*Number(m.material.stock_unit_cost))+' · confirmed by the server when saved';
+    else if(formState.action==='use'&&m&&(formState.report.referencePrices||{})[m.id])el.textContent='Usage cost: '+money(q*Number(formState.report.referencePrices[m.id].price))+' · saved price checked again when saving';
     else el.textContent='';
   }
   function payloadFrom(state,values){
@@ -246,6 +285,15 @@
     var p={action:a,note:String(values.note||'').trim()};
     if(p.note.length<3)throw new Error('Enter a reason or supporting reference.');
     if(a==='create'){p.name=String(values.name||'').trim();if(!p.name)throw new Error('Enter the material name.');return p;}
+    if(a==='basecoat'||a==='basecoat_remove'){
+      if(!state.context.vehicle||!state.report.data.vehicle||state.report.data.vehicle.released_at)throw new Error('Choose an active unit first.');
+      p.vehicle_id=state.context.vehicle;p.expected_revision=state.report.basecoat?state.report.basecoat.revision:null;
+      if(a==='basecoat_remove'){if(!state.report.basecoat)throw new Error('No saved base coat to remove.');return p;}
+      p.quantity=num(values.quantity);p.amount=num(values.amount);p.unit=String(values.unit||'');
+      if(p.quantity<=0||p.quantity>999999999||Math.abs(p.quantity*100-Math.round(p.quantity*100))>0.00001)throw new Error('Enter the quantity used with at most two decimal places.');
+      if(p.amount<0||p.amount>999999999||Math.abs(p.amount*100-Math.round(p.amount*100))>0.00001)throw new Error('Enter the total cost of this quantity with at most two decimal places.');
+      if(!['L','mL'].includes(p.unit))throw new Error('Choose L or mL.');return p;
+    }
     if(!m)throw new Error('Choose a material from this branch.');
     if(a==='reference'){
       if(state.report.referenceError)throw new Error(state.report.referenceError);
@@ -258,6 +306,11 @@
     p.material_id=m.id;p.quantity=num(values.quantity);p.expected_updated_at=m.material.updated_at;
     if(p.quantity<0||Math.abs(p.quantity*100-Math.round(p.quantity*100))>0.00001||(['use','purchase','return'].includes(a)&&p.quantity===0))throw new Error('Enter a valid quantity with at most two decimal places.');
     if(['use','return','baseline'].includes(a)){if(!state.context.vehicle)throw new Error('Choose a unit first.');p.vehicle_id=state.context.vehicle;}
+    if(a==='use'){
+      if(state.report.referenceError)throw new Error(state.report.referenceError);
+      var saved=(state.report.referencePrices||{})[m.id];if(!saved)throw new Error('Set the price for '+m.name+' in Material prices first.');
+      p.expected_reference_revision=saved.revision;
+    }
     if(['purchase','opening','baseline'].includes(a)){p.unit_cost=num(values.unit_cost);if(p.unit_cost<0)throw new Error('The purchase cost cannot be negative.');p.unit=String(values.unit||'').trim();if(!p.unit)throw new Error('Enter the measurement unit.');}
     if(a==='purchase'){p.supplier=String(values.supplier||'').trim();p.receipt=String(values.receipt||'').trim();p.purchase_date=values.purchase_date;if(!p.supplier||!p.receipt||!p.purchase_date)throw new Error('Supplier, receipt reference and purchase date are required.');}
     if(a==='baseline'){p.confirmed=values.confirmed==='on';if(!p.confirmed)throw new Error('Confirm that the historical records were reviewed for duplicates.');}
@@ -270,9 +323,9 @@
       if(!same(state.context,scope(state.context.vehicle)))throw new Error('The branch changed. Close this form and reopen it in the correct branch.');
       var payload=state.retryPayload||payloadFrom(state,Object.fromEntries(new root.FormData(event.target)));
       if(!state.requestId)state.requestId=root.crypto.randomUUID();state.retryPayload=payload;saving=true;
-      dialog.querySelectorAll('button,input,select').forEach(function(el){el.disabled=true});errorBox.textContent=state.action==='reference'?'Saving reference price only…':'Saving quantity and cost together…';
+      dialog.querySelectorAll('button,input,select').forEach(function(el){el.disabled=true});errorBox.textContent=state.action==='reference'?'Saving material price…':'Saving record…';
       state.uncertain=true;
-      var r=await client().rpc(state.action==='reference'?'inventory_tracker_reference_price_save':'inventory_tracker_cost_action',{p_business_id:state.context.business,p_branch_id:state.context.branch,p_request_id:state.requestId,p_payload:payload});
+      var r=await client().rpc(state.action==='reference'?'inventory_tracker_reference_price_save':['use','return','stock','basecoat','basecoat_remove'].includes(state.action)?'inventory_tracker_simple_action':'inventory_tracker_cost_action',{p_business_id:state.context.business,p_branch_id:state.context.branch,p_request_id:state.requestId,p_payload:payload});
       if(r.error){state.uncertain=!r.error.code;throw new Error(r.error.message);}if(!r.data||!r.data.ok)throw new Error('The save result is uncertain. Retry this unchanged form to check the same request safely.');
       saving=false;quickMessage=null;dialog.close();changed(state.context);var archived=root.document.getElementById('inventoryMaterialHistory');if(archived&&archived.open){var refresh=archived.querySelector('[data-imh-refresh]');if(refresh)refresh.click();}
     }catch(e){errorBox.textContent=(e.message||'The save could not be confirmed.')+' No automatic retry was made. Retry the unchanged form to safely reuse the same request; close and reopen if the stock changed.';}
@@ -286,13 +339,17 @@
     var s=root.document.createElement('style');s.id='inventoryCostStyle';s.textContent=
       '.ic-unit,.ic-stock{font:16px/1.5 Arial,sans-serif;color:#252222}.ic-stock{margin-top:22px;padding:22px;border:1px solid #e9dcd5;border-radius:14px;background:#fff}.ic-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0}.ic-heading h3,.ic-heading h2{margin:2px 0!important;font-size:20px!important}.ic-kicker{font-size:12px;letter-spacing:1.4px;color:#a33a13}.ic-summary{display:grid;grid-template-columns:1.1fr 1fr;gap:12px;margin:18px 0}.ic-summary>div{border:1px solid #eed9cb;background:#fff6ef;border-radius:12px;padding:18px}.ic-summary span,.ic-summary small{display:block;font-size:14px;color:#685449}.ic-summary strong{display:block;font-size:29px;color:#bd410c;margin:5px 0;font-variant-numeric:tabular-nums}.ic-scroll{overflow:auto;border:1px solid #e8ddd7;border-radius:10px}.ic-table{width:100%;min-width:720px;border-collapse:collapse}.ic-table th,.ic-table td{font-size:14px;padding:12px;text-align:left;vertical-align:top;border-bottom:1px solid #eaded8}.ic-table thead th{background:#f7f4f2;color:#685449}.ic-table td{font-variant-numeric:tabular-nums}.ic-table small{display:block;font-size:12px;font-weight:400;margin-top:5px;max-width:330px}.ic-table tbody tr:last-child>*{border-bottom:0}.ic-row-actions{min-width:130px}.ic-button{border:1px solid #cbb8ad!important;background:#fff!important;border-radius:8px!important;color:#65351d!important;font:600 14px Arial!important;padding:9px 12px!important;cursor:pointer}.ic-row-actions .ic-button{display:block;margin:0 0 7px}.ic-primary{background:#d84b12!important;color:white!important;border-color:#d84b12!important}.ic-button:disabled{opacity:.5;cursor:not-allowed}.ic-button:focus-visible{outline:3px solid #205ec8;outline-offset:2px}.ic-help{font-size:14px;color:#685449}.ic-notice{background:#fff8e8;border:1px solid #e1b966;border-radius:9px;padding:13px;font-size:14px;color:#754400}.ic-warning-text{color:#875200}.ic-history{margin:18px 0}.ic-history summary{cursor:pointer;font-weight:bold;margin:10px 0}.ic-history .ic-table{min-width:680px}#inventoryCostForm{width:min(680px,calc(100vw - 24px));max-width:none;max-height:90vh;border:1px solid #d6c4b9;border-radius:14px;padding:24px;color:#252222;font:16px/1.5 Arial;background:#fff}#inventoryCostForm::backdrop{background:#20181099}.ic-fields{display:grid;grid-template-columns:1fr 1fr;gap:14px}.ic-fields label{display:flex;flex-direction:column;gap:5px;font-size:14px;font-weight:600}.ic-fields input,.ic-fields select{width:100%;box-sizing:border-box;font:16px Arial;padding:10px;border:1px solid #cdbfb6;border-radius:7px;background:#fff;color:#252222}.ic-fields input[readonly]{background:#f2eeeb}.ic-form-stock,.ic-fields .ic-notice{grid-column:1/-1;font-size:14px;background:#f7f3ef;padding:12px;border-radius:8px}.ic-fields .ic-check{grid-column:1/-1;flex-direction:row;align-items:start}.ic-check input{width:auto;margin:4px 8px 0 0}.ic-form-footer{display:flex;justify-content:flex-end;gap:10px;padding-top:16px;border-top:1px solid #e8ddd7}[data-ic-error]{font-size:14px;color:#a32412;white-space:pre-wrap}@media(max-width:650px){.ic-summary,.ic-fields{grid-template-columns:1fr}.ic-stock{padding:14px}.ic-summary strong{font-size:25px}.ic-heading{align-items:flex-start}}';root.document.head.appendChild(s);
     s.textContent+='.ic-table tbody th{text-transform:none!important;background:#fff;font-weight:600}.ic-table tbody th small{text-transform:none!important}.ic-table td{background:#fff}.ic-unit,.ic-stock,.inventory-tracker .it-panel{min-width:0}';
+    s.textContent+='.it-unit-materials .it-material-row{grid-template-columns:minmax(0,1fr) minmax(90px,auto) auto!important}.it-unit-materials .it-material-row .it-small.it-used{position:static!important;transform:none!important;display:inline!important;margin:0!important}.ic-price-hint{display:block;font-size:11px;color:#75645d;margin-top:3px}.ic-inline-cost{text-align:right;font-size:14px;min-width:0}.ic-inline-cost strong{color:#c14e13}.ic-inline-cost small{display:block;max-width:145px;font-size:11px;color:#856643}.ic-basecoat{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #e9dcd5;border-radius:9px;padding:13px;margin-top:12px}.ic-basecoat small{display:block;font-size:12px;color:#75645d;margin-top:4px}.ic-basecoat .ic-button{white-space:nowrap}.ic-simple-total{display:grid;grid-template-columns:1fr auto;gap:4px;background:#fff0e3;border:1px solid #f2c6a7;border-radius:9px;padding:14px;margin-top:12px}.ic-simple-total>strong{font-size:22px;color:#bd410c}.ic-simple-total small{grid-column:1/-1;color:#75645d;font-size:12px}@media(max-width:600px){.it-unit-materials .it-material-row{grid-template-columns:minmax(0,1fr) auto!important}.ic-inline-cost{grid-column:1;text-align:left}.it-unit-materials .it-material-actions{grid-column:2;grid-row:1/3}.ic-basecoat{align-items:flex-start;flex-wrap:wrap}.ic-simple-total>strong{font-size:20px}}';
     s.textContent+='.ic-quick-help{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 12px;font-size:12px;color:#75645d}.ic-quick-help .ic-button{font-size:12px!important;padding:7px 10px!important;white-space:nowrap}.ic-quick-status{padding:10px 12px;background:#fff7ed;border:1px solid #f0d1b4;border-radius:8px;font-size:13px;color:#713e17}.ic-quick-status .ic-button{margin:6px}.ic-cost-panel{margin:16px 0;border:1px solid #eaded8;border-radius:10px;padding:12px}.ic-cost-panel>summary,.ic-pricing>summary{cursor:pointer;font-size:14px;font-weight:700}.ic-cost-panel>summary span,.ic-pricing>summary span{font-weight:400;color:#75645d;margin-left:10px;font-size:12px}.ic-pricing{font-size:14px}.it-material-actions button:disabled{opacity:.45;cursor:not-allowed}@media(max-width:520px){.ic-quick-help{align-items:flex-start;flex-wrap:wrap}.ic-cost-panel>summary span{display:block;margin:4px 0}}';
+    // The tracker injects its older single-line rules after this module loads.
+    // Scope these overrides to the page so usage and cost never overlap.
+    s.textContent+='#inventoryTracker .it-unit-materials .it-material-row{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(90px,auto) auto!important}#inventoryTracker .it-unit-materials .it-material-row>div:first-child{display:block!important}#inventoryTracker .it-unit-materials .it-material-row b{white-space:normal!important}#inventoryTracker .it-unit-materials .it-material-row .it-small.it-used{position:static!important;right:auto!important;top:auto!important;transform:none!important;display:inline!important;margin-left:8px!important}#inventoryTracker .it-unit-materials .it-material-row .it-small{margin-left:8px}#inventoryTracker .ic-price-hint{display:block!important}@media(max-width:600px){#inventoryTracker .it-unit-materials .it-material-row{grid-template-columns:minmax(0,1fr) auto!important}}';
     root.document.addEventListener('click',function(e){
       var b=e.target.closest('[data-ic-action]');if(b){e.preventDefault();e.stopImmediatePropagation();var a=b.dataset.icAction;if(a==='pricing'){showPricing();return;}if(a==='retry-quick'){quickStep(null,0,true);return;}if(a==='refresh'){var history=b.closest('#inventoryMaterialHistory');if(history)history.querySelector('[data-imh-refresh]').click();else refresh();return;}var archive=b.closest('.ic-unit');open(a,b.dataset.icMaterial,archive&&archive._costReport||current,b);return;}
       var step=e.target.closest('#inventoryTracker [data-it-unit-plus],#inventoryTracker [data-it-unit-minus]');
       if(step){e.preventDefault();e.stopImmediatePropagation();quickStep(step.dataset.itUnitPlus||step.dataset.itUnitMinus,step.hasAttribute('data-it-unit-plus')?1:-1,false);return;}
       var stockButton=e.target.closest('#inventoryTracker [data-it-plus],#inventoryTracker [data-it-minus],#inventoryTracker [data-it-edit-stock],#inventoryTracker [data-it-toggle-manage]');
-      if(stockButton){e.preventDefault();e.stopImmediatePropagation();var id=stockButton.dataset.itPlus||stockButton.dataset.itMinus||stockButton.dataset.itEditStock,r=current&&current.report.rows.find(function(x){return x.id===id});open(stockButton.hasAttribute('data-it-toggle-manage')?'create':stockButton.hasAttribute('data-it-plus')?'purchase':r&&!r.material.cost_initialized?'opening':'count',id,current,stockButton);return;}
+      if(stockButton){e.preventDefault();e.stopImmediatePropagation();var id=stockButton.dataset.itPlus||stockButton.dataset.itMinus||stockButton.dataset.itEditStock;open(stockButton.hasAttribute('data-it-toggle-manage')?'create':'stock',id,current,stockButton);return;}
       // Suppress cached/legacy stock buttons: new transactions must own all writes.
       var old=e.target.closest('#inventoryTracker [data-it-unit-plus],#inventoryTracker [data-it-unit-minus],#inventoryTracker [data-it-plus],#inventoryTracker [data-it-minus],#inventoryTracker [data-it-save-material],#inventoryTracker [data-it-record],#inventoryTracker [data-it-stepper]');
       if(old){e.preventDefault();e.stopImmediatePropagation();refresh();}
@@ -304,5 +361,5 @@
     root.addEventListener('storage',function(e){if(e.key==='bwc-active-business'||e.key==='bwc-active-branch'){invalidate();refresh();}if(e.key==='bwc-inventory-cost-changed'){try{receive(JSON.parse(e.newValue))}catch(err){}}});
     root.document.addEventListener('visibilitychange',function(){if(!root.document.hidden){var p=root.document.getElementById('inventoryTracker');if(p&&p.classList.contains('active'))refresh();}});
   }
-  return {install:install,render:render,renderArchive:renderArchive,model:model,reportHTML:reportHTML,stockHTML:stockHTML,referenceHTML:referenceHTML,attachReferences:attachReferences,payloadFrom:payloadFrom,quickPayload:quickPayload};
+  return {install:install,render:render,renderArchive:renderArchive,model:model,reportHTML:reportHTML,stockHTML:stockHTML,referenceHTML:referenceHTML,attachReferences:attachReferences,payloadFrom:payloadFrom,quickPayload:quickPayload,basecoatHTML:basecoatHTML,inlineCostHTML:inlineCostHTML,simpleTotalHTML:simpleTotalHTML};
 }));
