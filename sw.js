@@ -1,7 +1,7 @@
 /* Rotate this cache whenever app-shell JavaScript changes.  The previous
    worker ignored query strings, so a request for a newer versioned script
    could incorrectly receive an older cached file. */
-const CACHE_NAME = 'bwc-invoice-offline-v44';
+const CACHE_NAME = 'bwc-invoice-offline-v45';
 const OFFLINE_TOOLS = ['https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2','https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js','https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'];
 const APP_SHELL = [
   '/index.html',
@@ -33,6 +33,7 @@ const APP_SHELL = [
   '/invoice-payments-online.js?v=20261123-offline-safe',
   '/invoice-payment-print.js?v=20261125-print-after-save',
   '/invoice-pdf-actions.js?v=20260829',
+  '/invoice-payment-history.js?v=20261125-history-button',
   '/client-source-options.js?v=20260920-specific-sources',
   '/pms-client-history.js?v=20261125-pms-payment',
   '/forms-folder-online.js?v=20261024',
@@ -85,5 +86,5 @@ self.addEventListener('fetch', function(event) {
   }));
 });
 self.addEventListener('message',function(event){
- if(event.data&&event.data.type==='BWC_OFFLINE_STATUS')event.waitUntil(caches.open(CACHE_NAME).then(async function(cache){var checks=await Promise.all(APP_SHELL.concat(OFFLINE_TOOLS).map(function(url){return cache.match(url)}));if(event.source)event.source.postMessage({type:'BWC_OFFLINE_STATUS',ready:checks.every(Boolean),version:44})}));
+ if(event.data&&event.data.type==='BWC_OFFLINE_STATUS')event.waitUntil(caches.open(CACHE_NAME).then(async function(cache){var checks=await Promise.all(APP_SHELL.concat(OFFLINE_TOOLS).map(function(url){return cache.match(url)}));if(event.source)event.source.postMessage({type:'BWC_OFFLINE_STATUS',ready:checks.every(Boolean),version:45})}));
 });
