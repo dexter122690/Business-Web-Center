@@ -1,5 +1,6 @@
 /* Simple material pricing (091): one saved price per stock item/package.
-   Each usage keeps its own price; existing history is never repriced. */
+   Saved usage costs stay intact. Archive estimates use today's reference prices
+   in memory only; opening a report never reprices or writes historical records. */
 (function(root,factory){
   var api=factory(root);if(typeof module==='object'&&module.exports)module.exports=api;
   else{root.BWCInventoryCosting=api;api.install()}
@@ -73,6 +74,56 @@
   }
   function button(action,label,material,extra){return '<button type="button" class="ic-button" data-ic-action="'+action+'"'+(material?' data-ic-material="'+esc(material)+'"':'')+(extra||'')+'>'+esc(label)+'</button>'}
   function reportHTML(report,archive){
+    if(archive)return archivePriceHTML(report)+'<details class="ic-history"><summary>Original saved costs (unchanged)</summary>'+recordedReportHTML(report,true)+'</details>';
+    return recordedReportHTML(report,false);
+  }
+  // Both old tables can describe the same usage. Use verified quantities first;
+  // otherwise reconcile sources without summing possibly duplicated records.
+  function archivePriceModel(report){
+    var total=0n,missing=0,unresolved=0;
+    function scaled(value,scale){var n=num(value),i=Math.round(n*scale);if(!Number.isSafeInteger(i))throw new Error('The estimate exceeds the supported precision.');return BigInt(i)}
+    report.rows.forEach(function(r){['old_adjustment_count','old_usage_count'].forEach(function(key){var count=num(r.material[key]);if(!Number.isInteger(count)||count<0)throw new Error('A past usage count is invalid. Refresh the report.');})});
+    var rows=report.used.map(function(r){
+      var m=r.material,old=0,source='Costed usage, net of returns',issue='',a=num(m.old_adjustment_count),u=num(m.old_usage_count);
+      if(m.baseline){old=num(m.baseline.quantity);source='Verified past quantity';}
+      else if(a&&u){
+        var net=num(m.old_adjustment_qty),recorded=num(m.old_usage_qty);
+        if(scaled(net,100)!==scaled(recorded,100))issue='Past quantity needs review: '+qty(net)+' net adjustments / '+qty(recorded)+' recorded usage. Not added together.';
+        else{old=net;source='Matching past logs, counted once';}
+      }else if(a){old=num(m.old_adjustment_qty);source='Past additions minus reductions';}
+      else if(u){old=num(m.old_usage_qty);source='Past recorded usage';}
+      if(old<0)issue='Past quantity is negative; review the original records below.';
+      var newer=num(m.new_qty);if(newer<0)throw new Error('A costed usage quantity is negative. Refresh the report.');
+      var q=issue?null:Number(scaled(old,100)+scaled(newer,100))/100;
+      if((a||u||m.baseline)&&newer>0)source+=' + costed usage, net of returns';
+      var p=(report.referencePrices||{})[r.id],rate=p?num(p.price):null,cents=null;
+      if(rate!==null&&rate<0)throw new Error('A current material price is invalid.');
+      if(issue)unresolved++;
+      else if(q===0)cents=0n;
+      else if(!p||report.referenceError)missing++;
+      else cents=(scaled(q,100)*scaled(rate,10000)+5000n)/10000n;
+      if(cents!==null)total+=cents;
+      return {id:r.id,name:r.name,quantity:q,source:source,issue:issue,price:rate,unit:p?p.price_unit:'',cost:cents===null?null:num(Number(cents)/100)};
+    });
+    var materialsTotal=num(Number(total)/100);
+    if(report.basecoat)total+=scaled(report.basecoat.amount,100);
+    return {rows:rows,materialsTotal:materialsTotal,total:num(Number(total)/100),missing:missing,unresolved:unresolved,incomplete:!!(missing||unresolved),unavailable:!!report.referenceError};
+  }
+  function archivePriceHTML(report){
+    var estimate=archivePriceModel(report),label=estimate.incomplete?'Priced subtotal · incomplete':'Total materials cost · current-price estimate';
+    var rows=estimate.rows.map(function(r){return '<tr data-ic-estimate-material="'+esc(r.id)+'"><th scope="row">'+esc(r.name)+'<small>'+esc(r.issue||r.source)+'</small></th><td>'+(r.quantity===null?'Needs review':qty(r.quantity))+'</td><td>'+(estimate.unavailable?'Unavailable':r.price===null?'Price not set':money(r.price,4)+'<small>per '+esc(r.unit)+'</small>')+'</td><td><b>'+(estimate.unavailable?'Unavailable':r.cost===null?'Not included':money(r.cost))+'</b></td></tr>';}).join('');
+    if(report.basecoat){var c=report.basecoat;rows+='<tr><th scope="row">Base coat · custom<small>Saved cost for the quantity used, not repriced</small></th><td>'+qty(c.quantity)+' '+esc(c.measure_unit)+'</td><td>Custom total</td><td><b>'+money(c.amount)+'</b></td></tr>';}
+    var total=estimate.unavailable?'Unavailable':money(estimate.total),warnings=estimate.unavailable?esc(report.referenceError):[
+      estimate.missing?estimate.missing+' material(s) have no saved price. Set these in Material prices, then refresh this report.':'',
+      estimate.unresolved?estimate.unresolved+' material(s) have conflicting or negative past quantities. Review the original records; no quantity has been guessed.':''
+    ].filter(Boolean).join(' ');
+    return '<div class="ic-heading"><div><span class="ic-kicker">RELEASED UNIT COST REPORT</span><h3>Materials cost at current prices</h3></div>'+button('refresh','Refresh prices')+'</div>'+
+      '<p class="ic-help">Quantity used × the present price encoded in Material prices. These are current-price estimates, not historical purchase costs. Stock quantities and saved costs are unchanged. Each quantity uses the same stock item / package basis as the + button; package labels are not converted automatically. Custom base coat uses its saved total.</p>'+
+      '<div class="ic-summary"><div><span>'+(estimate.unavailable?'Current-price estimate unavailable':label)+'</span><strong>'+total+'</strong><small>Materials only · excludes labor'+(report.basecoat?' · includes custom base coat':'')+'</small></div><div><span>Materials listed</span><strong>'+estimate.rows.length+'</strong><small>'+(estimate.unavailable?'Report checked ':'Prices loaded ')+esc(date(new Date().toISOString()))+' · Philippine time</small></div></div>'+
+      (warnings?'<p class="ic-notice" role="status">'+warnings+(estimate.unavailable?' No estimate is shown.':' Unpriced / unresolved rows are not included in the subtotal.')+'</p>':'')+
+      '<div class="ic-scroll"><table class="ic-table" aria-label="Released unit current-price costing"><thead><tr><th>Material</th><th>Quantity used</th><th>Current price / stock item</th><th>Estimated cost</th></tr></thead><tbody>'+(rows||'<tr><td colspan="4">No material usage recorded for this unit yet.</td></tr>')+'</tbody><tfoot><tr><th colspan="3">'+(estimate.unavailable?'Estimate unavailable':label)+'</th><td><b>'+total+'</b></td></tr></tfoot></table></div>';
+  }
+  function recordedReportHTML(report,archive){
     var can=report.data.can_edit,active=!archive&&report.data.vehicle&&!report.data.vehicle.released_at;
     var summary='<div class="ic-summary"><div><span>'+(report.unknown?'Known materials cost · incomplete':'Direct materials cost')+'</span><strong>'+money(report.total)+'</strong><small>Materials only · excludes labor</small></div><div><span>Materials recorded</span><strong>'+report.used.length+'</strong><small>'+esc(report.quantities||'No priced usage yet')+(report.unknown?' · plus unverified past usage':'')+'</small></div></div>';
     var rows=report.used.map(function(r){var m=r.material;
@@ -201,9 +252,9 @@
     }catch(error){if(version!==epoch)return;var msg='<p class="ic-notice" role="alert">'+esc(error.message||'Costs could not load. No totals are shown.')+'</p>'+button('refresh','Try again');if(mount)mount.innerHTML='<summary>Unit material cost details — unavailable</summary>'+msg;stock.innerHTML='<summary>Material prices — unavailable</summary>'+msg;quickMessage={context:context,text:'Material buttons are paused because current stock and costs could not be verified. Refresh to try again.'};quickStatus();}
   }
   async function renderArchive(container,context){
-    var mount=root.document.createElement('section');mount.className='ic-unit';container.prepend(mount);mount.innerHTML='<p role="status">Loading material costs…</p>';
-    try{var report=await read(context);if(!mount.isConnected||!same(context,scope(context.vehicle)))return;mount.innerHTML=reportHTML(report,true);mount._costReport={context:context,report:report};}
-    catch(e){if(mount.isConnected)mount.innerHTML='<p class="ic-notice">'+esc(e.message||'Material costs could not load.')+'</p>';}
+    var mount=root.document.createElement('section');mount.className='ic-unit';var identity=container.querySelector('.imh-unit');if(identity)identity.after(mount);else container.prepend(mount);mount.innerHTML='<p role="status">Loading material costs…</p>';
+    try{var report=await read(context);if(!mount.isConnected||!same(context,scope(context.vehicle)))return;if(!report.data.vehicle.released_at)throw new Error('This unit is no longer released. Refresh Inventory Tracker.');mount.innerHTML=reportHTML(report,true);mount._costReport={context:context,report:report};}
+    catch(e){if(mount.isConnected)mount.innerHTML='<p class="ic-notice">'+esc(e.message||'Material costs could not load.')+'</p>'+button('refresh','Try again');}
   }
   function field(name,label,type,value,attrs){return '<label>'+esc(label)+'<input name="'+name+'" type="'+(type||'text')+'" value="'+esc(value==null?'':value)+'" '+(attrs||'')+' required></label>'}
   function ensureDialog(){
@@ -361,5 +412,5 @@
     root.addEventListener('storage',function(e){if(e.key==='bwc-active-business'||e.key==='bwc-active-branch'){invalidate();refresh();}if(e.key==='bwc-inventory-cost-changed'){try{receive(JSON.parse(e.newValue))}catch(err){}}});
     root.document.addEventListener('visibilitychange',function(){if(!root.document.hidden){var p=root.document.getElementById('inventoryTracker');if(p&&p.classList.contains('active'))refresh();}});
   }
-  return {install:install,render:render,renderArchive:renderArchive,model:model,reportHTML:reportHTML,stockHTML:stockHTML,referenceHTML:referenceHTML,attachReferences:attachReferences,payloadFrom:payloadFrom,quickPayload:quickPayload,basecoatHTML:basecoatHTML,inlineCostHTML:inlineCostHTML,simpleTotalHTML:simpleTotalHTML};
+  return {install:install,render:render,renderArchive:renderArchive,model:model,reportHTML:reportHTML,archivePriceModel:archivePriceModel,archivePriceHTML:archivePriceHTML,stockHTML:stockHTML,referenceHTML:referenceHTML,attachReferences:attachReferences,payloadFrom:payloadFrom,quickPayload:quickPayload,basecoatHTML:basecoatHTML,inlineCostHTML:inlineCostHTML,simpleTotalHTML:simpleTotalHTML};
 }));
