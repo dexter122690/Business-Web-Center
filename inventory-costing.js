@@ -74,7 +74,7 @@
   }
   function button(action,label,material,extra){return '<button type="button" class="ic-button" data-ic-action="'+action+'"'+(material?' data-ic-material="'+esc(material)+'"':'')+(extra||'')+'>'+esc(label)+'</button>'}
   function reportHTML(report,archive){
-    if(archive)return archivePriceHTML(report)+'<details class="ic-history"><summary>Original saved costs (unchanged)</summary>'+recordedReportHTML(report,true)+'</details>';
+    if(archive)return archivePriceHTML(report)+archiveBasecoatHTML(report)+'<details class="ic-history"><summary>Original saved costs (unchanged)</summary>'+recordedReportHTML(report,true)+'</details>';
     return recordedReportHTML(report,false);
   }
   // Both old tables can describe the same usage. Use verified quantities first;
@@ -272,9 +272,16 @@
     try{
       var report=await read(captured);if(version!==formEpoch||!dialog.open||!same(captured,scope(captured.vehicle)))return;
       if(!report.data.can_edit)throw new Error('Inventory edit access is required to change costs.');
+      if(action==='past_basecoat'&&(!report.data.vehicle||!report.data.vehicle.released_at||report.data.past_basecoat_version!==1))throw new Error('Past basecoat is available only for released units after the database update.');
       if(action==='reference'&&report.referenceError)throw new Error(report.referenceError);
       formState={context:captured,report:report,action:action,material:material||'',requestId:null,retryPayload:null};fillForm();
     }catch(e){if(version===formEpoch&&dialog.open)dialog.innerHTML='<p class="ic-notice" role="alert">'+esc(e.message)+'</p><button type="button" data-ic-cancel>Close</button>';}
+  }
+  function archiveBasecoatHTML(report){
+    var d=report.data,c=report.basecoat,can=d.can_edit&&d.vehicle&&d.vehicle.released_at&&d.past_basecoat_version===1;
+    var history=Array.isArray(d.basecoat_history)?d.basecoat_history:[];
+    return '<div class="ic-basecoat"><div><b>Past basecoat</b><small>'+(c?qty(c.quantity)+' '+esc(c.measure_unit)+' · '+money(c.amount)+' already included in the total.':'Add the basecoat quantity and its consumed cost if it was not recorded before.')+'</small><small>Cost correction only. No stock deduction, no Expenses entry, and the unit stays released. Editing replaces the saved line; it does not add a second charge.</small></div>'+(can?button('past_basecoat',c?'Edit past basecoat':'Add past basecoat'):d.can_edit&&d.past_basecoat_version!==1?'<small>Past basecoat saving is unavailable until the database update is installed.</small>':'')+'</div>'+
+      (history.length?'<details class="ic-history"><summary>Basecoat edit history (latest 100)</summary><div class="ic-scroll"><table class="ic-table"><thead><tr><th>Recorded (Manila)</th><th>Change</th><th>Note / reference</th><th>Recorded by (account ID)</th></tr></thead><tbody>'+history.map(function(h){var before=h.before_record,after=h.after_record;return '<tr><td>'+esc(date(h.recorded_at))+'</td><td>'+(before?qty(before.quantity)+' '+esc(before.measure_unit)+' · '+money(before.amount):'Not recorded')+' → '+(after?qty(after.quantity)+' '+esc(after.measure_unit)+' · '+money(after.amount):'Removed')+'</td><td>'+esc(h.note)+'</td><td>'+esc(h.recorded_by||'Unavailable')+'</td></tr>'}).join('')+'</tbody></table></div></details>':'');
   }
   function fillForm(){
     var state=formState,a=state.action,r=state.report,m=r.rows.find(function(x){return x.id===state.material}),data=m&&m.material;
@@ -285,16 +292,17 @@
     titles.stock='Update General inventory';description.stock='Enter the available quantity after your stock update. No additional price entry is needed; unit usage is unchanged.';
     titles.basecoat='Base coat used on this unit';description.basecoat='Enter the quantity used and the TOTAL cost of that quantity, not the price of a larger batch. This custom line is included in the unit total and does not deduct General inventory. Do not record the same paint again in a regular material row.';
     titles.basecoat_remove='Remove custom base coat';description.basecoat_remove='Remove this custom line from the unit total. Its previous entry stays in the audit history. General inventory is unchanged.';
+    titles.past_basecoat=r.basecoat?'Edit past basecoat':'Add past basecoat';description.past_basecoat='Enter the quantity used and the TOTAL cost of that quantity—not the cost of the whole can if only part was used. This saves one historical basecoat line in this released unit’s material total. It does not deduct stock or add an expense. Do not include paint already counted in another material line.';
     description.use='Use the saved Material price. Stock and this unit’s quantity and cost are saved together.';
     description.create='Add a material with zero stock. Set its price once in Material prices, then update its quantity in General inventory.';
-    var coatAction=a==='basecoat'||a==='basecoat_remove';
+    var coatAction=a==='basecoat'||a==='basecoat_remove'||a==='past_basecoat';
     var selector=a==='create'||coatAction?'': '<label>Material<select name="material_id" required><option value="">Choose a material</option>'+r.rows.map(function(x){return '<option value="'+esc(x.id)+'"'+(x.id===state.material?' selected':'')+'>'+esc(x.name)+'</option>'}).join('')+'</select></label>';
     var body=selector;
     if(a==='create')body+=field('name','Material name / brand / grade','text','','maxlength="150"')+field('note','Reason','text','New material','maxlength="1000"');
     else if(coatAction){
       var coat=r.basecoat;
-      if(a==='basecoat')body+=field('quantity','Base coat used','number',coat?coat.quantity:'','min="0.01" step="0.01" max="999999999"')+'<label>Unit<select name="unit"><option value="L"'+(coat&&coat.measure_unit==='L'?' selected':'')+'>Liters (L)</option><option value="mL"'+(coat&&coat.measure_unit==='mL'?' selected':'')+'>Milliliters (mL)</option></select></label>'+field('amount','Total cost of this quantity (₱)','number',coat?coat.amount:'','min="0" step="0.01" max="999999999"');
-      body+=field('note','Note / reason','text',a==='basecoat'?'Custom base coat used on unit':'Remove custom base coat','minlength="3" maxlength="1000"');
+      if(a==='basecoat'||a==='past_basecoat')body+=field('quantity','Base coat used','number',coat?coat.quantity:'','min="0.01" step="0.01" max="999999999"')+'<label>Unit<select name="unit"><option value="L"'+(coat&&coat.measure_unit==='L'?' selected':'')+'>Liters (L)</option><option value="mL"'+(coat&&coat.measure_unit==='mL'?' selected':'')+'>Milliliters (mL)</option></select></label>'+field('amount','Total cost of this quantity (₱)','number',coat?coat.amount:'','min="0" step="0.01" max="999999999"');
+      body+=field('note','Note / reference','text',a==='past_basecoat'?(coat?'Correction to previously recorded basecoat cost.':'Basecoat used before this feature was available.'):a==='basecoat'?'Custom base coat used on unit':'Remove custom base coat','minlength="3" maxlength="1000"');
       if(coat&&a==='basecoat')body+=button('basecoat_remove','Remove saved base coat');
     }
     else if(data&&a==='reference'){
@@ -320,13 +328,14 @@
       if(a==='baseline')body+='<label class="ic-check"><input type="checkbox" name="confirmed" required>I verified the historical quantity, checked for duplicate records and have support for this cost.</label>';
     }
     dialog.innerHTML='<form><div class="ic-heading"><h2 id="icFormTitle">'+titles[a]+'</h2><button type="button" class="ic-button" data-ic-cancel>Close</button></div><p class="ic-help">'+description[a]+'</p>'+(state.context.vehicle&&r.data.vehicle&&(['use','return','baseline'].includes(a)||coatAction)?'<p><b>'+esc(r.data.vehicle.vehicle_name)+' · '+esc(r.data.vehicle.plate_number)+'</b></p>':'')+'<div class="ic-fields">'+body+'</div><p data-ic-preview class="ic-form-stock"></p><p data-ic-error role="alert"></p><div class="ic-form-footer"><button type="button" class="ic-button" data-ic-cancel>Cancel</button><button class="ic-button ic-primary" type="submit" '+(!data&&a!=='create'&&!coatAction?'disabled':'')+'>'+(a==='basecoat_remove'?'Confirm removal':'Save '+(a==='use'?'usage':a==='basecoat'?'base coat':'record'))+'</button></div></form>';
+    if(a==='past_basecoat')dialog.querySelector('button[type="submit"]').textContent='Save basecoat';
     preview();
   }
   function preview(){
     if(!dialog||!formState)return;var f=dialog.querySelector('form'),el=dialog.querySelector('[data-ic-preview]');if(!f||!el)return;
     var d=new root.FormData(f),q=Number(d.get('quantity')),price=d.get('unit_cost'),m=formState.report.rows.find(function(r){return r.id===d.get('material_id')});
     if(formState.action==='reference'){el.textContent='Used for future + entries. Existing quantities and past usage costs will not change.';return;}
-    if(formState.action==='basecoat'){el.textContent=d.get('amount')!==''&&Number.isFinite(Number(d.get('amount')))?qty(q)+' '+d.get('unit')+' used · '+money(Number(d.get('amount')))+' added to the unit total. This replaces any saved base coat line.':'';return;}
+    if(formState.action==='basecoat'||formState.action==='past_basecoat'){el.textContent=d.get('amount')!==''&&Number.isFinite(Number(d.get('amount')))?qty(q)+' '+d.get('unit')+' used · '+money(Number(d.get('amount')))+' included in the unit total. This replaces any saved base coat line.':'';return;}
     if(price!==null&&price!==''&&Number.isFinite(q*Number(price)))el.textContent='Recorded value: '+money(q*Number(price));
     else if(formState.action==='use'&&m&&(formState.report.referencePrices||{})[m.id])el.textContent='Usage cost: '+money(q*Number(formState.report.referencePrices[m.id].price))+' · saved price checked again when saving';
     else el.textContent='';
@@ -336,8 +345,13 @@
     var p={action:a,note:String(values.note||'').trim()};
     if(p.note.length<3)throw new Error('Enter a reason or supporting reference.');
     if(a==='create'){p.name=String(values.name||'').trim();if(!p.name)throw new Error('Enter the material name.');return p;}
-    if(a==='basecoat'||a==='basecoat_remove'){
-      if(!state.context.vehicle||!state.report.data.vehicle||state.report.data.vehicle.released_at)throw new Error('Choose an active unit first.');
+    if(a==='basecoat'||a==='basecoat_remove'||a==='past_basecoat'){
+      if(a==='past_basecoat'){
+        if(!state.report.data.can_edit||state.report.data.past_basecoat_version!==1)throw new Error('Past basecoat saving is unavailable for this account or database version.');
+        if(!state.context.vehicle||!state.report.data.vehicle||state.report.data.vehicle.id!==state.context.vehicle||!state.report.data.vehicle.released_at)throw new Error('Choose a released unit from Past materials per unit.');
+        if(state.report.data.business_id!==state.context.business||state.report.data.branch_id!==state.context.branch)throw new Error('The branch changed. Reopen this form.');
+        if(p.note.length>1000)throw new Error('The note must be no longer than 1000 characters.');
+      }else if(!state.context.vehicle||!state.report.data.vehicle||state.report.data.vehicle.released_at)throw new Error('Choose an active unit first.');
       p.vehicle_id=state.context.vehicle;p.expected_revision=state.report.basecoat?state.report.basecoat.revision:null;
       if(a==='basecoat_remove'){if(!state.report.basecoat)throw new Error('No saved base coat to remove.');return p;}
       p.quantity=num(values.quantity);p.amount=num(values.amount);p.unit=String(values.unit||'');
@@ -376,7 +390,7 @@
       if(!state.requestId)state.requestId=root.crypto.randomUUID();state.retryPayload=payload;saving=true;
       dialog.querySelectorAll('button,input,select').forEach(function(el){el.disabled=true});errorBox.textContent=state.action==='reference'?'Saving material price…':'Saving record…';
       state.uncertain=true;
-      var r=await client().rpc(state.action==='reference'?'inventory_tracker_reference_price_save':['use','return','stock','basecoat','basecoat_remove'].includes(state.action)?'inventory_tracker_simple_action':'inventory_tracker_cost_action',{p_business_id:state.context.business,p_branch_id:state.context.branch,p_request_id:state.requestId,p_payload:payload});
+      var r=await client().rpc(state.action==='reference'?'inventory_tracker_reference_price_save':state.action==='past_basecoat'?'inventory_tracker_archive_basecoat_save':['use','return','stock','basecoat','basecoat_remove'].includes(state.action)?'inventory_tracker_simple_action':'inventory_tracker_cost_action',{p_business_id:state.context.business,p_branch_id:state.context.branch,p_request_id:state.requestId,p_payload:payload});
       if(r.error){state.uncertain=!r.error.code;throw new Error(r.error.message);}if(!r.data||!r.data.ok)throw new Error('The save result is uncertain. Retry this unchanged form to check the same request safely.');
       saving=false;quickMessage=null;dialog.close();changed(state.context);var archived=root.document.getElementById('inventoryMaterialHistory');if(archived&&archived.open){var refresh=archived.querySelector('[data-imh-refresh]');if(refresh)refresh.click();}
     }catch(e){errorBox.textContent=(e.message||'The save could not be confirmed.')+' No automatic retry was made. Retry the unchanged form to safely reuse the same request; close and reopen if the stock changed.';}
@@ -412,5 +426,5 @@
     root.addEventListener('storage',function(e){if(e.key==='bwc-active-business'||e.key==='bwc-active-branch'){invalidate();refresh();}if(e.key==='bwc-inventory-cost-changed'){try{receive(JSON.parse(e.newValue))}catch(err){}}});
     root.document.addEventListener('visibilitychange',function(){if(!root.document.hidden){var p=root.document.getElementById('inventoryTracker');if(p&&p.classList.contains('active'))refresh();}});
   }
-  return {install:install,render:render,renderArchive:renderArchive,model:model,reportHTML:reportHTML,archivePriceModel:archivePriceModel,archivePriceHTML:archivePriceHTML,stockHTML:stockHTML,referenceHTML:referenceHTML,attachReferences:attachReferences,payloadFrom:payloadFrom,quickPayload:quickPayload,basecoatHTML:basecoatHTML,inlineCostHTML:inlineCostHTML,simpleTotalHTML:simpleTotalHTML};
+  return {install:install,render:render,renderArchive:renderArchive,model:model,reportHTML:reportHTML,archivePriceModel:archivePriceModel,archivePriceHTML:archivePriceHTML,archiveBasecoatHTML:archiveBasecoatHTML,stockHTML:stockHTML,referenceHTML:referenceHTML,attachReferences:attachReferences,payloadFrom:payloadFrom,quickPayload:quickPayload,basecoatHTML:basecoatHTML,inlineCostHTML:inlineCostHTML,simpleTotalHTML:simpleTotalHTML};
 }));

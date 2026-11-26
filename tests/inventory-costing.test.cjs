@@ -51,7 +51,7 @@ test('new purchases require actual receipt information',()=>{
 test('new feature is versioned and no client directly changes stock tables',()=>{
  const root=path.join(__dirname,'..'),code=fs.readFileSync(path.join(root,'inventory-costing.js'),'utf8'),index=fs.readFileSync(path.join(root,'index.html'),'utf8'),sw=fs.readFileSync(path.join(root,'sw.js'),'utf8');new vm.Script(code);
  assert.doesNotMatch(code,/\.(insert|update|delete|upsert)\s*\(/);assert.match(code,/inventory_tracker_cost_action/);assert.match(code,/state\.retryPayload/);assert.match(code,/BroadcastChannel/);
- assert.ok(index.indexOf('inventory-costing.js?v=')<index.indexOf('inventory-tracker.js?v='));assert.match(sw,/inventory-costing.js\?v=20261126-archive-prices/);
+ assert.ok(index.indexOf('inventory-costing.js?v=')<index.indexOf('inventory-tracker.js?v='));assert.match(sw,/inventory-costing.js\?v=20261126-past-basecoat/);
 });
 
 test('quick + records exactly one item with the same atomic costing writer',()=>{

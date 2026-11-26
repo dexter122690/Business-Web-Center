@@ -1,0 +1,45 @@
+098 - Past basecoat on released units
+
+Status 2026-11-26: implemented and tested locally; NOT installed or published.
+Live SQL Editor Run was blocked by safety review pending action-time approval
+for database function/execute-grant changes. No workaround or alternate live
+write was attempted. The live snapshot still matches migration 091.
+
+Workflow:
+Past materials per unit > View materials > Add past basecoat.
+Enter quantity (L/mL), total consumed cost and note/reference; Save basecoat.
+Existing basecoat becomes Edit past basecoat and is replaced, not added twice.
+
+Scope:
+- Only released inventory units in the selected business/branch.
+- Existing Inventory edit permission plus existing costing read permission.
+- Anonymous users and view-only staff cannot write. No new staff permissions.
+- Reuses one basecoat row per unit and existing simple-events audit table.
+- Stores note, actor, timestamp and before/after versions in audit history.
+- Idempotent request IDs, per-unit lock and expected revision guard retries and
+  concurrent edits. Existing released stock/usage write prohibition is unchanged.
+- No stock, expenses, invoices, payroll, release dates or historical material
+  quantities are changed. Installation only changes functions/execute grants.
+- Standard material estimates still use present saved prices. Basecoat uses
+  its entered total exactly once, not quantity multiplied by that total.
+
+Validation:
+- Full automated suite: 558 passed, 0 failed, 0 skipped.
+- Isolated PostgreSQL tested both branches, retry idempotency, stale revisions,
+  permission isolation, input validation, audit rollback and migration rerun.
+- Isolated browser test: materials 36 + basecoat 600 = 636; edit basecoat to
+  700 changes total to 736, with one basecoat line. No live dummy costs entered.
+- Reviewed installation wrapper hashes every existing public table before and
+  after within the same transaction, aborting on any row change. Wrapper tested
+  for success and deliberately introduced row-change rollback in local DB.
+
+Deploy after explicit action-time approval:
+1. Install 098 in business-web-center (bcgrzfrxuccvmznafake), using the reviewed
+   row-preservation wrapper. Verify the transaction succeeded and row guard passed.
+2. Publish the source change and wait for the deployment success status.
+3. Verify Add past basecoat and the form on real released units in both branches,
+   cancelling without entering fabricated costs.
+
+Recovery: revert frontend to the preceding commit if needed. No basecoat data
+should be deleted during rollback. The preceding snapshot definition is in 091;
+do not rerun all of 091 just to restore that definition. Saved audit is retained.
