@@ -14,9 +14,11 @@ test('45 calendar days crosses months, leap day and year; old manual due date is
 test('dropdown is due-today only, never for unknown amounts, viewers, dirty previews, or paid balances',()=>{
  const s=seed(),c=S.savedFor(s,'p').snapshot,x={state:s,esc:String,peso:String,canReceive:true,today:'2026-11-24'};
  assert.doesNotMatch(S.balances(x,c),/<select/);
- x.today='2026-11-25';let html=S.balances(x,c);assert.equal((html.match(/<select/g)||[]).length,1);assert.match(html,/Confirm agreed labor first/);assert.match(html,/2027-01-09/);
+ x.today='2026-11-25';const before=structuredClone(s);let html=S.balances(x,c);assert.equal((html.match(/<select/g)||[]).length,1);assert.match(html,/Confirm agreed labor first/);assert.match(html,/2027-01-09/);
+ assert.match(html,/<option value="">Not yet received<\/option><option value="received">Received<\/option>/);
+ assert.doesNotMatch(html,/Hindi pa natatanggap|Natanggap na/);assert.deepEqual(s,before);
  assert.doesNotMatch(S.balances({...x,canReceive:false},c),/<select/);
- s.painterRetentionReceipts=[receipt(s)];html=S.balances(x,c);assert.doesNotMatch(html,/<select/);assert.match(html,/Natanggap na/);assert.match(html,/2000 · 2026-11-25/);
+ s.painterRetentionReceipts=[receipt(s)];html=S.balances(x,c);assert.doesNotMatch(html,/<select/);assert.match(html,/<b>Received<\/b>/);assert.match(html,/2000 · 2026-11-25/);
  assert.equal(S.retentionInfo(c.rows[0],s.painterRetentionReceipts).remaining,0);assert.equal(c.rows[0].remaining,2000);assert.equal(c.net,8500);
 });
 test('received history remains locked, no automatic salary or future main-row payment, and carries across weeks',()=>{
@@ -68,18 +70,18 @@ const printBlocks=record=>{
 
 test('Saturday receipt stays on that payday, disappears next payday, and returns when viewing its history',()=>{
  let s=september(),before=structuredClone(s),record=A.enrich(s,S.savedFor(s,'p'));
- assert.match(balanceHtml(s),/September retained QA/);assert.match(balanceHtml(s),/Natanggap na/);assert.match(balanceHtml(s),/2000 · 2026-09-05/);
+ assert.match(balanceHtml(s),/September retained QA/);assert.match(balanceHtml(s),/<b>Received<\/b>/);assert.match(balanceHtml(s),/2000 · 2026-09-05/);
  assert.match(JSON.stringify(PDF.definition(record)),/Received 2026-09-05/);
  assert.ok(printBlocks(record).some(b=>b.kind==='balance-grid'&&b.text.includes('September retained QA')));
  s=A.release(s,record.id,uid(),'2026-09-05');const frozen=structuredClone(s.releasedPainterSlips[0]);
  s=S.save(W.selectWeek(s,'2026-09-05'),'p',[],0,uid);record=A.enrich(s,S.savedFor(s,'p'));
- assert.doesNotMatch(balanceHtml(s),/September retained QA|Natanggap na/);
+ assert.doesNotMatch(balanceHtml(s),/September retained QA|<b>Received<\/b>/);
  assert.equal(S.mainRows(record.snapshot).length,1);assert.equal(record.snapshot.net,0);
  assert.equal(record.snapshot.rows.find(r=>r.job.id===before.painterRetentionReceipts[0].jobId).remaining,2000);
  assert.ok(!printBlocks(record).some(b=>b.kind==='balance-grid'&&b.text.includes('September retained QA')));
  assert.doesNotMatch(JSON.stringify(PDF.definition(record)),/Received 2026-09-05/);
  assert.deepEqual(s.painterRetentionReceipts,before.painterRetentionReceipts);assert.deepEqual(s.releasedPainterSlips[0],frozen);
- const historical=W.selectWeek(s,'2026-08-29');assert.match(balanceHtml(historical),/Natanggap na/);
+ const historical=W.selectWeek(s,'2026-08-29');assert.match(balanceHtml(historical),/<b>Received<\/b>/);
  assert.deepEqual(A.enrich(s,frozen),frozen);assert.match(JSON.stringify(PDF.definition(frozen)),/Received 2026-09-05/);
  assert.deepEqual(S.validate(s),[]);assert.deepEqual(A.validate(s),[]);
 });
@@ -88,10 +90,10 @@ test('future receipt never marks a past payroll paid or enables a second receipt
  const s=september('2026-09-12'),c=S.view(s,'p').snapshot;
  let info=S.retentionInfo(c.rows[0],s.painterRetentionReceipts,'2026-11-25',c.period.releaseDate);
  assert.equal(info.receipt,undefined);assert.equal(info.remaining,2000);assert.equal(info.receivedLater,true);assert.equal(info.eligible,false);
- assert.match(balanceHtml(s),/Received in a later payroll/);assert.doesNotMatch(balanceHtml(s),/Natanggap na|<select/);
+ assert.match(balanceHtml(s),/Received in a later payroll/);assert.doesNotMatch(balanceHtml(s),/<b>Received<\/b>|<select/);
  const current=A.enrich(s,S.savedFor(s,'p'));assert.equal(current.snapshot.retentionReceipts,undefined);
  const next=S.save(W.selectWeek(s,'2026-09-05'),'p',[],0,uid);
- assert.match(balanceHtml(next),/Natanggap na/);assert.match(balanceHtml(next),/2026-09-12/);
+ assert.match(balanceHtml(next),/<b>Received<\/b>/);assert.match(balanceHtml(next),/2026-09-12/);
  assert.doesNotMatch(balanceHtml(W.selectWeek(next,'2026-09-12')),/September retained QA/);
 });
 
@@ -100,7 +102,7 @@ test('holiday-adjusted previous payday is used in UI and frozen print copies',()
   let s=september(receivedOn);s=W.setPayday(s,payday);
   const rows=S.mainRows(S.view(s,'p').snapshot).map(r=>({id:r.job.id,weekly:r.weekly}));s=S.save(s,'p',rows,0,uid);
   const old=S.savedFor(s,'p');assert.equal(old.period.releaseDate,payday);
-  const first=A.enrich(s,old);assert.equal(/Natanggap na/.test(balanceHtml(s)),receivedOn<=payday);
+  const first=A.enrich(s,old);assert.equal(/<b>Received<\/b>/.test(balanceHtml(s)),receivedOn<=payday);
   s=S.save(W.selectWeek(s,'2026-09-05'),'p',[],0,uid);const record=A.enrich(s,S.savedFor(s,'p'));
   assert.equal(record.retentionPreviousPayday,payday);
   assert.equal(/September retained QA/.test(balanceHtml(s)),visibleNext);

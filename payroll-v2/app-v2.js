@@ -241,7 +241,7 @@ function render(){if(bootError){$('#app').innerHTML=`<div class="warning">${esc(
         if(!C.validDate(date)||date<basis.dueOn||date>S.manilaDay())throw Error('Choose a received date from the due date through today.');
         editorSaving=true;controls=Array.from($('#editorForm').elements).map(el=>[el,el.disabled]);controls.forEach(([el])=>el.disabled=true);$('#formError').textContent='Saving received balance…';
         const period=copy(state.period),loaded=await O.receiveRetention(basis.employeeId,id,date,basis.amount,basis.unitReleasedOn);
-        state={...loaded,period};$('#editorDialog').close();editing=null;render();notify('Remaining balance marked Natanggap na. Receipt saved; weekly salary unchanged.');return;
+        state={...loaded,period};$('#editorDialog').close();editing=null;render();notify('Remaining balance marked as received. Receipt saved; weekly salary unchanged.');return;
       }
       if(kind==='employee-remove')next=C.archiveEmployee(state,id,String(f.get('reason')||''),f.get('date'));
       else if(kind==='complete')next=C.releaseUnit(state,id,f.get('date'));
