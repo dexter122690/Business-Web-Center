@@ -89,5 +89,5 @@ test('empty tracker stays free-text and does not fall back to the old SKU list',
 });
 
 test('the PO update is versioned and cached with the app shell',()=>{
-  for(const file of ['index.html','sw.js'])assert.match(fs.readFileSync(path.join(root,file),'utf8'),/purchase-orders-online\.js\?v=20261126-supplier-receipt/);
+  for(const file of ['index.html','sw.js'])assert.match(fs.readFileSync(path.join(root,file),'utf8'),/purchase-orders-online\.js\?v=20261126-tracker-receive/);
 });

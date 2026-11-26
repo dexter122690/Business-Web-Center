@@ -1,0 +1,23 @@
+Install after 091 (and existing PO/Expenses tables), before deploying the updated PO client.
+Scope: 15M Autocare only. Update 075 must still pause its old inventory expense trigger.
+Installation creates receipt/audit tables, an optional unique Expense line link, and receiving safeguards.
+It does not backfill previously Received POs, change any quantity or saved price, or clean duplicate Expenses.
+
+Receive flow: authenticated branch manager with Expenses and Inventory edit access opens server preview,
+enters supplier receipt, reviews one explicit inventory material/quantity per PO line,
+and confirms the whole delivery. Every line must add stock. No automatic package conversion or creation of guessed inventory materials.
+One locked server transaction adds stock, inserts Expenses, records original PO/items and stock before/after,
+and marks Received. PO receipt primary key, unique expense line links and row locks make retries idempotent.
+Supplier/receipt keys prevent the same receipt on two POs. Existing matching manual Expenses block receipt.
+Manual stock adjustments cannot be reliably matched to a delivery: staff must confirm it was not added already.
+
+Price list stays unchanged. Initialized legacy stock book values add the received line cost; uninitialized
+values stay unknown. Per-vehicle saved usage costs and quantities are untouched. General stock increases only.
+Received POs/items and newly PO-linked Expenses are read-only; correction needs an explicit reviewed workflow.
+Old cached clients cannot run the prior non-atomic receipt path. Refresh after deployment.
+All-or-nothing receipt only; partial deliveries are not implemented.
+
+Testing: isolated PostgreSQL + mocked browser; no real PO should be received for a test.
+Read-only live verification: RPC availability; zero new receipts on installation; unchanged prior stock/expenses;
+expenses_sync_inventory_stock_in still excludes 15M. Rollback requires review; do not drop receipt data or
+re-enable legacy receiving after any real receipt has been posted.
