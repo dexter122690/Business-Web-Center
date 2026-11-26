@@ -1,6 +1,7 @@
-/* Purchase Orders: branch-based supplier orders that become Expenses and Inventory on receipt. */
+/* Purchase Orders: branch-based supplier orders that become Expenses on confirmed receipt. */
 (function(){
   var db=null,businessId='',userId='',online=false,orders=[],lines=[],draft={},editingId='',catalog=[],catalogMessage='',catalogVersion=0,loadVersion=0;
+  var receivingOrders=new Set();
   function esc(v){return String(v||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   function peso(v){return 'PHP '+Number(v||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}
   function branch(){return localStorage.getItem('bwc-active-branch')||''}
@@ -27,7 +28,7 @@
   function orderTotal(order){return (order.purchase_order_items||[]).reduce(function(sum,line){return sum+number(line.quantity)*number(line.unit_cost)},0)}
   function render(){
     var host=root();if(!host)return;var f=getDraft(),draftCount=orders.filter(function(o){return o.status==='Draft'}).length,approved=orders.filter(function(o){return o.status==='Approved'}).length,received=orders.filter(function(o){return o.status==='Received'}).length,total=lines.reduce(function(sum,line){return sum+number(line.quantity)*number(line.unit_cost)},0);
-    var html='<div class="heading"><div><div class="k">Purchase orders</div><h1>Order parts before purchasing</h1><p class="muted">Create a supplier order, approve it, then receive it once. Received items are recorded in Expenses and stock-in automatically for this branch.</p></div><button class="secondary" type="button" data-po-refresh>Refresh</button></div>';
+    var html='<div class="heading"><div><div class="k">Purchase orders</div><h1>Order parts before purchasing</h1><p class="muted">Save a draft, approve it, then click Receive items when the delivery arrives. A supplier receipt number is required. Expenses are created only after you confirm receipt.</p></div><button class="secondary" type="button" data-po-refresh>Refresh</button></div>';
     html+='<div id="poStatus" class="notice">Purchase Orders are connected to this branch only.</div>';
     html+='<div class="grid" style="margin-top:14px"><div class="card"><div class="muted">Draft orders</div><div class="metric">'+draftCount+'</div></div><div class="card"><div class="muted">Approved / waiting delivery</div><div class="metric">'+approved+'</div></div><div class="card"><div class="muted">Received orders</div><div class="metric">'+received+'</div></div></div>';
     html+='<div class="split" style="margin-top:14px"><div class="card"><div class="k">'+(editingId?'Editing purchase order':'New purchase order')+'</div><h2>Supplier order details</h2><form id="poForm" class="formgrid"><label>PO number<input id="poNumber" value="'+esc(f.po_number)+'"></label><label>Order date<input id="poDate" type="date" value="'+esc(f.order_date)+'"></label><label style="grid-column:span 2">Supplier name *<input id="poSupplier" required value="'+esc(f.supplier_name)+'" placeholder="e.g., ABC Auto Supply"></label><label>Expected delivery<input id="poExpected" type="date" value="'+esc(f.expected_date)+'"></label><label>Payment source<select id="poPayment"><option'+(f.payment_method==='Authorized Manager'?' selected':'')+'>Authorized Manager</option><option'+(f.payment_method==='CIB'?' selected':'')+'>CIB</option><option'+(f.payment_method==='Petty Cash'?' selected':'')+'>Petty Cash</option></select></label><label style="grid-column:1/-1">Notes (optional)<input id="poNotes" value="'+esc(f.notes)+'" placeholder="e.g., Quoted price valid for seven days"></label></form></div>';
@@ -69,7 +70,69 @@
   function headerData(){rememberForm();return {business_id:businessId,branch_id:branch(),po_number:draft.po_number||makeNumber(),supplier_name:draft.supplier_name,order_date:draft.order_date||today(),expected_date:draft.expected_date||null,payment_method:draft.payment_method||'Authorized Manager',notes:draft.notes||null,created_by:userId}}
   async function save(){var header=headerData();if(!header.business_id||!header.branch_id){alert('Your workspace is still loading. Please wait a moment and try again.');return}if(!header.supplier_name||!lines.length){alert('Enter the supplier and add at least one item.');return}notice('Saving purchase order securely...');var id=editingId,wasEditing=Boolean(editingId),result;if(id){result=await db.from('purchase_orders').update(header).eq('id',id).eq('business_id',businessId).eq('branch_id',branch());if(result.error){alert('The purchase order could not be updated: '+result.error.message);notice('Purchase order was not updated.');return}var oldItems=await db.from('purchase_order_items').delete().eq('purchase_order_id',id);if(oldItems.error){alert('The purchase order header was updated, but its items could not be replaced: '+oldItems.error.message);return}}else{result=await db.from('purchase_orders').insert(header).select('id').single();if(result.error){alert('The purchase order could not be saved: '+result.error.message);notice('Purchase order was not saved.');return}id=result.data.id}var items=lines.map(function(line,index){return {purchase_order_id:id,category:line.category,description:line.description,quantity:line.quantity,unit_cost:line.unit_cost,sort_order:index}}),saved=await db.from('purchase_order_items').insert(items);if(saved.error){alert('The order items could not be saved: '+saved.error.message);notice('The order was not completed. Please contact support before trying again.');return}resetForm();await load();alert(wasEditing?'Purchase order updated.':'Purchase order saved as Draft. Approve it when the supplier order is confirmed.')}
   async function approve(id){if(!confirm('Approve this purchase order? It will be ready to receive when the items arrive.'))return;var r=await db.from('purchase_orders').update({status:'Approved'}).eq('id',id).eq('business_id',businessId).eq('branch_id',branch());if(r.error){alert('The purchase order could not be approved: '+r.error.message);return}await load()}
-  async function receive(id){var order=orders.find(function(row){return row.id===id});if(!order||order.status!=='Approved')return;var orderLines=order.purchase_order_items||[];if(!orderLines.length){alert('This purchase order has no items to receive.');return}if(!confirm('Receive these items? This will create '+orderLines.length+' expense record(s) and stock-in entries for this branch.'))return;notice('Receiving items and creating Expenses...');var entries=orderLines.map(function(line){return {business_id:businessId,branch_id:branch(),expense_date:today(),supplier_name:order.supplier_name,receipt_number:order.po_number,category:line.category,description:line.description,quantity:line.quantity,unit_amount:line.unit_cost,payment_method:order.payment_method,reference_number:order.po_number,remarks:'Received purchase order',created_by:userId}}),saved=await db.from('expenses').insert(entries);if(saved.error){alert('The items could not be added to Expenses: '+saved.error.message);notice('Nothing was received.');return}var updated=await db.from('purchase_orders').update({status:'Received',received_at:new Date().toISOString()}).eq('id',id).eq('business_id',businessId).eq('branch_id',branch());if(updated.error){alert('Expenses were created, but the PO status could not be updated. Do not receive it again. Please contact support with PO '+order.po_number+'.');return}document.dispatchEvent(new Event('bwc:expenses-loaded'));document.dispatchEvent(new Event('bwc:inventory-loaded'));await load();alert('Items received. They are now in Expenses and eligible stock has been added to Inventory.')}
+  function requestReceipt(order){
+    return new Promise(function(resolve){
+      var dialog=document.createElement('dialog'),opener=document.activeElement,finished=false;
+      dialog.setAttribute('aria-labelledby','poReceiptTitle');
+      dialog.style.cssText='width:min(520px,calc(100vw - 40px));max-height:90vh;overflow:auto;box-sizing:border-box;border:1px solid #d8c9bf;border-radius:14px;padding:24px;color:#202630;background:#fff;box-shadow:0 20px 80px #0004';
+      dialog.innerHTML='<form><h2 id="poReceiptTitle" style="margin-top:0">Receive purchase order</h2><p><b>PO '+esc(order.po_number)+'</b> · '+esc(order.supplier_name)+'</p><p>'+esc((order.purchase_order_items||[]).length)+' item(s) · '+peso(orderTotal(order))+'</p><label style="display:block;font-weight:600">Receipt number <span aria-hidden="true">*</span><input name="receipt_number" type="text" required maxlength="120" autocomplete="off" placeholder="Enter supplier receipt / OR number" style="display:block;box-sizing:border-box;width:100%;margin-top:8px;padding:12px;font:inherit;border:1px solid #c8b9af;border-radius:7px"></label><p style="font-size:13px;color:#566477">Enter the receipt number from the supplier for the items you received.</p><p style="padding:12px;background:#fff1e8;border-left:3px solid #ff501b">Confirming will create the Expenses for this PO. If this purchase is already encoded in Expenses, cancel to avoid a duplicate.</p><p data-po-receipt-error role="alert" style="color:#a52d13"></p><div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px"><button type="button" class="secondary" data-po-receipt-cancel>Cancel</button><button type="submit" class="primary">Confirm receive</button></div></form>';
+      function finish(value){if(finished)return;finished=true;dialog.close();dialog.remove();if(opener&&opener.isConnected)opener.focus();resolve(value)}
+      var input=dialog.querySelector('input'),form=dialog.querySelector('form');
+      dialog.querySelector('[data-po-receipt-cancel]').onclick=function(){finish(null)};
+      dialog.addEventListener('cancel',function(e){e.preventDefault();finish(null)});
+      dialog.addEventListener('close',function(){finish(null)});
+      input.addEventListener('input',function(){input.setCustomValidity('');dialog.querySelector('[data-po-receipt-error]').textContent=''});
+      form.addEventListener('submit',function(e){
+        e.preventDefault();var receipt=input.value.trim();
+        if(!receipt||receipt.length>120){var message='Enter the supplier receipt number (1–120 characters).';input.setCustomValidity(message);dialog.querySelector('[data-po-receipt-error]').textContent=message;input.reportValidity();return}
+        finish(receipt);
+      });
+      document.body.appendChild(dialog);dialog.showModal();input.focus();
+    });
+  }
+  async function receive(id){
+    var listed=orders.find(function(row){return row.id===id});
+    if(!listed||listed.status!=='Approved')return;
+    var context={business:businessId,branch:branch(),user:userId},key=context.business+':'+context.branch+':'+id;
+    if(!context.business||!context.branch||receivingOrders.has(key))return;
+    function current(){return context.business===businessId&&context.business===(localStorage.getItem('bwc-active-business')||'')&&context.branch===branch()}
+    receivingOrders.add(key);
+    var expensesSaved=false,order=listed;
+    try{
+      // Recheck the saved order; an already-received/stale screen must not post again.
+      var fresh=await db.from('purchase_orders').select('*,purchase_order_items(*)').eq('id',id).eq('business_id',context.business).eq('branch_id',context.branch).single();
+      if(!current())return;
+      if(fresh.error||!fresh.data){alert('This purchase order could not be checked. Nothing was received. Refresh and try again.');return}
+      order=fresh.data;
+      if(order.status!=='Approved'){alert('This order is no longer waiting to be received. Refresh the purchase order list.');await load();return}
+      var orderLines=order.purchase_order_items||[];
+      if(!orderLines.length){alert('This purchase order has no items to receive.');return}
+      var receipt=await requestReceipt(order);
+      if(receipt===null)return;
+      receipt=String(receipt).trim();
+      if(!receipt){alert('Receipt number is required. Nothing was received or added to Expenses.');return}
+      if(receipt.length>120){alert('Receipt number must be 120 characters or fewer. Nothing was received.');return}
+      if(!current())return;
+      // Detect a previous successful expense insert whose PO-status update failed.
+      var existing=await db.from('expenses').select('id').eq('business_id',context.business).eq('branch_id',context.branch).eq('reference_number',order.po_number).eq('remarks','Received purchase order').limit(1);
+      if(!current())return;
+      if(existing.error){alert('Existing Expenses could not be checked. Nothing was received. Try again when the connection is stable.');return}
+      if((existing.data||[]).length){alert('Expenses already exist for PO '+order.po_number+'. Do not receive it again. Please contact support to check its status.');return}
+      notice('Receiving PO '+order.po_number+' with receipt '+receipt+'...');
+      var entries=orderLines.map(function(line){return {business_id:context.business,branch_id:context.branch,expense_date:today(),supplier_name:order.supplier_name,receipt_number:receipt,category:line.category,description:line.description,quantity:line.quantity,unit_amount:line.unit_cost,payment_method:order.payment_method,reference_number:order.po_number,remarks:'Received purchase order',created_by:context.user}});
+      var saved=await db.from('expenses').insert(entries);
+      if(saved.error){alert('Receipt could not be confirmed: '+saved.error.message+'. Check Expenses before trying again.');return}
+      expensesSaved=true;
+      var updated=await db.from('purchase_orders').update({status:'Received',received_at:new Date().toISOString()}).eq('id',id).eq('business_id',context.business).eq('branch_id',context.branch).eq('status','Approved').select('id').maybeSingle();
+      if(updated.error||!updated.data){alert('Expenses were created using receipt '+receipt+', but the PO status could not be confirmed. Do not receive it again. Please contact support with PO '+order.po_number+'.');return}
+      document.dispatchEvent(new Event('bwc:expenses-loaded'));
+      document.dispatchEvent(new Event('bwc:inventory-loaded'));
+      await load();
+      alert('PO '+order.po_number+' received. '+orderLines.length+' expense record(s) were created using supplier receipt '+receipt+'.');
+    }catch(error){
+      alert(expensesSaved?'Expenses were created, but receipt confirmation was interrupted. Do not receive PO '+order.po_number+' again. Please contact support.':'Receipt could not be confirmed. Check Expenses and refresh the purchase order list before trying again.');
+    }finally{receivingOrders.delete(key)}
+  }
   async function remove(id){var order=orders.find(function(row){return row.id===id});if(!order||order.status==='Received'){alert('Received purchase orders are kept as a record because they are already connected to Expenses and Inventory.');return}if(!confirm('Delete purchase order '+order.po_number+'?'))return;var r=await db.from('purchase_orders').delete().eq('id',id).eq('business_id',businessId).eq('branch_id',branch());if(r.error){alert('The purchase order could not be deleted: '+r.error.message);return}if(editingId===id)resetForm();await load()}
   async function load(){if(!online||!businessId||!branch())return;var context={business:businessId,branch:branch()},version=++loadVersion;notice('Loading purchase orders...');var results=await Promise.all([db.from('purchase_orders').select('*,purchase_order_items(*)').eq('business_id',context.business).eq('branch_id',context.branch).order('created_at',{ascending:false}),loadMaterials()]);if(version!==loadVersion||context.business!==businessId||context.business!==(localStorage.getItem('bwc-active-business')||'')||context.branch!==branch())return;var r=results[0];if(r.error){var host=root();if(host)host.innerHTML='<div class="card"><div class="k">Purchase Orders</div><h2>Database setup needed</h2><div class="notice">'+esc(r.error.message)+'. Run the Purchase Orders database update, then refresh this page.</div></div>';return}orders=r.data||[];if(!editingId&&!draft.supplier_name&&!lines.length)draft=freshDraft();render()}
   async function start(){var c=window.BUSINESS_WEB_CENTER_SUPABASE||{};if(!window.supabase||!c.url||!c.publishableKey){setTimeout(start,350);return}db=window.getBusinessSupabaseClient&&window.getBusinessSupabaseClient();if(!db){setTimeout(start,350);return}var session=await db.auth.getSession(),user=session.data&&session.data.session&&session.data.session.user;if(!user){setTimeout(start,350);return}userId=user.id;businessId=localStorage.getItem('bwc-active-business')||'';if(!businessId||!branch()){setTimeout(start,350);return}online=true;draft=freshDraft();load()}
