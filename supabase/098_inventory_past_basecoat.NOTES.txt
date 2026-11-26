@@ -1,9 +1,11 @@
 098 - Past basecoat on released units
 
-Status 2026-11-26: implemented and tested locally; NOT installed or published.
-Live SQL Editor Run was blocked by safety review pending action-time approval
-for database function/execute-grant changes. No workaround or alternate live
-write was attempted. The live snapshot still matches migration 091.
+Database status 2026-11-26: migration 098 installed in business-web-center after
+explicit user action-time approval. The installation guard verified all 74
+existing public tables had identical row counts and content hashes before/after.
+The session-only verification table had RLS enabled and all public/anon/
+authenticated privileges revoked; it was automatically dropped at commit.
+No dummy costs were entered in production. Frontend source ships with this file.
 
 Workflow:
 Past materials per unit > View materials > Add past basecoat.
@@ -33,7 +35,7 @@ Validation:
   after within the same transaction, aborting on any row change. Wrapper tested
   for success and deliberately introduced row-change rollback in local DB.
 
-Deploy after explicit action-time approval:
+Deployment checklist:
 1. Install 098 in business-web-center (bcgrzfrxuccvmznafake), using the reviewed
    row-preservation wrapper. Verify the transaction succeeded and row guard passed.
 2. Publish the source change and wait for the deployment success status.
