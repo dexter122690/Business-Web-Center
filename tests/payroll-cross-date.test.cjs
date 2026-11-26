@@ -44,7 +44,7 @@ test('released payslip blocks an earlier payment that would alter its balances o
 });
 test('same invoice/plate uses existing stable job id; model name alone never merges jobs',()=>{
  const s=fixture(),earlier=W.selectWeek(s,'2026-11-10');
- assert.throws(()=>S.save(earlier,'p',[{unit:'Different description',invoice:' test-1 ',plate:'test 245',contract:10000,weekly:100}],0,uid),/Use existing job/);
+ assert.throws(()=>S.save(earlier,'p',[{unit:'Different description',invoice:' test-1 ',plate:'test 245',contract:10000,weekly:100}],0,uid),/Continue this job/);
  const next=S.save(earlier,'p',[{unit:'Honda City',invoice:'TEST-2',plate:'TEST 245',contract:5000,weekly:500}],0,uid);assert.notEqual(row(next).job.id,row(s).job.id);
  assert.throws(()=>S.draft(earlier,'p',[{linkJobId:row(s).job.id,weekly:1},{linkJobId:row(s).job.id,weekly:1}],0,uid),/selected unit/);
  assert.throws(()=>S.linkedRow(earlier,'q',row(s).job.id),/existing job/);

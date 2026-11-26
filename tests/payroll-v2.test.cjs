@@ -69,7 +69,7 @@ test('new navigation opens only its own frame and clears it on branch/access cha
  const document={createElement:element,getElementById:id=>nodes[id],querySelector:()=>dash,querySelectorAll:s=>s==='.view'?[nodes.dashboard,nodes.payroll,nodes.payrollV2].filter(Boolean):nodes.nav.children,addEventListener:listen};
  const window={addEventListener:listen,scrollTo(){},getBusinessSupabaseClient:()=>({rpc:async name=>{assert.equal(name,'payroll_v2_role');requests++;return {data:access,error:null}}})};
  vm.runInNewContext(fs.readFileSync(path.join(ROOT,'payroll-v2-online.js'),'utf8'),{window,document,localStorage:{getItem:k=>data[k]},setTimeout:fn=>timers.push(fn),MutationObserver:class{observe(){}},console});
- await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261125-job-items');assert.ok(!nodes.dashboard.classList.contains('active'));
+ await timers.shift()();let button=nodes.nav.children.find(n=>n.dataset.t==='payrollV2');assert.ok(button);button.click();assert.equal(nodes.payroll.inert,true);assert.ok(nodes.payrollV2.classList.contains('active'));assert.equal(nodes.payrollV2.children[0].src,'payroll-v2/index.html?v=20261126-contracts');assert.ok(!nodes.dashboard.classList.contains('active'));
  data['bwc-active-branch']=other;access='none';await events['bwc:branch-ready'][0]();assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);assert.ok(nodes.dashboard.classList.contains('active'));
  access='owner';await events.focus[0]();assert.equal(button.hidden,false);button.click();assert.equal(nodes.payrollV2.children.length,1);
  data['bwc-active-business']='another-business';const previous=requests;await events.storage[0]({key:'bwc-active-business'});assert.equal(requests,previous);assert.equal(button.hidden,true);assert.equal(nodes.payrollV2.children.length,0);
@@ -448,6 +448,36 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
   const changed=structuredClone(loaded.state),rw=changed.painterTestSheets.at(-1).snapshot.rows[0];rw.workItems[0].description='Cannot rewrite released job';rw.job.work=rw.workItems[0].description;changed.painterTestSheets.at(-1).snapshot.jobs=changed.painterTestSheets.at(-1).snapshot.rows.map(r=>r.job);
   await assert.rejects(persist(changed,loaded.revision),/Released|released|locked/);
   assert.equal((await db.query("select has_function_privilege('authenticated','payroll_v2_check_job_items(jsonb,jsonb)','execute') allowed")).rows[0].allowed,false);
+ });
+ await t.test('dated contract changes enforce permissions, audit, immutable payments and cross-date caps online',async()=>{
+  const K=require('../payroll-v2/contract-ledger.js'),sql=fs.readFileSync(path.join(ROOT,'supabase/093_payroll_contract_changes.sql'),'utf8');
+  const before=(await db.query('select * from payroll_v2_workspaces order by branch_id')).rows;
+  await db.exec(sql);await db.exec(sql);assert.deepEqual((await db.query('select * from payroll_v2_workspaces order by branch_id')).rows,before);
+  const branch='10000000-0000-4000-8000-000000000093';await db.query('insert into branches values($1,$2,$3,true)',[branch,b,'CONTRACT TEST']);
+  let n=0;const uid=()=>`contract-db-${++n}`,persist=(state,rev,actor=owner,files=[])=>auth(actor,()=>call('payroll_v2_save',[b,branch,rev,JSON.stringify(state),JSON.stringify(files)]));
+  let loaded=await auth(owner,()=>call('payroll_v2_load',[b,branch]));
+  let state=S.save(W.selectWeek(seed(),'2026-09-12'),'painter',[{unit:'Fictional contract unit',invoice:'TEST-093',plate:'TEST 093',contract:10000,workItems:[{description:'Bumper',amount:5000}]}],0,uid);
+  loaded=await persist(state,loaded.revision);const id=S.savedFor(loaded.state,'painter').snapshot.rows[0].job.id;
+  const change=(s,kind,amount,date='2026-09-21')=>K.createEvent(s,'painter',id,{kind,amount,effectiveOn:date,description:'Added work',reason:'Approved by owner'},uid);
+  const add=change(loaded.state,'addition',2000),proposed=K.apply(loaded.state,add);
+  assert.deepEqual(await call('payroll_v2_apply_contract_event',[JSON.stringify(loaded.state),JSON.stringify(add)]),proposed);
+  loaded=await persist(proposed,loaded.revision);assert.equal(K.current(loaded.state,'painter',id),12000);
+  assert.equal((await db.query("select actor_id from payroll_v2_events where action='contract_change' and branch_id=$1",[branch])).rows[0].actor_id,owner);
+  for(const mutate of [s=>delete s.painterContractEvents,s=>s.painterContractEvents[0].amount=3]){const bad=structuredClone(loaded.state);mutate(bad);await assert.rejects(persist(bad,loaded.revision),/permanent|history/)}
+  state=S.save(W.selectWeek(loaded.state,'2026-09-26'),'painter',[{id,workItems:[{description:'Next portion',amount:1000}]}],0,uid);loaded=await persist(state,loaded.revision);
+  const correction=change(loaded.state,'correction',11000),corrected=K.apply(loaded.state,correction);
+  assert.deepEqual(await call('payroll_v2_apply_contract_event',[JSON.stringify(loaded.state),JSON.stringify(correction)]),corrected);
+  const mixed=structuredClone(corrected);mixed.rules.workDays=4;await assert.rejects(persist(mixed,loaded.revision),/separately/);
+  await assert.rejects(call('payroll_v2_check_contract_events',[JSON.stringify(loaded.state),JSON.stringify(corrected),'edit']),/Only the owner/);
+  loaded=await persist(corrected,loaded.revision);assert.deepEqual(S.validate(loaded.state),[]);
+  const bad=structuredClone(loaded.state),rw=bad.painterTestSheets.at(-1).snapshot.rows[0];rw.job.contract=12000;rw.opening=7000;rw.remaining=6000;bad.painterTestSheets.at(-1).snapshot.jobs=bad.painterTestSheets.at(-1).snapshot.rows.map(r=>r.job);
+  await assert.rejects(persist(bad,loaded.revision),/Agreed labor/);
+  const earlier=W.selectWeek(loaded.state,'2026-09-05');assert.throws(()=>S.save(earlier,'painter',[{linkJobId:id,workItems:[{description:'Earlier portion',amount:5500}]}],0,uid),/effective|exceed/);
+  state=S.save(earlier,'painter',[{linkJobId:id,workItems:[{description:'Earlier portion',amount:4000}]}],0,uid);loaded=await persist(state,loaded.revision);assert.deepEqual(S.validate(loaded.state),[]);
+  state=S.save(W.selectWeek(loaded.state,'2026-09-26'),'painter',[{id,retentionStatus:'retained',unitReleasedOn:'2026-09-27'}],0,uid);loaded=await persist(state,loaded.revision);
+  state=S.save(W.selectWeek(loaded.state,'2026-10-03'),'painter',[{unit:'Fictional new visit',invoice:'TEST-093',plate:'TEST 093',contract:1000,weekly:100,transactionRef:'NEW-VISIT-2',separateJobReason:'New work after previous unit release'}],0,uid);loaded=await persist(state,loaded.revision);
+  assert.deepEqual(S.validate(loaded.state),[]);
+  assert.equal((await db.query("select has_function_privilege('authenticated','payroll_v2_apply_contract_event(jsonb,jsonb)','execute') allowed")).rows[0].allowed,false);
  });
  await db.close();
 });

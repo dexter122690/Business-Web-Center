@@ -173,5 +173,5 @@ test('page and offline shell reference the same updated tracker asset',()=>{
   const html=fs.readFileSync(path.join(root,'index.html'),'utf8'),sw=fs.readFileSync(path.join(root,'sw.js'),'utf8');
   const asset=html.match(/src="(repaint-monitoring\.js\?v=[^"]+)"/)[1];
   assert.match(asset,/20261126-empty-branch/);assert.ok(sw.includes('/'+asset));
-  assert.match(sw,/bwc-invoice-offline-v53/);assert.match(sw,/version:53/);
+  assert.match(sw,/bwc-invoice-offline-v54/);assert.match(sw,/version:54/);
 });

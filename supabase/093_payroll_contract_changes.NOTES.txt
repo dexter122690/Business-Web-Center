@@ -1,0 +1,31 @@
+Payroll contract changes — 26 November 2026
+
+Apply 093 after 089, before publishing the matching frontend. Re-running it is safe.
+This update installs validation functions only. It does not migrate or rewrite any
+existing employee, agreement, worksheet, payment, PDF, receipt, permission or file.
+
+The existing authenticated branch-scoped payroll save with revision checks remains
+the only save path. Editors may confirm pending prices and add additional work.
+Only an owner may correct an already confirmed agreed labor total.
+
+Contract changes are append-only painterContractEvents. Each save may append one
+event, with description, reason, effective date and original baseline. A server
+audit event also records the authenticated actor and revision. A contract-change
+save cannot contain payment edits or changes to unrelated data.
+
+Effective dates use the existing Saturday–Friday payroll period. Earlier sheets
+retain their old agreement; open affected sheets update balances, not salary.
+Released sources/PDFs and received retention remain locked. A later correction
+cannot permit payments exceeding the agreement effective in an earlier week.
+If a correction takes effect after the latest saved sheet, save the current
+payroll table before confirming its retained balance.
+
+The old existing-job selector is removed. Exact employee + invoice + plate
+matches require explicit Continue this job. A later visit may instead be given a
+unique transaction reference and reason only after the prior job is released.
+The same vehicle name or plate alone never links different jobs automatically.
+
+Verification: Node regression suite + isolated PostgreSQL migration/auth tests;
+local UI tests use fictional in-memory records, never production payments.
+Before/after deployment, verify payroll workspace/file/access checksums and the
+presence of the installed contract guard. Refresh BWC to load the updated frame.

@@ -1,5 +1,5 @@
 /* Cross-date checks for one employee/job. No persistence or inferred payments. */
-(function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./workflow.js'));else root.PainterLedger=factory(root.PayrollWorkflow)})(typeof window!=='undefined'?window:this,function(W){
+(function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./workflow.js'),require('./contract-ledger.js'));else root.PainterLedger=factory(root.PayrollWorkflow,root.PayrollContracts)})(typeof window!=='undefined'?window:this,function(W,K){
   'use strict';
   const copy=v=>JSON.parse(JSON.stringify(v)),same=(a,b)=>JSON.stringify(a)===JSON.stringify(b),cents=W.cents;
   const moneyText=n=>'₱'+Number(n).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -54,8 +54,13 @@
       const knownBefore=entries(old,e,id).filter(x=>x.row.job.contractPending!==true);
       if(!known.length&&knownBefore.length)errors.push('An already confirmed agreed labor cannot be cleared. Keep the contract or review a correction.');
       if(known.length){
-        const cap=known.at(-1).row.job.contract;
-        if(known.some(x=>cents(x.row.job.contract)!==cents(cap)))errors.push(j.unit+': keep the same agreed labor ('+moneyText(cap)+') for this job across all dates.');
+        const managed=K.events(next,e,id).length>0,cap=managed?K.current(next,e,id):known.at(-1).row.job.contract;
+        if(!managed&&known.some(x=>cents(x.row.job.contract)!==cents(cap)))errors.push(j.unit+': keep the same agreed labor ('+moneyText(cap)+') for this job across all dates. Use Correct agreed labor for a mistake, or Add additional job order for new work.');
+        for(const {sheet,row:r} of known){
+          const before=knownBefore.find(x=>x.sheet.period.start===sheet.period.start)?.row.job.contract??K.baseline(old,e,id);
+          const expected=managed?K.at(next,e,id,sheet.period.end,before):before;
+          if(expected!==null&&expected!==undefined&&cents(r.job.contract)!==cents(expected))errors.push(j.unit+': agreed labor for '+sheet.period.start+' to '+sheet.period.end+' is '+moneyText(expected)+'. Use the contract correction or additional-job button; do not replace it in the weekly table.');
+        }
         const paid=payments(next,e,id).reduce((sum,p)=>sum+cents(p.amount),0)+cents(j.priorSettlement||0)+(next.painterRetentionReceipts||[]).filter(p=>p.employeeId===e&&p.jobId===id).reduce((sum,p)=>sum+cents(p.amount),0);
         if(paid>cents(cap)){
           const current=rows.find(x=>x.sheet.period.start===next.period.start),max=Math.max(0,cents(cap)-paid+cents(current?.row.weekly||0))/100;
@@ -65,6 +70,7 @@
       for(const {sheet,row:r} of rows){
         const prior=W.money((r.job.priorSettlement||0)+paidBefore(next,e,id,sheet.period.start));
         if(r.job.contractPending===true?cents(r.previousRecorded)!==cents(prior):cents(r.opening)!==cents(r.job.contract-prior)||cents(r.remaining)!==cents(r.opening-r.weekly))errors.push(j.unit+': balance does not match payments on other dates.');
+        if(r.job.contractPending!==true&&r.remaining<0)errors.push(j.unit+': payments by '+sheet.period.end+' exceed the agreed labor effective in that week. Later additional work cannot fund an earlier payment.');
       }
       for(const released of old.releasedPainterSlips||[])if(released.employeeId===e&&released.snapshot.rows.some(r=>r.job.id===id)){
         const history=s=>payments(s,e,id).filter(p=>p.end<released.period.start&&p.amount!==0);
@@ -72,7 +78,7 @@
       }
       // Exact invoice + plate identifies an existing job, never the model name alone.
       const oldKeys=new Set(entries(old,e,id).map(x=>identity(x.row.job)));
-      if(!oldKeys.has(identity(j))&&identity(j))for(const x of sheets(next).filter(x=>x.employeeId===e))if(x.snapshot.rows.some(r=>r.job.id!==id&&identity(r.job)===identity(j)))errors.push(j.unit+': this invoice and plate already have a payroll job. Choose “Use existing job” instead of creating a duplicate.');
+      if(!oldKeys.has(identity(j))&&identity(j)&&!K.separateAllowed(next,e,j))for(const x of sheets(next).filter(x=>x.employeeId===e))if(x.snapshot.rows.some(r=>r.job.id!==id&&identity(r.job)===identity(j)))errors.push(j.unit+': matching invoice and plate found. Review the matching-job panel and choose “Continue this job”; for genuinely new work after release, enter a separate transaction reference and reason.');
     }
     return [...new Set(errors)];
   }

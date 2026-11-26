@@ -36,6 +36,6 @@ test('released copies and source are immutable; explicit empty only replaces thi
 test('worksheet renders without saved-copy list; current saved sheet remains printable',()=>{
  const s=S.save(seed(),'p',[{unit:'Test unit',contract:10000,weekly:2000}],0,uid);
  const html=S.render({state:s,esc:String,peso:String,range:p=>p.start+' to '+p.end,button:(label,action,attrs='')=>`<button data-action="${action}" ${attrs}>${label}</button>`},'p');
- assert.doesNotMatch(html,/Saved worksheet copies|simple-history-open|painter-histories/);
+ assert.doesNotMatch(html,/Saved worksheet copies|simple-history-open/);assert.match(html,/Job agreements & payment history/);
  assert.match(html,/Save table before changing the week/);assert.match(html,/id="painterPrint"/);assert.match(html,/id="painterRelease"/);
 });

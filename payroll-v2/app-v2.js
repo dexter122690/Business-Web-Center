@@ -1,7 +1,7 @@
 /* BWC payroll v2: authenticated online saves and append-only release snapshots. */
 (async function(){
   'use strict';
-  const O=window.PayrollOnline,C=window.PayrollWorkflow,S=window.SimplePainter,A=window.PayslipArchive,D=window.EmployeePhotos,$=s=>document.querySelector(s),copy=v=>JSON.parse(JSON.stringify(v));
+  const O=window.PayrollOnline,C=window.PayrollWorkflow,S=window.SimplePainter,K=window.PayrollContracts,U=window.PayrollContractUI,A=window.PayslipArchive,D=window.EmployeePhotos,$=s=>document.querySelector(s),copy=v=>JSON.parse(JSON.stringify(v));
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const peso=n=>'₱'+Number(n||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
   const dateText=(date,opts={month:'short',day:'numeric',year:'numeric'})=>date?new Date(date+'T12:00:00').toLocaleDateString('en-PH',opts):'Not set';
@@ -46,18 +46,51 @@
   document.addEventListener('input',event=>{if(event.target.id==='painterPayday'){
     if(painterCellsDirty||painterSaving){event.target.value=painterPaydayValue;notify('Save table before changing payday.');return}
     painterPaydayValue=event.target.value;previewPainter(false);
-  }else if(event.target.closest('#painterWorksheet'))previewPainter()});
-  document.addEventListener('change',async event=>{if(event.target.id==='painterExistingJob'){
-    const tr=document.querySelector('[data-painter-row=""]');if(!tr)return;
-    if(tr.querySelector('[data-field="unit"]').value){event.target.value=tr.dataset.linkJobId||'';notify('Use Undo unsaved changes before replacing the new row.');return}
-    if(!event.target.value)return;
-    try{const r=S.linkedRow(state,ui.employeeId,event.target.value);tr.dataset.linkJobId=r.job.id;
-      tr.querySelectorAll('[data-field]').forEach(el=>{const k=el.dataset.field;el.value=k==='weekly'?'':k==='retentionStatus'?(S.isReleased(r.job)?'retained':'ongoing'):(r.job[k]??'')});
-      tr.querySelector('[data-job-items]').innerHTML=S.jobItemsEditor(S.workItems(r),'New unit',esc);
-      previewPainter();
-    }catch(error){event.target.value='';$('#painterError').textContent=error.message}
-    return;
-  }if(event.target.id==='painterWeek'){if(!discardPainter()||!C.validDate(event.target.value)){event.target.value=state.period.start;return}changeWeek(event.target.value)}});
+  }else if(event.target.closest('#painterWorksheet')){
+    const tr=event.target.closest('[data-painter-row]');
+    if(tr&&!tr.dataset.painterRow&&!tr.dataset.linkJobId&&['invoice','plate'].includes(event.target.dataset.field))tr.querySelector('[data-job-matches]').innerHTML=U.matches(state,ui.employeeId,{invoice:tr.querySelector('[data-field="invoice"]').value,plate:tr.querySelector('[data-field="plate"]').value});
+    previewPainter();
+  }});
+  document.addEventListener('change',event=>{if(event.target.id==='painterWeek'){if(!discardPainter()||!C.validDate(event.target.value)){event.target.value=state.period.start;return}changeWeek(event.target.value)}});
+  const contractDialog=document.createElement('dialog');contractDialog.id='contractDialog';contractDialog.className='contract-dialog';contractDialog.setAttribute('aria-labelledby','contractDialogTitle');document.body.append(contractDialog);let contractSaving=false;
+  contractDialog.addEventListener('cancel',event=>{if(contractSaving)event.preventDefault()});
+  function showContract(kind,id){
+    if(contractSaving)return;
+    if(kind!=='history'){
+      if(!discardPainter())return;
+      if(O.access==='view'||(kind==='correction'&&O.access!=='owner'))throw Error('Only the owner can correct agreed labor. Payroll editors can confirm prices and add additional work.');
+    }
+    contractDialog.innerHTML=(kind==='history'?U.history(state,ui.employeeId,id,O.access):U.editor(state,ui.employeeId,id,kind,S.manilaDay()))+'<button type="button" class="contract-close" data-contract-close aria-label="Close job history">Close</button>';
+    if(!contractDialog.open)contractDialog.showModal();
+  }
+  document.addEventListener('click',event=>{
+    const action=event.target.closest('[data-contract-action]'),close=event.target.closest('[data-contract-close]'),match=event.target.closest('[data-match-job]'),separate=event.target.closest('[data-separate-job]');
+    if(!action&&!close&&!match&&!separate)return;event.preventDefault();
+    try{
+      if(close){if(!contractSaving)contractDialog.close();return}
+      if(action){showContract(action.dataset.contractAction,action.dataset.contractJob);return}
+      if(painterSaving||O.busy||O.access==='view')return;
+      const tr=(match||separate).closest('[data-painter-row]');
+      if(separate){tr.querySelector('[data-separate-fields]').hidden=false;tr.querySelector('[data-field="transactionRef"]').focus();notify('Use a unique transaction reference and reason. The earlier job must already be released.');return}
+      if(S.view(state,ui.employeeId).snapshot.rows.some(r=>r.job.id===match.dataset.matchJob))throw Error('This job is already in this payroll. Enter its payment in the existing row above; do not add it twice.');
+      const r=S.linkedRow(state,ui.employeeId,match.dataset.matchJob),items=painterRows().find(r=>!r.id)?.workItems||[];
+      tr.dataset.linkJobId=r.job.id;
+      tr.querySelectorAll('[data-field]').forEach(el=>{const k=el.dataset.field;el.value=k==='weekly'?'':k==='retentionStatus'?(S.isReleased(r.job)?'retained':'ongoing'):(r.job[k]??'');if(['contract','invoice','plate'].includes(k))el.readOnly=true});
+      tr.querySelector('[data-job-items]').innerHTML=S.jobItemsEditor(items.some(i=>i.description.trim()||Number(i.amount))?items:S.workItems(r),'Linked job',esc);
+      tr.querySelector('[data-job-matches]').textContent='Linked to saved job. Existing agreement and payment history preserved.';tr.querySelector('[data-separate-fields]').hidden=true;previewPainter();
+    }catch(error){notify(error.message);if($('#painterError'))$('#painterError').textContent=error.message}
+  });
+  contractDialog.addEventListener('submit',async event=>{
+    if(event.target.id!=='contractChangeForm')return;event.preventDefault();if(contractSaving||!discardPainter())return;
+    const form=event.target,controls=Array.from(contractDialog.querySelectorAll('button,input,textarea'));
+    try{
+      if(O.access==='view'||(form.dataset.kind==='correction'&&O.access!=='owner'))throw Error('You do not have permission for this contract change.');
+      const fields=Object.fromEntries(new FormData(form));if(fields.effectiveOn>S.manilaDay())throw Error('Effective date cannot be in the future.');
+      const change=K.createEvent(state,ui.employeeId,form.dataset.job,{...fields,kind:form.dataset.kind},()=>uid('contract'));
+      const next=K.apply(state,change);contractSaving=true;controls.forEach(el=>el.disabled=true);$('#contractError').textContent='Saving contract change…';
+      const errors=await commit(next,false,false);if(errors.length)throw Error(errors[0]);contractDialog.close();render();notify('Contract change saved. Weekly payments and released payslips were not changed.');
+    }catch(error){$('#contractError').textContent=error.message;controls.forEach(el=>el.disabled=false)}finally{contractSaving=false}
+  });
   document.addEventListener('click',async event=>{if(event.target.closest('[data-action="painter-discard"]')&&!painterSaving){painterDirty=false;painterCellsDirty=false;render();event.preventDefault();event.stopImmediatePropagation();return}if((painterDirty||painterSaving)&&event.target.closest('[data-action],[data-view],.brand,[data-person],[data-paytype]')&&!discardPainter()){event.preventDefault();event.stopImmediatePropagation()}},true);
   document.addEventListener('click',event=>{
     const control=event.target.closest('[data-job-add],[data-job-remove]');if(!control)return;
@@ -126,7 +159,7 @@
   function history(){const q=ui.historyQuery.trim().toLowerCase(),rows=state.payslips.filter(s=>(!q||(s.snapshot.employee.name+' '+s.snapshot.employee.position+' '+s.id).toLowerCase().includes(q))&&(!ui.historyMonth||s.period.end.startsWith(ui.historyMonth))).slice().sort((a,b)=>b.period.end.localeCompare(a.period.end)||a.snapshot.employee.name.localeCompare(b.snapshot.employee.name));return head('COMPLETED WEEKS','Payslip history','Frozen copies stay here even after an employee is removed.',button('Print selected','history-print','','primary')+button('Export backup','backup'))+`<div class="rule-note history-notice">Saved copies are read-only and never recalculated. Copies are stored online for this branch. Export regular backups and keep the files safely.</div><form id="historySearch" class="history-toolbar"><label>Search employee or payslip<input type="search" name="query" value="${esc(ui.historyQuery)}" placeholder="Employee name"></label><label>Payroll month<input name="month" type="month" value="${esc(ui.historyMonth)}"></label><button class="button secondary">Filter</button>${button('Clear','history-clear','','ghost')}<span class="history-count">${rows.length} saved · ${ui.selectedSlips.size} selected</span></form><section class="full-panel"><div class="table-wrap"><table class="archive-table"><thead><tr><th>Select</th><th>Employee</th><th>Payroll period / release</th><th>Saved on</th><th class="num">Net pay</th><th></th></tr></thead><tbody>${rows.map(s=>`<tr><td><input type="checkbox" data-select-slip="${s.id}" aria-label="Select payslip ${esc(s.snapshot.employee.name)} ${s.period.start}" ${ui.selectedSlips.has(s.id)?'checked':''}></td><td><b>${esc(s.snapshot.employee.name)}</b><small>${esc(s.snapshot.employee.position)} · ${s.snapshot.employee.type==='daily'?'Daily rate':'Per contract'}<br>${esc(s.id)}</small></td><td>${range(s.period)}<small>Release: ${dateText(s.period.releaseDate)}</small></td><td>${esc(new Date(s.savedAt).toLocaleString('en-PH'))}</td><td class="num snapshot-total">${peso(s.snapshot.net)}</td><td>${button('View / reprint','history-open',`data-id="${s.id}"`,'secondary small')}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">No saved payslips match. Use “Save completed payslip” when a week is ready.</td></tr>'}</tbody></table></div></section>`}
   function retentionLedger(){const jobs=state.jobs.filter(j=>ui.retentionEmployee==='all'||j.employeeId===ui.retentionEmployee),held=jobs.reduce((n,j)=>n+C.retentionFund(state,j.id,state.period.end),0),released=jobs.reduce((n,j)=>n+C.sum(state.releases.filter(r=>r.jobId===j.id&&r.date<=state.period.end),'amount'),0);return head('EVERY UNIT, ACCOUNTED FOR','Retention ledger','Completed balances plus manual withholding, minus dated releases.',button('+ Add release','release-new','','primary'))+periodBar()+`<div class="retention-summary"><div><small>Retention fund to period end</small><b>${peso(held)}</b></div><div><small>Released to period end</small><b>${peso(released)}</b></div><div><small>Still held</small><b>${peso(C.money(held-released))}</b></div></div><section class="full-panel">${section('Unit-by-unit retention','Includes former employees; dates do not issue automatic payments.',`<select id="retentionFilter" class="filter-select" aria-label="Filter retention employee"><option value="all">All contract employees</option>${state.employees.filter(e=>e.type==='contract').map(e=>`<option value="${e.id}" ${ui.retentionEmployee===e.id?'selected':''}>${esc(e.name)}${e.archived?' (removed)':''}</option>`).join('')}</select>`)}<div class="table-wrap"><table><thead><tr><th>Employee / unit</th><th>Job order</th><th class="num">Fund to date</th><th class="num">Balance</th><th>Expected release</th><th></th></tr></thead><tbody>${jobs.map(j=>`<tr><td><b>${esc(employee(j.employeeId).name)}</b><small>${esc(j.unit)} · ${esc(j.year)}<br>${esc(j.plate)} · ${esc(j.color)}</small></td><td>${esc(j.work)}<small>${j.closed?'Completed '+dateText(j.completed):'In progress'}</small></td><td class="num">${peso(C.retentionFund(state,j.id,state.period.end))}</td><td class="num"><b>${peso(C.retentionBalance(state,j.id,state.period.end))}</b></td><td>${dateText(j.due)}<br><button class="link-btn" data-action="job-edit" data-id="${j.id}">Edit expected date</button></td><td>${button('+ Release','release-new',`data-job="${j.id}"`,'secondary small')}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">No units.</td></tr>'}</tbody></table></div></section><section class="full-panel release-history">${section('Retention releases — all dates','Each amount belongs to the payroll containing its entry date.')}<div class="table-wrap"><table><thead><tr><th>Date</th><th>Employee / unit</th><th>Note</th><th class="num">Amount</th><th></th></tr></thead><tbody>${state.releases.filter(r=>jobs.some(j=>j.id===r.jobId)).slice().sort((a,b)=>b.date.localeCompare(a.date)).map(r=>{const j=job(r.jobId);return `<tr><td>${dateText(r.date)}</td><td>${esc(employee(j.employeeId).name)}<small>${esc(j.unit)} · ${esc(j.plate)}</small></td><td>${esc(r.note)}</td><td class="num">${peso(r.amount)}</td><td><button class="link-btn" data-action="release-edit" data-id="${r.id}">Edit</button><button class="link-btn delete-btn" data-action="remove" data-kind="releases" data-id="${r.id}" aria-label="Remove retention release">×</button></td></tr>`}).join('')||'<tr><td colspan="5" class="empty">No release entries.</td></tr>'}</tbody></table></div></section>`}
   function printCenter(){return head('HALF-SHEET PAYSLIPS','Print center','½ short bond per slip. Open Released Payslips, choose a name, then open a saved copy.')+periodBar()+`<div class="print-grid">${active().map(e=>{if(e.type==='contract'){const v=S.view(state,e.id);return `<article class="print-card"><h2>${esc(e.name)}</h2><p>${range(state.period)} · Simple payroll</p><div class="print-total">${peso(v.snapshot.net)}</div>${v.saved?button('Print / PDF','simple-preview',`data-id="${e.id}"`):button('Open table and save','employee-payroll',`data-id="${e.id}"`)}</article>`}const c=C.calculate(state,e.id),saved=savedFor(e.id);return `<article class="print-card"><div class="employee-heading"><span class="person-avatar">${esc(initials(e.name))}</span><div><h2>${esc(e.name)}</h2><p>${esc(e.position)} · ${e.type==='daily'?'Daily rate':'Per contract'}</p></div></div><div class="print-total">${peso(saved?saved.snapshot.net:c.net)}</div><small>${range(state.period)} · ${saved?'Saved copy':'Draft, not saved yet'}</small><div>${saved?button('Review saved payslip','history-open',`data-id="${saved.id}"`):button('Review draft payslip','payslip',`data-id="${e.id}"`)+button('Save released payslip','slip-save',`data-id="${e.id}"`,'primary')}</div></article>`}).join('')}</div>`}
-  function boardContext(){return {state,ui,C,esc,peso,dateText,range,button,initials,employeeEditor,periodBar,canReceive:['owner','edit'].includes(O.access)}}
+  function boardContext(){return {state,ui,C,esc,peso,dateText,range,button,initials,employeeEditor,periodBar,access:O.access,canReceive:['owner','edit'].includes(O.access)}}
 function render(){if(bootError){$('#app').innerHTML=`<div class="warning">${esc(bootError)}<br>Check your connection and BWC login, then reopen Payroll. No browser copy will overwrite server records.</div>`;$('#saveStatus').textContent='Storage protected';return}document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===ui.view));const B=window.PayrollBoard;$('#app').innerHTML=({home:()=>B.home(boardContext()),weekly:()=>B.employeePage(boardContext())+legacySavedCopies(ui.employeeId),employees:directory,history:releasedHistory,retention:()=>B.retention(boardContext()),print:printCenter})[ui.view]();$('#saveStatus').textContent='Online · '+state.payslips.length+' saved payslips · '+(state.painterTestSheets||[]).length+' weekly worksheets · '+(state.releasedPainterSlips||[]).length+' released painter copies';O.permissions();painterPaydayValue=$('#painterPayday')?.value||'';painterDateControls()}
   function releasedHistory(){return A.folder(boardContext())}
   function legacySavedCopies(employeeId){
