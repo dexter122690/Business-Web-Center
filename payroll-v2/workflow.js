@@ -10,10 +10,11 @@
     return {start,end,releaseDate:addDays(end,1)};
   }
   // Only the working selection changes. Never move dated entries or saved snapshots.
-  function selectWeek(state,reference=localDay()){const period=weeklyPeriod(reference),chosen=state.payrollPaydays?.[period.start];if(chosen!==undefined){if(!C.validDate(chosen))throw Error('Choose a valid payroll payday.');period.releaseDate=chosen}return {...state,period}}
-  function setPayday(state,date){
+  function selectWeek(state,reference=localDay(),employeeId){const period=weeklyPeriod(reference),chosen=state.payrollFreshStarts?.[employeeId]?state.employeePayrollPaydays?.[employeeId]?.[period.start]:state.payrollPaydays?.[period.start];if(chosen!==undefined){if(!C.validDate(chosen))throw Error('Choose a valid payroll payday.');period.releaseDate=chosen}return {...state,period}}
+  function setPayday(state,date,employeeId){
     if(!C.validDate(date))throw Error('Choose a valid payroll payday.');
     if(!isWeeklyPeriod(state.period))throw Error('Choose a Saturday–Friday payroll week first.');
+    if(state.payrollFreshStarts?.[employeeId])return {...state,period:{...state.period,releaseDate:date},employeePayrollPaydays:{...(state.employeePayrollPaydays||{}),[employeeId]:{...(state.employeePayrollPaydays?.[employeeId]||{}),[state.period.start]:date}}};
     return {...state,period:{...state.period,releaseDate:date},payrollPaydays:{...(state.payrollPaydays||{}),[state.period.start]:date}};
   }
   function isWeeklyPeriod(period){return Boolean(period&&C.validDate(period.start)&&C.validDate(period.end)&&C.validDate(period.releaseDate)&&weeklyPeriod(period.end).start===period.start&&weeklyPeriod(period.end).end===period.end)}

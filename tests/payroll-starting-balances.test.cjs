@@ -64,9 +64,9 @@ test('retained balances and dates carry forward without creating a retention pay
  let s=S.save(seed(),'p',[{unit:'Released test unit',contract:15000,priorSettlement:12000,weekly:0,retentionStatus:'retained',unitReleasedOn:'2026-11-20',retentionDue:'2027-01-04'}],0,uid);
  s=W.selectWeek(s,'2026-12-05');const r=row(s);assert.equal(r.remaining,3000);assert.equal(r.job.retentionDue,'2027-01-04');assert.equal(S.view(s,'p').snapshot.net,0);assert.deepEqual(s.releases,[]);
 });
-test('PDF and half-sheet preview identify pre-BWC settlements as references, not new salary',()=>{
+test('compact print keeps balances while historical pre-BWC settlements stay in saved data',()=>{
  const record=S.savedFor(first(),'p'),before=copy(record),definition=PDF.definition(record),json=JSON.stringify(definition);
- assert.deepEqual(definition.pageSize,{width:612,height:396});assert.match(json,/PRE-BWC SETTLEMENTS/);assert.match(json,/₱8,000.00/);assert.match(json,/₱7,000.00/);assert.match(json,/₱2,000.00/);assert.match(json,/2026-11-28/);
+ assert.deepEqual(definition.pageSize,{width:612,height:396});assert.doesNotMatch(json,/PRE-BWC SETTLEMENTS/);assert.match(json,/₱7,000.00/);assert.match(json,/₱2,000.00/);assert.match(json,/2026-11-28/);
  const window={SimplePainter:S};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../payroll-v2/half-slips.js'),'utf8'),{window});
- const preview=JSON.stringify(window.PayrollSlips.blocks(record.snapshot));assert.match(preview,/PRE-BWC SETTLEMENTS/);assert.match(preview,/NOT THIS WEEK/);assert.deepEqual(record,before);
+ const preview=JSON.stringify(window.PayrollSlips.blocks(record.snapshot));assert.doesNotMatch(preview,/PRE-BWC SETTLEMENTS/);assert.match(preview,/Balance before/);assert.deepEqual(record,before);assert.equal(record.snapshot.rows[0].job.priorSettlement,8000);
 });

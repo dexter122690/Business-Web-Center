@@ -3,6 +3,8 @@
   'use strict';
   const pending=new Map(),cache=new Map(),committedPdfs=new Set();
   let client,b,r,user,revision=0,access='none',canManageEmployees=false,branchName='',busy=false;
+  let workflowVersion=1,savedState=null;
+  const paydayId=()=>crypto.randomUUID();
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   async function context(){
     if(parent===window||parent.location.origin!==location.origin||!parent.getBusinessSupabaseClient)throw Error('Open Payroll inside BWC after signing in.');
@@ -14,28 +16,30 @@
     b=nextB;r=nextR;user=nextUser;
   }
   async function rpc(name,args={}){await context();const result=await client.rpc(name,{b,r,...args});if(result.error)throw Error(result.error.message||'Payroll request failed.');return result.data}
-  function accept(result){revision=Number(result.revision);access=result.access;canManageEmployees=access==='owner'||(access==='edit'&&result.canManageEmployees===true);branchName=result.branchName;if(!canManageEmployees){for(const [id,file] of cache)if(file.kind==='photo')cache.delete(id);for(const [id,file] of pending)if(file.kind==='photo')pending.delete(id)}committedPdfs.clear();for(const s of result.state.releasedPainterSlips||[])committedPdfs.add(s.id);for(const s of result.state.slipReleases||[])committedPdfs.add(s.slipId);return result.state}
+  function accept(result){revision=Number(result.revision);access=result.access;workflowVersion=result.payrollWorkflowVersion||1;savedState=JSON.parse(JSON.stringify(result.state));canManageEmployees=access==='owner'||(access==='edit'&&result.canManageEmployees===true);branchName=result.branchName;if(!canManageEmployees){for(const [id,file] of cache)if(file.kind==='photo')cache.delete(id);for(const [id,file] of pending)if(file.kind==='photo')pending.delete(id)}committedPdfs.clear();for(const s of [...result.state.releasedPainterSlips||[],...result.state.retainedPaydayCopies||[]])committedPdfs.add(s.id);for(const s of result.state.slipReleases||[])committedPdfs.add(s.slipId);return result.state}
   const ready=(async()=>{await context();const reviewed=await rpc('payroll_v2_apply_reviewed_history');const state=accept(await rpc('payroll_v2_load'));if(reviewed.status==='stale'||reviewed.status==='applied'){const notice=document.createElement('p');notice.className='rule-note';notice.textContent=reviewed.status==='applied'?'Reviewed historical payroll imported. These payments were already received; no money was transferred.':reviewed.message;document.getElementById('payrollBranchLabel').after(notice)}return state})();
   // A save is atomic: both state and newly generated PDF/photo files succeed or fail.
   async function save(state){
     if(busy)throw Error('A save is still running. Please wait.');if(!['owner','edit'].includes(access))throw Error('Your payroll access is view-only.');
     busy=true;document.body.classList.add('online-saving');
     try{
-      const next=JSON.parse(JSON.stringify(state));
-      for(const slip of next.releasedPainterSlips||[])if(!committedPdfs.has(slip.id)&&!pending.has(slip.id)){
+      let next=JSON.parse(JSON.stringify(state));
+      if(workflowVersion===2)next=PayrollRetainedPayday.prepareSave(next,savedState,paydayId);
+      for(const slip of [...next.releasedPainterSlips||[],...next.retainedPaydayCopies||[]])if(!committedPdfs.has(slip.id)&&!pending.has(slip.id)){
         const existing=await getFiles([slip.id]);if(!existing[0])pending.set(slip.id,{id:slip.id,kind:'pdf',dataUrl:await PayrollPDF.dataUrl(slip)});
       }
       for(const confirmation of next.slipReleases||[]){const slip=next.payslips.find(s=>s.id===confirmation.slipId);if(slip&&!committedPdfs.has(slip.id)&&!pending.has(slip.id)){
         const existing=await getFiles([slip.id]);if(!existing[0])pending.set(slip.id,{id:slip.id,kind:'pdf',dataUrl:await PayrollPDF.dataUrl({...slip,releaseConfirmation:confirmation})});
       }}
-      const photos=new Set(next.employees.flatMap(e=>(e.photos||[]).map(p=>p.id))),pdfs=new Set([...next.releasedPainterSlips.map(s=>s.id),...next.payslips.map(s=>s.id)]);
+      const photos=new Set(next.employees.flatMap(e=>(e.photos||[]).map(p=>p.id))),pdfs=new Set([...next.releasedPainterSlips.map(s=>s.id),...next.payslips.map(s=>s.id),...(next.retainedPaydayCopies||[]).map(s=>s.id)]);
       const files=[...pending.values()].filter(f=>f.kind==='photo'?photos.has(f.id):pdfs.has(f.id));
       const result=await rpc('payroll_v2_save',{expected_revision:revision,payload:next,files});
       files.forEach(f=>{cache.set(f.id,f);pending.delete(f.id)});return accept(result);
     }finally{busy=false;document.body.classList.remove('online-saving')}
   }
   async function getFiles(ids){const missing=ids.filter(id=>!pending.has(id)&&!cache.has(id));if(missing.length){const files=await rpc('payroll_v2_get_files',{ids:missing});files.forEach(f=>cache.set(f.id,f))}return ids.map(id=>pending.get(id)||cache.get(id))}
-  async function receiveRetention(employeeId,jobId,date,amount,unitReleasedOn){
+  async function receiveRetention(employeeId,jobId,date,amount,unitReleasedOn,expectedPeriod){
+    if(workflowVersion===2){await context();return save(PayrollRetainedPayday.receive(savedState,{employeeId,jobId,date,expectedAmount:amount,expectedReleaseDate:unitReleasedOn,expectedPeriod,acknowledge:true,recordedBy:user},paydayId));}
     if(busy)throw Error('A save is still running. Please wait.');if(!['owner','edit'].includes(access))throw Error('Your payroll access is view-only.');
     busy=true;document.body.classList.add('online-saving');
     try{return accept(await rpc('payroll_v2_receive_retention',{expected_revision:revision,employee_id:employeeId,job_id:jobId,received_on:date,expected_amount:amount,expected_release_date:unitReleasedOn}))}
@@ -78,5 +82,5 @@
     if(win){win.opener=null;win.document.body.textContent='Preparing the original payslip PDF…'}
     try{await context();const data=await fileFor(record);if(intent==='pdf'){const a=document.createElement('a');a.href=data;a.download='15M-payslip-'+(record.snapshot.employee.name+'-'+record.snapshot.period.start).replace(/[^a-z0-9-]/gi,'-')+'.pdf';a.click()}else{const blob=await (await fetch(data)).blob(),url=URL.createObjectURL(blob);win.location.href=url;setTimeout(()=>URL.revokeObjectURL(url),60000)}}catch(error){if(win)win.close();throw error}
   }
-  window.PayrollOnline={ready,save,receiveRetention,getFiles,stagePhotos,discardFiles,permissions,accessDialog,output,rpc,accept,get access(){return access},get canManageEmployees(){return canManageEmployees},get branchName(){return branchName},get busy(){return busy}};
+  window.PayrollOnline={ready,save,receiveRetention,getFiles,stagePhotos,discardFiles,permissions,accessDialog,output,rpc,accept,get retainedPaydayPreview(){return workflowVersion===2},get agreedJobPricingPreview(){return workflowVersion===2},get initialPayrollWeek(){const starts=Object.values(savedState?.payrollFreshStarts||{});return starts.length?starts.sort()[0]:undefined},get access(){return access},get canManageEmployees(){return canManageEmployees},get branchName(){return branchName},get busy(){return busy}};
 })();

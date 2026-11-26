@@ -18,15 +18,26 @@
     return amount;
   }
   function current(s,e,id){return at(s,e,id,'9999-12-31',baseline(s,e,id))}
+  // Base job prices are permanent. Dated additions are separate contract events.
+  function agreementItems(s,e,job,through){
+    const original=job.agreedWorkItems;
+    let items=original?copy(original):job.pricingSetup?copy(job.pricingSetup.items):[{description:job.work||'Existing labor agreement (not itemized)',amount:baseline(s,e,job.id)??job.contract??null}];
+    for(const event of events(s,e,job.id).filter(x=>W.weeklyPeriod(x.effectiveOn).start<=through)){
+      if(event.kind==='addition')items.push({description:event.description,amount:event.amount});
+      else items=[{description:event.description,amount:event.amount}];
+    }
+    return items;
+  }
   const locked=(s,sh)=>(s.releasedPainterSlips||[]).some(x=>x.sourceId===sh.id||(x.employeeId===sh.employeeId&&x.period.start===sh.period.start&&x.period.end===sh.period.end));
   function payments(s,e,id){const rr=rows(s,e,id),covered=p=>rr.some(x=>W.inPeriod(p.date,x.sheet.period));return [...rr.map(x=>({start:x.sheet.period.start,end:x.sheet.period.end,amount:x.row.weekly})),...(s.payments||[]).filter(p=>p.jobId===id&&!covered(p)).map(p=>({start:p.date,end:p.date,amount:W.money(p.gross-p.retention)})),...(s.releases||[]).filter(p=>p.jobId===id&&!covered(p)).map(p=>({start:p.date,end:p.date,amount:p.amount}))]}
   function createEvent(s,e,id,input,makeId,recordedAt=new Date().toISOString()){
-    const event={id:makeId(),employeeId:e,jobId:id,kind:input.kind,amount:W.money(Number(input.amount)),effectiveOn:input.effectiveOn,description:String(input.description||'').trim(),reason:String(input.reason||'').trim(),baselineAmount:baseline(s,e,id),recordedAt};
+    const event={id:makeId(),employeeId:e,jobId:id,kind:input.kind,amount:W.money(Number(input.amount)),effectiveOn:input.effectiveOn,description:String(input.description||'').trim(),reason:String(input.reason||'').trim(),baselineAmount:baseline(s,e,id),recordedAt,...(input.itemizedAgreement===true?{itemizedAgreement:true}:{})};
     return event;
   }
   function apply(s,event){
     const next=copy(s),e=event.employeeId,id=event.jobId,rr=rows(s,e,id),history=events(s,e,id),start=W.weeklyPeriod(event.effectiveOn).start;
     if(!rr.length)throw Error('Save the unit first, then record its contract change.');
+    if(rr.some(x=>x.row.job.agreedWorkItems)&&event.kind!=='addition')throw Error('Saved job-order prices are locked. Add an additional job order for new work; existing lines cannot be replaced.');
     if(!['addition','correction','confirmation'].includes(event.kind)||!event.id||!Number.isFinite(event.amount)||event.amount<0||event.amount>999999999||W.money(event.amount)!==event.amount||!W.validDate(event.effectiveOn)||!Number.isFinite(+new Date(event.recordedAt)))throw Error('Enter a valid contract change, amount and date.');
     if(event.description.length<3||event.description.length>1000||event.reason.length<3||event.reason.length>1000)throw Error('Enter the work description and reason (3–1,000 characters each).');
     if(!same(event.baselineAmount,baseline(s,e,id)))throw Error('The agreed labor changed. Reload payroll and review the latest amount.');
@@ -51,6 +62,7 @@
       if(price<paid+row.weekly)throw Error('The corrected amount is below payments already recorded by '+sheet.period.end+'.');
       row.job.contract=price;delete row.job.contractPending;delete row.previousRecorded;
       row.opening=W.money(price-paid);row.remaining=W.money(row.opening-row.weekly);
+      if(row.weeklyManual||row.job.agreedWorkItems||event.itemizedAgreement){row.weeklyManual=true;row.agreementItems=agreementItems(next,e,row.job,sheet.period.end)}
       sheet.snapshot.jobs=sheet.snapshot.rows.map(r=>copy(r.job));
     }
     return next;
@@ -77,5 +89,5 @@
     return others.length>0&&others.every(x=>x.transactionRef?.trim().toUpperCase()!==j.transactionRef.trim().toUpperCase()&&(x.closed||x.retentionStatus==='retained')&&Boolean(x.unitReleasedOn||x.releasedOn)&&(x.unitReleasedOn||x.releasedOn)<=s.period.end);
   }
   function summary(s,e,id){const rr=rows(s,e,id),j=rr.at(-1)?.row.job;if(!j)return null;const paid=W.money(W.sum(payments(s,e,id),'amount')+(j.priorSettlement||0)+W.sum((s.painterRetentionReceipts||[]).filter(p=>p.employeeId===e&&p.jobId===id),'amount'));return {job:j,baseline:baseline(s,e,id),total:current(s,e,id),paid,remaining:current(s,e,id)===null?null:W.money(current(s,e,id)-paid),events:events(s,e,id),payments:payments(s,e,id),rows:rr}}
-  return {rows,events,baseline,at,current,locked,payments,createEvent,apply,validate,identity,matches,separateAllowed,summary,money,same};
+  return {rows,events,baseline,at,current,agreementItems,locked,payments,createEvent,apply,validate,identity,matches,separateAllowed,summary,money,same};
 });

@@ -13,15 +13,15 @@
   function blocks(c,detailedHistory=true,previousPayday=c.period.start){
     const out=[];
     if(c.simpleTest){
-      const headings=['Unit / year','Invoice / plate','Color','Job order','Agreed labor','Previous recorded','Balance before','This week'];
+      const headings=['Unit / year','Invoice / plate','Color','Job order','Agreed labor','Balance before','This week'];
       const visible=window.SimplePainter.mainRows(c);
-      for(const r of visible)out.push(tableRow('WEEKLY LABOR — AMOUNTS IN ₱',headings,[r.job.unit+'\n'+(r.job.year||''),[r.job.invoice?'INV '+r.job.invoice:'',r.job.plate].filter(Boolean).join('\n'),r.job.color||'',window.SimplePainter.itemizedWorkText(r,peso),r.job.contractPending?'Pending confirmation':peso(r.job.contract),peso(r.previousRecorded??(r.job.contract-r.opening)),r.job.contractPending?'Pending confirmation':peso(r.opening),peso(r.weekly)],'labor-grid'));
+      for(const r of visible)out.push(tableRow('WEEKLY LABOR — AMOUNTS IN ₱',headings,[r.job.unit+'\n'+(r.job.year||''),[r.job.invoice?'INV '+r.job.invoice:'',r.job.plate].filter(Boolean).join('\n'),r.job.color||'',window.SimplePainter.itemizedWorkText(r,peso),r.job.contractPending?'Pending confirmation':peso(r.job.contract),r.job.contractPending?'Pending confirmation':peso(r.opening),peso(r.weekly)],'labor-grid'));
       if(!visible.length)out.push(textBlock('No ongoing units entered for this week.'));
-      for(const r of c.rows.filter(r=>r.job.priorSettlement>0))out.push(tableRow('PRE-BWC SETTLEMENTS - INCLUDED IN PREVIOUS RECORDED, NOT THIS WEEK’S PAY',['Unit / plate','Before first BWC week','Already settled'],[r.job.unit+' · '+(r.job.plate||''),date(r.job.payrollStart),peso(r.job.priorSettlement)],'previous-grid'));
       const balances=window.SimplePainter.balanceRows(c,c.retentionReceipts,previousPayday);
       for(const r of balances){const j=r.job,info=window.SimplePainter.retentionInfo(r,c.retentionReceipts,undefined,c.period.releaseDate);out.push(tableRow('BALANCE / RETAINED UNITS — NOT EXTRA SALARY',['Unit / plate','Job order','Payment status','Amount remaining','Unit released','Available (+45 days)'],[j.unit+'\n'+(j.plate||''),j.work||'',info.receipt?'Received '+date(info.receipt.receivedOn)+'\n'+peso(info.receipt.amount):'Not yet received',j.contractPending?'Pending confirmation':peso(info.remaining),date(j.unitReleasedOn||j.releasedOn),date(info.due)], 'balance-grid'))}
-      if(detailedHistory)for(const p of c.previousPayments||[]){const j=c.rows.find(r=>r.job.id===p.jobId)?.job;out.push(tableRow('PREVIOUS ENTRIES — REFERENCE ONLY, EXCLUDED FROM THIS WEEK',['Payroll / entry date','Unit / plate','Entry type','Amount'],[p.periodStart!==p.periodEnd?date(p.periodStart)+' – '+date(p.periodEnd):date(p.date),[j?.unit,j?.plate].filter(Boolean).join(' · '),p.note,peso(p.amount)],'previous-grid'))}
-      out.push(textBlock('Available 45 calendar days after unit release. Receipt confirmations are separate payments already received, not extra weekly salary. No automatic payment.'));
+      // Earlier payments remain in the saved record and Job history, not on this printout.
+      if(balances.length)out.push(textBlock('Available 45 calendar days after unit release. Outstanding balances are not added to this payday. No automatic payment.'));
+      for(const p of c.retainedPaydayPayments||[])out.push(tableRow('RETAINED BALANCE RELEASED — THIS PAYDAY',['Unit / plate','Actual date received','Amount'],[p.basis.unit+' · '+p.basis.plate,date(p.receivedOn),peso(p.amount)],'retained-paid-grid'));
       return out;
     }
     if(c.employee.type==='daily'){
@@ -42,17 +42,29 @@
   function header(s,index=1,total=1){const c=s.snapshot,status=s.releasedCopy?'RELEASED COPY':c.simpleTest?'SAVED WORKSHEET':s.releaseConfirmation?'RELEASED COPY':s.savedAt?'SAVED · UNCONFIRMED':'DRAFT';return `<header class="half-head"><div class="slip-brand"><img src="15m-logo.png" width="52" height="52" alt="15M Autocare Services logo"><div><strong>15M AUTOCARE SERVICES</strong><span>WEEKLY PAYSLIP · ${status}</span></div><small>Part ${index} of ${total}</small></div><table class="slip-meta"><tbody><tr><th>DATE RANGE</th><td>${date(c.period.start)} – ${date(c.period.end)}</td><th>PAYDAY</th><td>${date(c.period.releaseDate)}</td></tr><tr><th>EMPLOYEE</th><td>${esc(c.employee.name)}</td><th>POSITION</th><td>${esc(c.employee.position)}</td></tr></tbody></table>${s.releasedCopy||s.releaseConfirmation?`<p class="release-reference">Released ${date(s.releasedOn||s.releaseConfirmation.date)} · ${esc(s.id)}</p>`:''}</header>`}
   function signatures(){return `<div class="slip-signatures">${['Prepared by','Received by'].map(label=>`<div class="slip-signature"><strong>${label}</strong><div class="signature-space"></div><small>Signature</small><div class="printed-name-space"></div><small>Printed name</small><div class="signature-date">Date: <span></span></div></div>`).join('')}</div>`}
   function footer(c,last){return last?`<footer class="half-foot"><table class="slip-totals"><tbody><tr><th>${c.employee.type==='daily'?'BASIC PAY':'TOTAL THIS WEEK'}</th><td>${peso(c.basic)}</td></tr>${c.late?`<tr><th>LESS LATE</th><td>${peso(c.late)}</td></tr>`:''}${c.held?`<tr><th>LESS RETENTION HELD</th><td>${peso(c.held)}</td></tr>`:''}${c.retentionReleased?`<tr><th>ADD RETENTION PAID</th><td>${peso(c.retentionReleased)}</td></tr>`:''}<tr><th>LESS CASH ADVANCE</th><td>${peso(c.cashAdvance)}</td></tr><tr class="net-row"><th>NET PAY / TOTAL SALARY</th><td>${peso(c.net)}</td></tr></tbody></table>${signatures()}<small>BWC payroll · Recording a release does not transfer money.</small></footer>`:`<footer class="half-foot continued">Continued on the next half-sheet. Totals and signatures appear on the final part only.</footer>`}
-  function cardHtml(s,rows,index,total,last){return `<article class="half-slip">${header(s,index,total)}<div class="half-content">${bodyHtml(rows)}</div>${footer(s.snapshot,last)}</article>`}
-  function paginate(s,detailedHistory){
-    const measure=document.createElement('div');measure.className='slip-measure';measure.setAttribute('aria-hidden','true');document.body.append(measure);measure.innerHTML=cardHtml(s,[],1,1,true);const body=measure.querySelector('.half-content'),pages=[];let current=[];
+  function cardHtml(s,rows,index,total,last,paper='half'){
+    let head=header(s,index,total),foot=footer(s.snapshot,last);
+    if(s.retainedPaydayCopy){
+      head=head.replace('</header>',`<p class="release-reference">${s.updatedCopy?'UPDATED COPY':'RETAINED PAYMENT RECORDED'} · Version ${s.version} · ${s.weeklyReleased?'Weekly salary released':'Weekly salary not yet confirmed as received'}. Previous versions are reference only.</p></header>`);
+      if(last){const c=s.snapshot;foot=foot.replace('NET PAY / TOTAL SALARY','NET WEEKLY SALARY').replace('</tbody></table>',`<tr><th>ADD RETAINED BALANCE RELEASED</th><td>${peso(c.retainedPaydayTotal)}</td></tr><tr class="net-row"><th>${s.weeklyReleased?'TOTAL RECEIVED FOR THIS PAYDAY':'TOTAL FOR THIS PAYDAY · WEEKLY SALARY UNCONFIRMED'}</th><td>${peso(c.paydayTotal)}</td></tr></tbody></table>`);}
+    }
+    if(paper==='full')foot=foot.replace('next half-sheet','next page');
+    return `<article class="half-slip${paper==='full'?' full-slip':''}">${head}<div class="half-content">${bodyHtml(rows)}</div>${foot}</article>`;
+  }
+  function paperSize(s){
+    const measure=document.createElement('div');measure.className='slip-measure';measure.setAttribute('aria-hidden','true');document.body.append(measure);
+    try{measure.innerHTML=cardHtml(s,blocks(s.snapshot,false,s.retentionPreviousPayday??(s.releasedCopy?'':s.snapshot.period.start)),1,1,true);const body=measure.querySelector('.half-content');return body.scrollHeight<=body.clientHeight+1?'half':'full'}finally{measure.remove()}
+  }
+  function paginate(s,detailedHistory,paper=paperSize(s)){
+    const measure=document.createElement('div');measure.className='slip-measure';measure.setAttribute('aria-hidden','true');document.body.append(measure);measure.innerHTML=cardHtml(s,[],1,1,true,paper);const body=measure.querySelector('.half-content'),pages=[];let current=[];
     const fits=rows=>{body.innerHTML=bodyHtml(rows);return body.scrollHeight<=body.clientHeight+1};
     const flush=()=>{if(current.length)pages.push(current);current=[]};
-    try{for(const b of blocks(s.snapshot,detailedHistory,s.retentionPreviousPayday??(s.releasedCopy?'':s.period.start))){
+    try{for(const b of blocks(s.snapshot,detailedHistory,s.retentionPreviousPayday??(s.releasedCopy?'':s.snapshot.period.start))){
       if(fits([...current,b])){current.push(b);continue}flush();if(fits([b])){current.push(b);continue}
       // Extremely long cells continue as labeled text rather than being clipped.
-      let remaining=b.text;while(remaining){let low=1,high=remaining.length,best=0;while(low<=high){const mid=Math.floor((low+high)/2);if(fits([textBlock(remaining.slice(0,mid))])){best=mid;low=mid+1}else high=mid-1}if(!best)throw Error('Payslip content cannot fit the half-sheet layout.');let cut=best;if(best<remaining.length){const space=remaining.lastIndexOf(' ',best);if(space>best/2)cut=space}current.push(textBlock(remaining.slice(0,cut)));remaining=remaining.slice(cut);if(remaining)flush()}
-    }flush();if(!pages.length)pages.push([]);return pages.map((rows,i)=>cardHtml(s,rows,i+1,pages.length,i===pages.length-1))}finally{measure.remove()}
+      let remaining=b.text;while(remaining){let low=1,high=remaining.length,best=0;while(low<=high){const mid=Math.floor((low+high)/2);if(fits([textBlock(remaining.slice(0,mid))])){best=mid;low=mid+1}else high=mid-1}if(!best)throw Error('Payslip content cannot fit the page layout.');let cut=best;if(best<remaining.length){const space=remaining.lastIndexOf(' ',best);if(space>best/2)cut=space}current.push(textBlock(remaining.slice(0,cut)));remaining=remaining.slice(cut);if(remaining)flush()}
+    }flush();if(!pages.length)pages.push([]);return {paper,cards:pages.map((rows,i)=>cardHtml(s,rows,i+1,pages.length,i===pages.length-1,paper))}}finally{measure.remove()}
   }
-  function render(records,options={}){const halves=records.flatMap(s=>paginate(s,Boolean(options.detailedHistory))),sheets=[];for(let i=0;i<halves.length;i+=2)sheets.push(`<section class="print-sheet">${halves.slice(i,i+2).join('')}</section>`);return {html:sheets.join(''),halves:halves.length,sheets:sheets.length}}
-  window.PayrollSlips={render,blocks,bodyHtml,cardHtml};
+  function render(records,options={}){const sheets=[];let halves=0,fullPages=0;for(const [i,s] of records.entries()){const result=paginate(s,false,options.paperSizes?.[i]);for(const card of result.cards){result.paper==='half'?halves++:fullPages++;sheets.push(`<section class="print-sheet ${result.paper==='half'?'compact-sheet':'full-sheet'}">${card}</section>`)}}return {html:sheets.join(''),halves,fullPages,sheets:sheets.length}}
+  window.PayrollSlips={render,blocks,bodyHtml,cardHtml,paperSize};
 })();

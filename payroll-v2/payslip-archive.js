@@ -24,6 +24,7 @@
   function forWeek(state,employeeId,period){return (state.releasedPainterSlips||[]).find(r=>r.employeeId===employeeId&&r.period.start===period.start&&r.period.end===period.end)||null}
   function release(state,sourceId,id,date,savedAt=new Date().toISOString()){
     const source=(state.painterTestSheets||[]).find(s=>s.id===sourceId);if(!source)throw Error('Save the painter table first.');
+    if(source.snapshot.rows.some(r=>S.setupPending(r.job)))throw Error('Finish re-encoding the job prices for this payroll before releasing its payslip.');
     date=date??source.period.releaseDate;
     const old=forWeek(state,source.employeeId,source.period);if(old){if(old.sourceId!==sourceId)throw Error('This week already has a released copy. It stays locked except through the owner correction action.');return copy(state)}
     const latest=S.latest(state,source.employeeId).find(s=>s.period.start===source.period.start&&s.period.end===source.period.end);if(latest?.id!==sourceId)throw Error('This is an older saved copy. Open the latest saved table before releasing.');
@@ -39,6 +40,7 @@
     for(const r of rows){const source=(state.painterTestSheets||[]).find(s=>s.id===r?.sourceId),k=r?.employeeId+':'+r?.period?.start+':'+r?.period?.end;
       if(!r?.id||ids.has(r.id)||weeks.has(k)||!r.releasedCopy||!W.validDate(r.releasedOn)||!Number.isFinite(+new Date(r.archivedAt))||!source||r.employeeId!==source.employeeId||!same(r.period,source.period)||!Array.isArray(r.snapshot?.previousPayments)){errors.push('Invalid released payslip.');continue}
       ids.add(r.id);weeks.add(k);const expected=copy(source.snapshot),actual=copy(r.snapshot);delete expected.previousPayments;delete actual.previousPayments;
+      if(r.snapshot.rows.some(row=>S.setupPending(row.job)))errors.push('Finish re-encoding job prices before releasing a payslip.');
       delete expected.retentionReceipts;delete actual.retentionReceipts;
       if(r.retentionPreviousPayday!==undefined&&!W.validDate(r.retentionPreviousPayday))errors.push('Invalid previous payroll date.');
       if(r.retentionPreviousPayday!==undefined&&previous&&!previous.releasedPainterSlips?.some(old=>old.id===r.id)&&r.retentionPreviousPayday!==S.previousPayrollDate(state,r.snapshot))errors.push('Keep the saved previous payroll date.');
@@ -65,8 +67,8 @@
   function folder(x){
     const {state,ui,esc,range,dateText}=x,people=archiveEmployees(state),person=people.find(e=>e.id===ui.historyEmployee);
     if(!person)return `<section class="released-browser"><h1>Released Payslips</h1><div class="released-name-list">${people.map(e=>`<button type="button" class="released-name" data-action="employee-history" data-id="${esc(e.id)}"><span>${esc(e.name)}</span><span aria-hidden="true">›</span></button>`).join('')||'<p class="empty">No employees yet.</p>'}</div></section>`;
-    const rows=releasedRecords(state,person.id);
-    return `<section class="released-browser"><button type="button" class="button secondary released-back" data-action="archive-home">← Employee names</button><h1>${esc(person.name)}</h1><div class="released-slip-list">${rows.map(r=>`<button type="button" class="released-slip-file" data-action="archive-open" data-kind="${r.kind}" data-id="${esc(r.id)}" aria-label="Open released payslip, ${esc(range(r.period))}, released ${esc(dateText(r.releasedOn))}"><span class="payslip-file-icon" aria-hidden="true">▤</span><span class="payslip-file-title"><strong>${esc(range(r.period))}</strong><small>Released ${esc(dateText(r.releasedOn))}</small></span><span class="payslip-file-action">Open / PDF</span></button>`).join('')||'<p class="empty">No released payslips yet.</p>'}</div></section>`;
+    const rows=x.archiveRecords||releasedRecords(state,person.id);
+    return `<section class="released-browser"><button type="button" class="button secondary released-back" data-action="archive-home">← Employee names</button><h1>${esc(person.name)}</h1><div class="released-slip-list">${rows.map(r=>`<div><button type="button" class="released-slip-file" data-action="archive-open" data-kind="${r.kind}" data-id="${esc(r.id)}" aria-label="Open payslip, ${esc(range(r.period))}, payday ${esc(dateText(r.period.releaseDate))}"><span class="payslip-file-icon" aria-hidden="true">▤</span><span class="payslip-file-title"><strong>${esc(range(r.period))}</strong><small>Payday ${esc(dateText(r.period.releaseDate))} · ${r.record.retainedPaydayCopy?`${r.record.updatedCopy?'Updated copy':'Retained payment recorded'} · ${r.record.weeklyReleased?'Weekly salary released':'Weekly salary not yet confirmed'}`:'Released '+esc(dateText(r.releasedOn))}</small></span><span class="payslip-file-action">Open / PDF</span></button>${r.versions?.length?`<details class="payday-versions"><summary>Previous versions (${r.versions.length}) — reference only, not additional pay</summary>${r.versions.map(v=>`<button type="button" class="button secondary" data-action="payday-version" data-id="${esc(v.id)}">${v.retainedPaydayCopy?'Version '+v.version:'Original released copy'}</button>`).join('')}</details>`:''}</div>`).join('')||'<p class="empty">No released payslips yet.</p>'}</div></section>`;
   }
   return {previousPayments,enrich,forWeek,release,validate,merge,releasedRecords,archiveEmployees,folder};
 });

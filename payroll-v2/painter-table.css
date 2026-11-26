@@ -46,14 +46,17 @@
   .simple-painter .form-error{padding:0;margin:0 0 8px;font-size:12px}
   .simple-painter .form-error:empty{display:none}
   #painterBalances{margin-top:10px}
-  .painter-balances{width:100%;min-width:850px;table-layout:fixed}
+  .painter-balances{width:100%;min-width:1000px;table-layout:fixed}
   .painter-balances caption{text-align:left;background:#e4e8eb;color:#24313b;padding:9px;font-size:13px;font-weight:700}
   .painter-balances th{font-size:11px;background:#f2f4f6;color:#34424e;padding:8px;text-transform:none;letter-spacing:0;white-space:normal}
-  .painter-balances th:nth-child(1){width:30%}.painter-balances th:nth-child(2){width:16%}.painter-balances th:nth-child(3){width:15%}.painter-balances th:nth-child(4){width:16%}.painter-balances th:nth-child(5){width:23%}
+  .painter-balances th:nth-child(1){width:27%}.painter-balances th:nth-child(2){width:13%}.painter-balances th:nth-child(3){width:14%}.painter-balances th:nth-child(4){width:13%}.painter-balances th:nth-child(5){width:14%}.painter-balances th:nth-child(6){width:19%}
   .painter-balances select{font:inherit;width:100%;min-width:0;padding:7px 4px;border:1px solid #b9c4cd;border-radius:4px;background:white}
   .painter-balances td{font-size:12px;vertical-align:middle;border:1px solid #cbd2d8;padding:8px;white-space:normal;overflow-wrap:anywhere}
   .painter-balances td.num{font-weight:600;text-align:right}
   .painter-balances small{display:block;font-size:10px;line-height:1.4;color:#68747e;margin:3px 0 0}
+  .retained-work,.released-payment-history small{white-space:pre-line}
+  .released-payment-history{font-size:12px}.released-payment-history h3{font-size:13px;margin-bottom:6px}.released-payment-history small{display:block;margin-top:4px}.released-payment-history li{margin-bottom:10px}
+  #painterReleasedTotalRow small{font-weight:400}
   .painter-balances tfoot th{width:auto!important}.painter-balances tfoot td{background:#f7f8f9;font-size:11px}
   .sheet-link.button{background:none;border:0;border-radius:2px;color:#26623e;min-height:24px;padding:3px 5px;font-size:11px;text-decoration:underline;font-weight:500}
   .sheet-week .sheet-link{font-size:20px;text-decoration:none;padding:0 5px}
