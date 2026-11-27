@@ -291,6 +291,45 @@
       }
     }
   }
+  // Undo the original release entry, not a new transaction in the viewed week.
+  // Later open carry-forward rows must follow it or the old release would return.
+  function unitReleaseUndoPlan(state,employeeId,jobId){
+    const current=view(state,employeeId).snapshot.rows.find(r=>r.job.id===jobId);
+    if(!current||!isReleased(current.job))throw Error('This unit is not released in this payroll. Reopen its payroll table.');
+    if((state.painterRetentionReceipts||[]).some(p=>p.employeeId===employeeId&&p.jobId===jobId)||(state.releases||[]).some(p=>p.jobId===jobId))throw Error('This balance has a recorded receipt. An owner-reviewed correction is required; no payment will be reversed here.');
+    if(state.jobs.some(j=>j.id===jobId&&(isReleased(j)||j.releasedOn)))throw Error('This unit has a legacy release record. Ask the owner to review the correction.');
+    const start=current.job.releasePayrollStart,date=current.job.unitReleasedOn||current.job.releasedOn;
+    const history=L.entries(state,employeeId,jobId),source=history.find(x=>x.sheet.period.start===start);
+    if(!W.validDate(start)||!source||!W.validDate(date))throw Error('The original release payroll could not be identified safely. Ask the owner to review the correction.');
+    const affected=history.filter(x=>x.sheet.period.start>=start);
+    for(const {sheet,row} of affected){
+      if(K.locked(state,sheet)||(state.retainedPaydayCopies||[]).some(p=>p.employeeId===employeeId&&key(p.period)===key(sheet.period)))throw Error('A released or saved payday payslip includes this unit. An owner-reviewed correction is required; its saved copy will not change.');
+      if(!isReleased(row.job)||row.job.releasePayrollStart!==start||(row.job.unitReleasedOn||row.job.releasedOn)!==date)throw Error('A later payroll has a different unit release status. Ask the owner to review the correction.');
+      if(sheet.period.start>start&&row.weekly!==0)throw Error('A later payroll has a payment for this released unit. Ask the owner to review it before undoing the release.');
+    }
+    return copy({employeeId,jobId,unit:current.job.unit,plate:current.job.plate||'',invoice:current.job.invoice||'',sourceId:source.sheet.id,period:source.sheet.period,unitReleasedOn:date,sheetIds:affected.map(x=>x.sheet.id)});
+  }
+  function undoUnitRelease(state,employeeId,jobId,expected,savedAt=new Date().toISOString()){
+    const plan=unitReleaseUndoPlan(state,employeeId,jobId);
+    if(!expected||!same(ordered(plan),ordered(expected)))throw Error('The release details changed. Reopen Undo unit release and review the payroll week.');
+    const next=copy(state);
+    for(const sheet of next.painterTestSheets.filter(s=>plan.sheetIds.includes(s.id))){
+      const j=sheet.snapshot.rows.find(r=>r.job.id===jobId).job;
+      j.retentionStatus='ongoing';j.closed=false;j.unitReleasedOn='';
+      for(const field of ['releasePayrollStart','releasedOn','retentionDue','retentionEligibleOn'])delete j[field];
+      sheet.snapshot.jobs=sheet.snapshot.rows.map(r=>copy(r.job));sheet.savedAt=savedAt;
+    }
+    // Navigation only: no sheet, payment or payday is moved to another date.
+    next.period=copy(plan.period);
+    const errors=validate(next,state);if(errors.length)throw Error(errors[0]);
+    return next;
+  }
+  function undoUnitReleaseButton(x,row){
+    if(!['owner','edit'].includes(x.access)||!x.state)return '';
+    let reason='';try{unitReleaseUndoPlan(x.state,row.job.employeeId,row.job.id)}catch(e){reason=e.message}
+    if(x.pendingSave)reason='Save table or undo unsaved changes first.';
+    return `<div class="unit-release-undo"><button type="button" class="button secondary" data-action="unit-release-undo" data-id="${x.esc(row.job.id)}" ${reason?'disabled':''} title="${x.esc(reason||'Return this unit to its original payroll week as Ongoing')}">Undo unit release</button>${reason?`<small>${x.esc(reason)}</small>`:''}</div>`;
+  }
   function save(state,employeeId,inputs,cashAdvance,makeId,savedAt=new Date().toISOString()){
     if((state.releasedPainterSlips||[]).some(r=>r.employeeId===employeeId&&key(r.period)===key(state.period)))throw Error('This week has a released payslip. It is locked except through the owner correction action.');
     const prepared=initializePricing(state,employeeId,inputs),next=compact(prepared),record=snapshot(state,employeeId,[],0),data=draftPrepared(prepared,employeeId,inputs,cashAdvance,makeId),old=savedFor(state,employeeId);
@@ -379,7 +418,7 @@
     const rows=balanceRows(c,receipts,previousPayrollDate(x.state,c)).filter(r=>(!confirmed||confirmed.has(r.job.id))&&!x.coveredReceipts?.has(receiptFor(r,receipts)?.id));
     return `<table class="painter-balances"><caption>Balance and retained units · details are read-only</caption><thead><tr><th>Unit / job order</th><th class="num">Amount this week <small>Included in salary</small></th><th class="num">Remaining balance <small>After this week's amount</small></th><th>Unit release date</th><th>Available after 45 days</th><th>Payment status</th></tr></thead><tbody>${rows.map(r=>{
       const j=r.job,info=retentionInfo(r,receipts,x.today||manilaDay(),c.period.releaseDate);
-      return `<tr data-retained-job="${esc(j.id)}"><td><b>${esc(j.unit)} · ${esc(j.plate)}</b><small>${esc(j.invoice?'Invoice '+j.invoice:'')}</small><small class="retained-work">${esc(r.agreementItems||r.weekly?itemizedWorkText(r,peso):j.work)}</small></td><td class="num">${peso(r.weekly)}</td><td class="num">${info.receipt?peso(0):balanceText(r,peso)}</td><td>${esc(j.unitReleasedOn||j.releasedOn||'Not set')}</td><td>${esc(info.due||'Awaiting release date')}</td><td>${info.receipt?`<b>Received</b><small>${peso(info.receipt.amount)} · ${esc(info.receipt.receivedOn)}</small>`:info.eligible&&x.canReceive&&!x.pendingSave?`<select data-retention-receive="${esc(j.id)}" aria-label="${esc('Remaining balance received — '+j.unit+' '+(j.plate||''))}"><option value="">Not yet received</option><option value="received">Received</option></select>`:setupPending(j)?`For re-encoding <button type="button" data-action="setup-week" data-id="${esc(j.pricingSetup.firstWeek)}">Open first entry · ${esc(j.pricingSetup.firstWeek)}</button>`:pending(j)?'Confirm agreed labor first':info.receivedLater?'Received in a later payroll':info.eligible?'Ready for confirmation':'Not yet due'}</td></tr>`;
+      return `<tr data-retained-job="${esc(j.id)}"><td><b>${esc(j.unit)} · ${esc(j.plate)}</b><small>${esc(j.invoice?'Invoice '+j.invoice:'')}</small><small class="retained-work">${esc(r.agreementItems||r.weekly?itemizedWorkText(r,peso):j.work)}</small></td><td class="num">${peso(r.weekly)}</td><td class="num">${info.receipt?peso(0):balanceText(r,peso)}</td><td>${esc(j.unitReleasedOn||j.releasedOn||'Not set')}</td><td>${esc(info.due||'Awaiting release date')}</td><td>${info.receipt?`<b>Received</b><small>${peso(info.receipt.amount)} · ${esc(info.receipt.receivedOn)}</small>`:info.eligible&&x.canReceive&&!x.pendingSave?`<select data-retention-receive="${esc(j.id)}" aria-label="${esc('Remaining balance received — '+j.unit+' '+(j.plate||''))}"><option value="">Not yet received</option><option value="received">Received</option></select>`:setupPending(j)?`For re-encoding <button type="button" data-action="setup-week" data-id="${esc(j.pricingSetup.firstWeek)}">Open first entry · ${esc(j.pricingSetup.firstWeek)}</button>`:pending(j)?'Confirm agreed labor first':info.receivedLater?'Received in a later payroll':info.eligible?'Ready for confirmation':'Not yet due'}${undoUnitReleaseButton(x,r)}</td></tr>`;
     }).join('')||'<tr><td colspan="6">No outstanding or newly received retained balances for this payroll.</td></tr>'}</tbody></table>`;
   }
   function releasedPaymentsHistory(x,c){
@@ -401,5 +440,5 @@
       <form id="painterWorksheet" data-agreement-pricing="${pricing}" data-employee="${esc(employeeId)}"><fieldset ${released?'disabled':''} class="sheet-fields"><div class="table-wrap"><table class="painter-table"><caption class="visually-hidden">Weekly painter payroll</caption><thead><tr><th>Unit / year</th><th>Invoice # / plate</th><th>Color</th><th>Job order</th><th>Agreed labor</th><th>Unit status</th><th>Balance before week</th><th>Amount this week</th></tr></thead><tbody>${activeRows(c).map(row).join('')}${released?'':row({job:{}})}</tbody><tfoot><tr id="painterOngoingTotalRow" ${totals.released?'':'hidden'}><th colspan="7">ONGOING UNITS — THIS WEEK</th><td class="num" id="painterOngoingTotal">${peso(totals.ongoing)}</td></tr><tr id="painterReleasedTotalRow" ${totals.released?'':'hidden'}><th colspan="7">RELEASED UNITS — THIS WEEK <small>Included in total · details below / in Job history</small></th><td class="num" id="painterReleasedTotal">${peso(totals.released)}</td></tr><tr><th colspan="7">TOTAL — ALL UNITS</th><td class="num" id="painterGross">${peso(c.basic)}</td></tr><tr><th colspan="7">LESS CASH ADVANCE</th><td class="sheet-pay"><input id="painterAdvance" aria-label="Cash advance this week" type="number" min="0" step="0.01" value="${c.cashAdvance||''}"></td></tr><tr class="sheet-salary"><th colspan="7">TOTAL SALARY <small>Saved worksheet</small></th><td class="num" id="painterNet">${peso(c.net)}</td></tr></tfoot></table></div></fieldset><div class="sheet-status"><span id="painterEditStatus" role="status">${balancesRefreshed?'Save table to keep refreshed balances':saved?'All changes saved':'Save this table to enable printing.'}</span><button type="button" data-action="painter-discard" class="button sheet-link" hidden>Undo unsaved changes</button></div></form>
       <div id="painterWarnings"></div><div id="painterBalances" class="table-wrap">${balances({...x,pendingSave:Boolean(balancesRefreshed)},c)}</div><details class="painter-histories"><summary>Job agreements & payment history</summary>${releasedPaymentsHistory(x,c)}${jobs(s,employeeId).map(j=>`<p>${esc(j.unit)} · ${esc(j.plate)} · Invoice ${esc(j.invoice)} <button type="button" data-contract-action="history" data-contract-job="${esc(j.id)}">View job history</button></p>`).join('')||'<p>No saved jobs yet.</p>'}</details><p class="sheet-footnote">Save table before changing the week, payday, or printing. After a successful Save table, released units leave the upper editor. Outstanding balances stay below; fully settled units stay in Job history. This week’s released-unit payments remain included in Total salary and the payslip. Available date = actual unit release + 45 calendar days. ${x.retainedPaydayPreview?'After confirming Received and the actual payment date, the paid unit leaves this table only when its payment and payday payslip are saved together. Open Past Payslips for the combined copy: weekly salary plus retained balance released, counted once. Earlier versions remain available.':'Paid balances stay on the payment payroll and disappear from the next payroll table, not from history. Confirm “Received” only after payment. This records a separate receipt, not extra weekly salary. Original released PDFs stay unchanged.'}</p></section>`;
   }
-  return {setupPending,setupHere,initializePricing,workItems,normalizeWorkItems,validateWorkItems,itemizedWorkText,jobItemsEditor,linkableJobs,linkedRow,latest,savedFor,jobs,view,draft,save,emptyTable,validate,merge,compact,balances,render,startingEditable,pending,balanceText,previousRecorded,isReleased,releaseWeek,mainRows,activeRows,weeklyTotals,releasedPaymentsHistory,balanceRows,previousPayrollDate,retentionDue,retentionInfo,receiptBasis,validateReceipts,manilaDay};
+  return {setupPending,setupHere,initializePricing,workItems,normalizeWorkItems,validateWorkItems,itemizedWorkText,jobItemsEditor,linkableJobs,linkedRow,latest,savedFor,jobs,view,draft,save,emptyTable,validate,merge,compact,balances,render,startingEditable,pending,balanceText,previousRecorded,isReleased,releaseWeek,mainRows,activeRows,weeklyTotals,releasedPaymentsHistory,balanceRows,previousPayrollDate,retentionDue,retentionInfo,receiptBasis,validateReceipts,manilaDay,unitReleaseUndoPlan,undoUnitRelease};
 });

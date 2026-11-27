@@ -1,4 +1,6 @@
 /* Compact, spreadsheet-style editor. Print sizing is intentionally unchanged. */
+.unit-release-undo{margin-top:8px}.unit-release-undo .button{font-size:12px;padding:6px 9px;white-space:normal}.unit-release-undo small{display:block;max-width:240px;margin-top:4px}
+@media print{.unit-release-undo{display:none}}
 @media screen {
   .simple-painter-panel{border-radius:5px}
   .simple-painter{padding:18px 20px 12px}

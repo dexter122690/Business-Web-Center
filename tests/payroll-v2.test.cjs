@@ -531,5 +531,38 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
   const restored=await auth(owner,()=>call('payroll_v2_load',[b,branch]));assert.deepEqual(restored.state,old.state);assert.equal(restored.payrollWorkflowVersion,1);
   assert.deepEqual((await db.query('select * from payroll_v2_workspaces where branch_id<>$1 order by branch_id',[branch])).rows,before.filter(x=>x.branch_id!==branch));
  });
+ await t.test('undo unit release saves through existing branch-scoped payroll RPC without changing payment amounts',async()=>{
+  const R=require('../payroll-v2/retained-payday.js'),before=(await db.query('select * from payroll_v2_workspaces order by branch_id')).rows;
+  const branchIds=['10000000-0000-4000-8000-000000000101','10000000-0000-4000-8000-000000000102'];
+  let serial=0;const uid=()=>`undo-rpc-${++serial}`;
+  const amounts=s=>s.painterTestSheets.map(sh=>({id:sh.id,period:sh.period,basic:sh.snapshot.basic,net:sh.snapshot.net,cashAdvance:sh.snapshot.cashAdvance,rows:sh.snapshot.rows.map(r=>[r.job.id,r.job.contract,r.job.work,r.agreementItems,r.opening,r.weekly,r.remaining])}));
+  for(const [i,branch] of branchIds.entries()){
+   await db.query('insert into branches values($1,$2,$3,true)',[branch,b,['STA. ROSA TEST','STO. TOMAS TEST'][i]]);
+   await db.query('insert into payroll_v2_rollouts(business_id,branch_id,employee_id,first_week) values($1,$2,$3,$4)',[b,branch,'painter','2026-09-12']);
+   await db.query('insert into business_member_branch_access values($1,$2,$3)',[b,staff,branch]);
+   const persist=(state,rev,actor=owner,files=[])=>auth(actor,()=>call('payroll_v2_save',[b,branch,rev,JSON.stringify(state),JSON.stringify(files)]));
+   let state=S.save(W.selectWeek(seed(),'2026-09-12'),'painter',[{unit:'Fictional mistaken release',plate:'TEST UNDO',invoice:'TEST-UNDO',agreementMode:true,agreedWorkItems:[{description:'Repair',amount:15400}],weekly:5000}],200,uid);
+   const id=S.savedFor(state,'painter').snapshot.rows[0].job.id;
+   state=S.save(W.selectWeek(state,'2026-09-19'),'painter',[{id,weekly:2000,retentionStatus:'retained',unitReleasedOn:'2026-09-05'}],300,uid);
+   state=S.save(W.selectWeek(state,'2026-09-26'),'painter',[],0,uid);
+   let loaded=await persist(state,0);const oldAmounts=amounts(loaded.state),plan=S.unitReleaseUndoPlan(loaded.state,'painter',id);
+   let next=S.undoUnitRelease(loaded.state,'painter',id,plan);next=R.prepareSave(next,loaded.state,uid);
+   await auth(owner,()=>call('payroll_v2_grant',[b,branch,staff,'view']));await assert.rejects(persist(next,loaded.revision,staff),/cannot save/);
+   await auth(owner,()=>call('payroll_v2_grant',[b,branch,staff,'edit']));
+   const editor=await auth(staff,()=>call('payroll_v2_load',[b,branch]));next=S.undoUnitRelease(editor.state,'painter',id,S.unitReleaseUndoPlan(editor.state,'painter',id));next=R.prepareSave(next,editor.state,uid);
+   const oldRevision=loaded.revision;loaded=await persist(next,loaded.revision,staff);
+   assert.equal(loaded.state.period.start,'2026-09-19');assert.deepEqual(amounts(loaded.state),oldAmounts);assert.deepEqual(loaded.state.releasedPainterSlips,[]);assert.deepEqual(loaded.state.painterRetentionReceipts||[],[]);
+   assert.equal(S.activeRows(S.view(W.selectWeek(loaded.state,'2026-09-26'),'painter').snapshot).some(r=>r.job.id===id),true);
+   await assert.rejects(persist(next,oldRevision,staff),/Another user/);
+   // Server-level source immutability still rejects a forged UI bypass.
+   state=S.save(W.selectWeek(loaded.state,'2026-09-26'),'painter',[{id,retentionStatus:'retained',unitReleasedOn:'2026-09-26'}],0,uid);loaded=await persist(state,loaded.revision,staff);
+   state=A.release(loaded.state,S.savedFor(loaded.state,'painter').id,uid(),'2026-10-03');const slip=state.releasedPainterSlips.at(-1);
+   loaded=await persist(state,loaded.revision,owner,[{id:slip.id,kind:'pdf',dataUrl:'data:application/pdf;base64,JVBERi0xLjQ='}]);
+   const forged=structuredClone(loaded.state),sheet=S.savedFor(forged,'painter'),job=sheet.snapshot.rows[0].job;
+   job.retentionStatus='ongoing';job.unitReleasedOn='';delete job.releasePayrollStart;sheet.snapshot.jobs=sheet.snapshot.rows.map(r=>r.job);
+   await assert.rejects(persist(forged,loaded.revision,staff),/read-only|released|locked/i);
+  }
+  assert.deepEqual((await db.query('select * from payroll_v2_workspaces where not(branch_id=any($1::uuid[])) order by branch_id',[branchIds])).rows,before);
+ });
  await db.close();
 });

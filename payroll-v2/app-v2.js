@@ -182,7 +182,11 @@ function render(){if(bootError){$('#app').innerHTML=`<div class="warning">${esc(
     if(editorSaving)return;if(!['owner','edit'].includes(O.access))throw Error('Your payroll access is view-only.');if(['employee','employee-remove'].includes(kind)&&!O.canManageEmployees)throw Error('Employee management access is required.');if(kind==='rules'&&O.access!=='owner')throw Error('Only the owner can manage payroll rules.');employeePhotos?.dispose();employeePhotos=null;
     const collection={employee:'employees',job:'jobs',payment:'payments',release:'releases',advance:'advances',plan:'plans'}[kind];
     const old=collection&&id?state[collection].find(r=>r.id===id):null,e=old||defaults;editing={kind,id,collection,old,planId:defaults.planId};let title='',fields='';
-    if(kind==='retention-received'){
+    if(kind==='unit-release-undo'){
+      if(!discardPainter())throw Error('Save table or undo unsaved changes before undoing a unit release.');
+      const basis=S.unitReleaseUndoPlan(state,ui.employeeId,id);editing.basis=basis;title='Undo unit release';
+      fields=hint(`<b>Return this unit to the ongoing payroll table?</b><br>${esc(employee(basis.employeeId).name)}<br>${esc(basis.unit)} · ${esc(basis.plate)} · Invoice ${esc(basis.invoice||'Not set')}<br>Release date to undo: ${dateText(basis.unitReleasedOn)}<br>Return to cutoff: <b>${range(basis.period)}</b><br>Payday: <b>${dateText(basis.period.releaseDate)}</b>`)+hint('The unit will return to the upper table as Ongoing. Its release date and 45-day due date will be cleared. Job orders, agreed labor, weekly payments and cash advances will not change. Later open carry-forward rows will also return to Ongoing; no payments will move between dates.')+'<label class="removal-check span2"><input type="checkbox" name="acknowledge" required>I confirm this unit release was entered by mistake.</label>';
+    }else if(kind==='retention-received'){
       if(!discardPainter())throw Error('Save table before confirming a received balance.');
       const basis=S.receiptBasis(state,ui.employeeId,id),day=S.manilaDay();
       if(day<basis.dueOn)throw Error('This remaining balance is not due yet.');
@@ -228,7 +232,7 @@ function render(){if(bootError){$('#app').innerHTML=`<div class="warning">${esc(
     }else if(kind==='confirm-slip'){
       const s=state.payslips.find(s=>s.id===id);if(!s)throw Error('Saved payslip not found.');title='Confirm saved payslip released';fields=hint(`<b>${esc(s.snapshot.employee.name)}</b><br>${range(s.period)} · ${peso(s.snapshot.net)}<br>The saved copy will not change. This adds a separate release confirmation.`)+input('Actual payslip release date','date',today(),'date',`required min="${s.period.releaseDate}" max="${today()}"`)+'<label class="removal-check span2"><input type="checkbox" name="acknowledge" required>I confirm this saved payroll was actually released.</label>';
     }
-    $('#editorTitle').textContent=title;$('#editorFields').innerHTML=fields;$('#formError').textContent='';$('#editorForm button[type=submit]').textContent=kind==='employee-remove'?'Remove from active list':kind==='complete'?'Released · move to retention':kind==='finalize'||kind==='archive-release'?'Save released copy':kind==='confirm-slip'?'Confirm release':'Save record';$('#editorDialog').showModal();updateFormHint();
+    $('#editorTitle').textContent=title;$('#editorFields').innerHTML=fields;$('#formError').textContent='';$('#editorForm button[type=submit]').textContent=kind==='unit-release-undo'?'Return to Ongoing':kind==='employee-remove'?'Remove from active list':kind==='complete'?'Released · move to retention':kind==='finalize'||kind==='archive-release'?'Save released copy':kind==='confirm-slip'?'Confirm release':'Save record';$('#editorDialog').showModal();updateFormHint();
     $('#editorForm button[type=submit]').disabled=false;
     if(kind==='employee')employeePhotos=D.mount($('#editorFields'),e.photos||[],busy=>{$('#editorForm button[type=submit]').disabled=busy||editorSaving});
   }
@@ -248,6 +252,16 @@ function render(){if(bootError){$('#app').innerHTML=`<div class="warning">${esc(
     event.preventDefault();if(editorSaving||O.busy||!editing)return;
     const f=new FormData(event.currentTarget),old=editing.old||{},kind=editing.kind,id=editing.id,photoEditor=employeePhotos;let next=copy(state),row,saved=null,inserted=[],controls=[];
     try{
+      if(kind==='unit-release-undo'){
+        if(!['owner','edit'].includes(O.access))throw Error('Your payroll access is view-only.');
+        if(!f.get('acknowledge'))throw Error('Confirm that this unit release was entered by mistake.');
+        if(!discardPainter())throw Error('Save table or undo unsaved changes first.');
+        const basis=editing.basis,next=S.undoUnitRelease(state,basis.employeeId,id,basis);
+        editorSaving=true;controls=Array.from($('#editorForm').elements).map(el=>[el,el.disabled]);controls.forEach(([el])=>el.disabled=true);$('#formError').textContent='Undoing unit release…';
+        const errors=await commit(next,false,false);if(errors.length)throw Error(errors[0]);
+        ui.employeeId=basis.employeeId;ui.type='contract';ui.view='weekly';painterDirty=false;painterCellsDirty=false;
+        $('#editorDialog').close();editing=null;render();window.scrollTo(0,0);notify('Unit returned to Ongoing in '+range(basis.period)+'. Payment amounts are unchanged.');return;
+      }
       if(kind==='retention-received'){
         if(!f.get('acknowledge'))throw Error('Confirm the employee received the full balance.');
         const date=f.get('date'),basis=editing.basis;
@@ -336,6 +350,7 @@ function render(){if(bootError){$('#app').innerHTML=`<div class="warning">${esc(
       else if(a==='simple-preview')simplePreview(id);
       else if(a==='simple-print'||a==='simple-pdf')simplePreview(id,a.slice(7));
       else if(a==='simple-release')releasePainter(id);
+      else if(a==='unit-release-undo')openEditor('unit-release-undo',id);
       else if(a==='simple-empty'){
         if(id!==ui.employeeId||painterDirty)throw Error('Save table or Undo unsaved changes first.');
         if(confirm('Empty '+employee(id).name+'’s table for '+range(state.period)+'? This replaces this week’s working unit rows, balance rows and cash advance with a blank table. There is no separate worksheet copy to undo this. Other weeks, original ledgers, other employees and released payslips stay unchanged.'))await saveNext(S.emptyTable(state,id,()=>uid('test')),'This week’s working table is now empty.');
