@@ -88,6 +88,29 @@ test('lower table offers a confirmation action to editors only and disables it w
  const restored=S.render(context(undo(s,id)),'p');assert.match(restored.split('id="painterBalances"')[0],/Test Altis/);assert.doesNotMatch(restored.split('id="painterBalances"')[1].split('<details')[0],/Test Altis/);
 });
 
+test('fully paid released units offer the same guarded undo in payment history without changing amounts',()=>{
+ const {s,id}=fixture(10400),before=clone(s),c=S.view(s,'p').snapshot,r=c.rows.find(r=>r.job.id===id);
+ assert.equal(r.remaining,0);assert.equal(S.balanceRows(c).some(r=>r.job.id===id),false);
+ const html=S.releasedPaymentsHistory(context(s),c);
+ assert.match(html,/data-action="unit-release-undo"/);assert.doesNotMatch(html,/data-action="unit-release-undo"[^>]*disabled/);
+ assert.doesNotMatch(S.releasedPaymentsHistory({...context(s),access:'view'},c),/Undo unit release/);
+ assert.match(S.releasedPaymentsHistory({...context(s),pendingSave:true},c),/data-action="unit-release-undo"[^>]*disabled/);
+ const locked=A.release(s,S.savedFor(s,'p').id,uid(),'2026-09-26');
+ assert.match(S.releasedPaymentsHistory(context(locked),S.view(locked,'p').snapshot),/data-action="unit-release-undo"[^>]*disabled/);
+ const received=clone(s);received.releases.push({id:'receipt',jobId:id,amount:1,date:'2026-09-26'});
+ assert.match(S.releasedPaymentsHistory(context(received),S.view(received,'p').snapshot),/recorded receipt/);
+ const next=undo(s,id);
+ assert.equal(next.period.start,s.period.start);assert.equal(S.activeRows(S.view(next,'p').snapshot).filter(r=>r.job.id===id).length,1);
+ assert.deepEqual(paymentData(next),paymentData(s));assert.deepEqual(next.painterTestSheets[0],s.painterTestSheets[0]);assert.deepEqual(s,before);
+ assert.deepEqual(S.validate(next,s),[]);assert.deepEqual(W.validateTransition(s,next,'2026-11-27'),[]);
+});
+
+test('unpaid released units keep a single undo button in the retained table',()=>{
+ const {s}=fixture(),c=S.view(s,'p').snapshot;
+ assert.match(S.balances(context(s),c),/Undo unit release/);
+ assert.doesNotMatch(S.releasedPaymentsHistory(context(s),c),/Undo unit release/);
+});
+
 function editorHarness({ack=true,access='edit',saveError=''}={}){
  const fs=require('node:fs'),vm=require('node:vm'),{s,id}=fixture();
  const nodes={form:{elements:[{disabled:false}]},error:{textContent:''},submit:{disabled:false},dialog:{open:true,close(){this.open=false}}};
