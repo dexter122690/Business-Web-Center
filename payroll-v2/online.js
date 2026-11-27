@@ -53,7 +53,7 @@
     document.querySelectorAll('[data-action]').forEach(el=>{if(employeeActions.includes(el.dataset.action))el.hidden=!canManageEmployees;if(el.dataset.action==='rules')el.hidden=access!=='owner'});
     document.querySelectorAll('#exportBackup').forEach(el=>el.hidden=access!=='owner');
     if(access==='view'){
-      document.querySelectorAll('#app input,#app textarea,#app select,#editorForm input,#editorForm select,#editorForm textarea').forEach(el=>{if(!['painterWeek'].includes(el.id)&&!el.closest('#periodForm'))el.disabled=true});
+      document.querySelectorAll('#app input,#app textarea,#app select,#editorForm input,#editorForm select,#editorForm textarea').forEach(el=>{if(!['painterWeek','cashSummaryWeek','cashIncludeDue'].includes(el.id)&&!el.closest('#periodForm'))el.disabled=true});
       document.querySelectorAll('[data-attendance],[data-overtime-toggle],button[form="painterWorksheet"],[data-job-add],[data-job-remove],[data-action$="-new"],[data-action$="-edit"],[data-action="simple-release"],[data-action="simple-empty"],[data-action="slip-save"],[data-action="confirm-slip"],[data-action="remove"]').forEach(el=>el.disabled=true);
     }
     document.getElementById('payrollBranchLabel').textContent=branchName+' · '+(access==='owner'?'Owner':access==='edit'?'Payroll editor'+(canManageEmployees?' · Employee management':''):'View only');

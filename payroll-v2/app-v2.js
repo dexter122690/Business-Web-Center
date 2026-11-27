@@ -12,7 +12,7 @@
   const uid=prefix=>prefix+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,7);
   let state=C.emptyWorkspace(),bootError='',editing=null,previewRecords=[],previewEmployee=null,toastTimer;
   let employeePhotos=null,editorSaving=false;
-  const ui={view:'home',type:'daily',employeeId:'e1',formerId:null,showFormer:false,retentionEmployee:'all',historyEmployee:'',historyQuery:'',historyMonth:'',selectedSlips:new Set()};
+  const ui={view:'home',type:'daily',employeeId:'e1',formerId:null,showFormer:false,retentionEmployee:'all',historyEmployee:'',historyQuery:'',historyMonth:'',selectedSlips:new Set(),cashWeek:null,cashIncludeDue:true};
   try{state=await O.ready;const problems=[...C.validate(state),...S.validate(state),...A.validate(state)];if(problems.length)throw Error(problems[0]);$('#exportPreResetBackup').hidden=true;$('#payrollAccess').hidden=O.access!=='owner'}
   catch(error){bootError='Payroll could not connect. No data was changed. '+error.message}
   if(!bootError){RP=O.retainedPaydayPreview===true?window.PayrollRetainedPayday:null;state=C.selectWeek(state,O.initialPayrollWeek||undefined);} // Stored history stays untouched.
@@ -338,6 +338,8 @@ function render(){if(bootError){$('#app').innerHTML=`<div class="warning">${esc(
       const attendance=event.target.closest('[data-attendance]');if(attendance){const date=attendance.dataset.attendance,status=attendance.dataset.status;await transact(next=>{let a=next.attendance.find(a=>a.employeeId===ui.employeeId&&a.date===date);if(!a){a={employeeId:ui.employeeId,date,status:'unset',lateMinutes:0};next.attendance.push(a)}a.status=status;if(status!=='late')a.lateMinutes=0},'Attendance saved');return}
       const action=event.target.closest('[data-action]');if(!action)return;const a=action.dataset.action,id=action.dataset.id;
       if(a==='setup-week'){changeWeek(id)}
+      else if(a==='cash-current'){ui.cashWeek=null;render()}
+      else if(a==='cash-previous'||a==='cash-next'){ui.cashWeek=C.addDays(ui.cashWeek||window.PayrollCashSummary.currentPeriod().start,a==='cash-previous'?-7:7);render()}
       else if(a==='home'){ui.view='home';render();window.scrollTo(0,0)}
       else if(a==='week-previous')changeWeek(C.addDays(state.period.start,-7));
       else if(a==='week-next')changeWeek(C.addDays(state.period.start,7));
@@ -366,7 +368,7 @@ function render(){if(bootError){$('#app').innerHTML=`<div class="warning">${esc(
       else if(a==='archive-open'){const released=(RP?RP.records(state,ui.historyEmployee):A.releasedRecords(state,ui.historyEmployee)).find(r=>r.id===id&&r.kind===action.dataset.kind);if(!released)throw Error('Released payslip not found.');showPreview([released.record],null,'pdf')}
       else if(a==='payday-version'&&RP){const r=[...(state.retainedPaydayCopies||[]),...state.releasedPainterSlips].find(r=>r.id===id);if(!r)throw Error('Previous version not found.');showPreview([r],null,'preview',true)}
       else if(a==='retention-view'){ui.view='retention';ui.retentionEmployee=ui.employeeId;render()}
-      else if(a==='employee-payroll'){ui.employeeId=id;ui.type=employee(id).type;ui.formerId=employee(id).archived?id:null;if(state.payrollFreshStarts?.[id]){const weeks=S.latest(state,id);state=C.selectWeek(state,weeks.length?state.period.start:state.payrollFreshStarts[id],id)}ui.view='weekly';render();window.scrollTo(0,0)}
+      else if(a==='employee-payroll'){ui.employeeId=id;ui.type=employee(id).type;ui.formerId=employee(id).archived?id:null;if(ui.view==='home')state=C.selectWeek(state,ui.cashWeek||window.PayrollCashSummary.currentPeriod().start,id);else if(state.payrollFreshStarts?.[id]){const weeks=S.latest(state,id);state=C.selectWeek(state,weeks.length?state.period.start:state.payrollFreshStarts[id],id)}ui.view='weekly';render();window.scrollTo(0,0)}
       else if(a==='employee-remove')openEditor('employee-remove',id);
       else if(a==='employee-restore'){if(!O.canManageEmployees)throw Error('Employee management access is required.');await transact(next=>{next.employees.find(e=>e.id===id).archived=false},'Employee restored to the active list. Existing history unchanged.');}
       else if(a==='complete')openEditor('complete',id);
@@ -379,6 +381,8 @@ function render(){if(bootError){$('#app').innerHTML=`<div class="warning">${esc(
     }catch(error){notify(error.message)}
   });
   document.addEventListener('change',async event=>{
+    if(event.target.id==='cashSummaryWeek'){if(C.validDate(event.target.value)){ui.cashWeek=C.weeklyPeriod(event.target.value).start;render()}return}
+    if(event.target.id==='cashIncludeDue'){ui.cashIncludeDue=event.target.checked;render();return}
     if(event.target.dataset.retentionReceive){const control=event.target;try{if(control.value==='received')openEditor('retention-received',control.dataset.retentionReceive)}catch(error){notify(error.message)}finally{control.value=''}return}
     if(event.target.id==='payrollPayday'){try{await saveNext(C.setPayday(state,event.target.value),'Payday saved for this week. The Saturday–Friday cutoff is unchanged.')}catch(error){notify(error.message);event.target.value=state.period.releaseDate}return}
     if(event.target.id==='retentionFilter'){ui.retentionEmployee=event.target.value;render();return}
