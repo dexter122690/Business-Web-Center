@@ -557,6 +557,57 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
   await db.exec(sql);assert.equal((await db.query("select pg_get_functiondef('payroll_v2_check_agreements(jsonb,jsonb)'::regprocedure) d")).rows[0].d,definition);
   assert.equal((await db.query("select has_function_privilege('authenticated','payroll_v2_check_agreements(jsonb,jsonb)','execute') allowed")).rows[0].allowed,false);
  });
+ await t.test('batch-cache migration preserves fingerprints, validation, data, permissions and exact rollback',async()=>{
+  const sql=fs.readFileSync(path.join(ROOT,'supabase/101_payroll_validation_batch_cache.sql'),'utf8'),rollback=fs.readFileSync(path.join(ROOT,'supabase/repairs/rollback_101_payroll_validation_batch_cache.sql'),'utf8');
+  const K=require('../payroll-v2/contract-ledger.js');let serial=0;const uid=()=>`batch-${++serial}`;
+  let s=S.save(W.selectWeek(seed(),'2026-09-12'),'painter',[
+   {unit:'Itemized',invoice:'BATCH-A',plate:'TEST A',agreementMode:true,agreedWorkItems:[{description:'Repair',amount:8000},{description:'Paint',amount:2000}],weekly:2000},
+   {unit:'Legacy',invoice:'BATCH-B',plate:'TEST B',contract:5000,work:'Legacy repair',weekly:500}
+  ],0,uid);
+  const id=s.painterTestSheets[0].snapshot.rows[0].job.id;
+  s=S.save(W.selectWeek(s,'2026-09-19'),'painter',[{id,weekly:1000}],0,uid);
+  const event=K.createEvent(s,'painter',id,{kind:'addition',amount:500,effectiveOn:'2026-09-19',description:'Additional repair',reason:'Approved repair',itemizedAgreement:true},uid),added=K.apply(s,event);
+  const historical=(await db.query('select state from payroll_v2_workspaces')).rows.map(x=>x.state);
+  const states=[{},seed(),s,added,...historical],cases=[['valid original',{},s],['valid addition',s,added],...states.map((state,i)=>['unchanged '+i,state,state])];
+  const change=(label,fn)=>{const n=structuredClone(s);fn(n);cases.push([label,s,n]);states.push(n)};
+  for(const key of ['weekly','opening','remaining'])change('invalid '+key,n=>n.painterTestSheets[0].snapshot.rows[0][key]++);
+  for(const key of ['contract','priorSettlement'])change('invalid job '+key,n=>n.painterTestSheets[0].snapshot.rows[0].job[key]=(n.painterTestSheets[0].snapshot.rows[0].job[key]||0)+100);
+  change('changed agreement',n=>n.painterTestSheets[0].snapshot.rows[0].job.agreedWorkItems[0].amount++);
+  change('changed effective items',n=>n.painterTestSheets[0].snapshot.rows[0].agreementItems[0].amount++);
+  change('invalid description',n=>n.painterTestSheets[0].snapshot.rows[0].job.agreedWorkItems[0].description=' ');
+  change('null agreed items',n=>n.painterTestSheets[0].snapshot.rows[0].job.agreedWorkItems=null);
+  change('payment-mode downgrade',n=>n.painterTestSheets[0].snapshot.rows[0].weeklyManual=false);
+  change('received balance counts',n=>n.painterRetentionReceipts=[{id:'overpaid',employeeId:'painter',jobId:id,amount:20000}]);
+  change('legacy outside and inside cutoffs',n=>{n.payments=[{jobId:id,date:'2026-09-10',gross:200,retention:20},{jobId:id,date:'2026-09-13',gross:300,retention:0}];n.releases=[{jobId:id,date:'2026-09-11',amount:10}]});
+  change('employee-scoped job IDs',n=>{const sh=structuredClone(n.painterTestSheets[0]);sh.employeeId='painter:second';n.painterTestSheets.push(sh)});
+  change('duplicate versions latest wins',n=>{const sh=structuredClone(n.painterTestSheets[0]);sh.id='older';sh.snapshot.rows[0].weekly=19;n.painterTestSheets.unshift(sh)});
+  change('duplicate invoice and plate',n=>{const rw=structuredClone(n.painterTestSheets.at(-1).snapshot.rows[0]);rw.job.id='duplicate-job';n.painterTestSheets.at(-1).snapshot.rows.push(rw)});
+  const fingerprints=[];
+  for(const state of states){const rows=(await db.query('select employee,job_id,payroll_v2_ledger_fingerprint($1,employee,job_id) fp from (select distinct employee,job_id from payroll_v2_ledger_rows($1)) j',[JSON.stringify(state)])).rows;fingerprints.push(rows)}
+  const outcome=async(fn,old,next)=>{try{await call(fn,[JSON.stringify(old),JSON.stringify(next)]);return {accepted:true}}catch(error){return {accepted:false,error:error.message}}};
+  const validators=['payroll_v2_check_agreements','payroll_v2_check_cross_date'],expected=[];
+  for(const [label,old,next] of cases)for(const fn of validators)expected.push({label,fn,...await outcome(fn,old,next)});
+  assert.ok(expected.some(x=>x.accepted));assert.ok(expected.some(x=>!x.accepted));
+  const tables=['payroll_v2_workspaces','payroll_v2_files','payroll_v2_events','payroll_v2_directory','payroll_v2_access','profiles','payroll_workers','pms_service_records'];
+  const snapshot=async()=>Object.fromEntries(await Promise.all(tables.map(async table=>[table,(await db.query('select * from '+table)).rows])));
+  const defs=async()=>(await db.query("select proname,pg_get_functiondef(oid) definition,proacl from pg_proc where oid in ('payroll_v2_check_agreements(jsonb,jsonb)'::regprocedure,'payroll_v2_check_cross_date(jsonb,jsonb)'::regprocedure) order by proname")).rows;
+  const original=await defs(),before=await snapshot();
+  const verify=async()=>{
+   const actual=[];for(const [label,old,next] of cases)for(const fn of validators)actual.push({label,fn,...await outcome(fn,old,next)});assert.deepEqual(actual,expected);
+   for(let i=0;i<states.length;i++){const cache=await call('payroll_v2_ledger_fingerprints',[JSON.stringify(states[i])]);
+    for(const row of fingerprints[i]){const key=(await db.query('select jsonb_build_array($1::text,$2::text)::text k',[row.employee,row.job_id])).rows[0].k;assert.deepEqual(cache[key],row.fp)}}
+   assert.deepEqual(await snapshot(),before);
+  };
+  await db.exec(sql);await db.exec(sql);await verify();const installed=await defs();assert.deepEqual(installed.map(x=>x.proacl),original.map(x=>x.proacl));
+  for(const fn of [...validators.map(n=>n+'(jsonb,jsonb)'),'payroll_v2_ledger_fingerprints(jsonb)'])assert.equal((await db.query("select has_function_privilege('authenticated',$1,'execute') allowed",[fn])).rows[0].allowed,false);
+  await db.exec(rollback);await db.exec(rollback);assert.deepEqual(await defs(),original);assert.deepEqual(await snapshot(),before);
+  for(const f of original)await db.exec(f.definition.replace(/\r?\n/g,'\r\n'));const windows=await defs();
+  await db.exec(sql);await db.exec(sql);await verify();await db.exec(rollback);assert.deepEqual(await defs(),windows);
+  for(const f of original)await db.exec(f.definition);await db.exec(sql);await verify();assert.deepEqual(await defs(),installed);
+  // The following existing end-to-end tests now run with 101 installed too:
+  // restart, undo, both-branch editor saves, receipts, daily releases, stale
+  // revision, locked history, duplicate receipts and access-control checks.
+ });
  await t.test('scoped restart archives data and preserves all unrelated payroll and private files',async()=>{
   const sql=fs.readFileSync(path.join(ROOT,'supabase/097_payroll_scoped_restart.sql'),'utf8'),before=(await db.query('select * from payroll_v2_workspaces order by branch_id')).rows;
   await db.exec(sql);await db.exec(sql);assert.deepEqual((await db.query('select * from payroll_v2_workspaces order by branch_id')).rows,before);

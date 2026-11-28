@@ -38,6 +38,15 @@ async function run(){
  // Reset the synthetic fixture only in this disposable database for a fair save comparison.
  await db.query('update payroll_v2_workspaces set state=$1,revision=1 where business_id=$2 and branch_id=$3',[oldJson,b,r]);
  await time('payroll_v2_save',[b,r,1,newJson,JSON.stringify(files)]);
+ console.log('Current production baseline (100): record-only save, no PDFs');
+ await db.exec(fs.readFileSync(path.join(ROOT,'supabase/100_payroll_save_records_print_on_demand.sql'),'utf8'));
+ await db.query('update payroll_v2_workspaces set state=$1,revision=1 where business_id=$2 and branch_id=$3',[oldJson,b,r]);
+ await time('payroll_v2_save',[b,r,1,newJson,'[]']);
+ console.log('Applying batch-cache update 101 to isolated database only');
+ await db.exec(fs.readFileSync(path.join(ROOT,'supabase/101_payroll_validation_batch_cache.sql'),'utf8'));
+ for(const [name,args] of checks.filter(([name])=>name!=='payroll_v2_save'))await time(name,args);
+ await db.query('update payroll_v2_workspaces set state=$1,revision=1 where business_id=$2 and branch_id=$3',[oldJson,b,r]);
+ await time('payroll_v2_save',[b,r,1,newJson,'[]']);
  await db.close();
 }
 run().catch(error=>{console.error(error.message);process.exitCode=1});

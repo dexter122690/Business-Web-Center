@@ -150,3 +150,26 @@ Save records first; print on demand (100, 2026-11-28)
 - Live migration verified 2026-11-28: both workspace checksums/revisions and all
   22 existing file contents matched before/after; function permissions unchanged.
   All 611 tests pass. No actual payroll payment was submitted during deployment.
+
+Batch validation cache (101, 2026-11-28)
+- Apply supabase/101_payroll_validation_batch_cache.sql after 099. It batches
+  cross-date ledger fingerprints once per state instead of rebuilding them for
+  every job. All changed-job checks still run; the original fingerprint helper
+  remains as a fallback. Agreement helpers receive only contract events when
+  that is all they need; unitemized legacy jobs retain their full context.
+- Only two internal validators and one private helper change. No data, files,
+  public RPC behavior, role settings, timeouts or subscriptions are changed.
+- 612 tests pass, including baseline/candidate accepted and rejected input parity,
+  exact fingerprint parity, LF/CRLF repeat installation and exact rollback,
+  branch-scoped saves, receipts, duplicate/stale saves and locked history.
+- Isolated record-only save benchmark: 558 ms before vs 400 ms after (fictional
+  1.68 MB history). Local timings are not a live end-to-end latency guarantee.
+- Live read-only validation on the same unchanged branch state: eight checks
+  totaled 4666.8 ms before vs 1137.4 ms after. Agreements: 2032.3 -> 150.7 ms;
+  cross-date: 1769.8 -> 77.3 ms. No actual payment was recorded to benchmark.
+- Live post-install checks: all 44 job fingerprints match the old algorithm;
+  both branch revisions/state checksums and all 22 file checksums are unchanged.
+  Existing validator permissions and the save/load RPC definitions are unchanged.
+- Rollback only this optimization with
+  supabase/repairs/rollback_101_payroll_validation_batch_cache.sql.
+  Never delete receipts or retry an uncertain payment just to test performance.
