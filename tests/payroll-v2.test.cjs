@@ -44,8 +44,8 @@ test('both payslip layouts reserve handwriting space without changing saved data
  assert.deepEqual(record,before);
  const css=fs.readFileSync(path.join(ROOT,'payroll-v2/half-payslip.css'),'utf8'),index=fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8');
  assert.match(css,/\.signature-space\{height:22pt/);assert.match(css,/\.printed-name-space\{height:14pt/);
- assert.ok(index.includes('half-payslip.css?v=20261126-compact-payslip'));
- assert.ok(index.includes('half-slips.js?v=20261126-compact-payslip'));assert.ok(index.includes('pdf.js?v=20261128-save-speed'));
+ assert.ok(index.includes('half-payslip.css?v=20261128-payday-total'));
+ assert.ok(index.includes('half-slips.js?v=20261128-payday-total'));assert.ok(index.includes('pdf.js?v=20261128-payday-total'));
 });
 test('compact PDF summary retains every nonzero adjustment and the original net pay',()=>{
  const PDF=require('../payroll-v2/pdf.js'),snapshot=W.createPayslip(seed(),'daily');

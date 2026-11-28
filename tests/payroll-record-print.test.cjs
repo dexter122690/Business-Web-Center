@@ -13,6 +13,6 @@ test('preview uses measured HTML only, and print module is versioned before the 
  const app=fs.readFileSync(path.join(root,'payroll-v2/app-v2.js'),'utf8'),index=fs.readFileSync(path.join(root,'payroll-v2/index.html'),'utf8');
  const preview=app.slice(app.indexOf('async function showPreview'),app.indexOf('function simplePreview'));
  assert.doesNotMatch(preview,/PayrollPDF|\.layout\(/);assert.match(preview,/PayrollSlips.render\(printable\)/);assert.match(preview,/previewRecords=printable/);
- assert.ok(index.indexOf('print-view.js?v=20261128-record-print')<index.indexOf('app-v2.js?v=20261128-record-print'));
+ assert.ok(index.indexOf('print-view.js?v=20261128-payday-total')<index.indexOf('app-v2.js?v=20261128-record-print'));
  assert.match(index,/online.js\?v=20261128-record-print/);
 });

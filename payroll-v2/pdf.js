@@ -11,8 +11,11 @@
   }
   function definition(record,logo,{paper='half'}={}){
     const c=record.snapshot,e=c.employee,p=c.period,released=record.releasedCopy||record.releaseConfirmation,content=[];
+    const retained=c.retainedPaydayPayments?.length?Number(c.retainedPaydayTotal||0):0;
+    const paydayTotal=Math.round((Number(c.net||0)+retained)*100)/100;
     content.push({columns:[logo?{image:logo,width:30}:{text:'15M',bold:true,fontSize:18,width:45},{stack:[{text:'15M AUTOCARE SERVICES',bold:true,fontSize:11},{text:'WEEKLY PAYSLIP'+(released?'':' · '+(record.id==='DRAFT'?'DRAFT':'SAVED WORKSHEET')),fontSize:8}],margin:[7,1,0,0]},{text:'Payday: '+p.releaseDate+'\n'+(released?'Released: '+(record.releasedOn||record.releaseConfirmation.date):'Not a release confirmation'),alignment:'right',fontSize:7}],margin:[0,0,0,5]});
     content.push(table(['EMPLOYEE','POSITION','SATURDAY–FRIDAY'],['*','*','*'],[[cell(e.name,{bold:true}),cell(e.position),cell(p.start+' — '+p.end)]]));
+    content[1].table.body.push([cell('TOTAL PAY FOR THIS PAYDAY: '+peso(paydayTotal),{bold:true,fontSize:10,fillColor:'#fff0c2',colSpan:3}),{},{}],[cell('Net weekly salary '+peso(c.net)+(retained?' + retained payment '+peso(retained):' · after deductions')+'. Whole-payslip total, not per page. Outstanding balances excluded.',{fontSize:7,colSpan:3}),{},{}]);
     if(record.retainedPaydayCopy)content.push({text:(record.updatedCopy?'UPDATED COPY':'RETAINED PAYMENT RECORDED')+' · Version '+record.version+' · '+(record.weeklyReleased?'Weekly salary released.':'Weekly salary not yet confirmed as received.')+' Previous versions are reference only, not additional pay.',bold:true,fontSize:7,margin:[0,2,0,4]});
     if(c.simpleTest){
       const visible=S.mainRows(c);
@@ -37,7 +40,7 @@
       totals.table.body.push([cell(record.weeklyReleased?'TOTAL RECEIVED FOR THIS PAYDAY':'TOTAL FOR THIS PAYDAY · WEEKLY SALARY UNCONFIRMED',{bold:true,fillColor:'#fff0c2'}),{...money(c.paydayTotal),bold:true,fillColor:'#fff0c2'}]);
     }
     content.push({unbreakable:true,stack:[totals,signatures()]});
-    return {pageSize:{width:612,height:paper==='full'?792:396},pageMargins:[18,16,18,24],defaultStyle:{font:'Roboto',fontSize:7.5,lineHeight:1},content,footer:(page,pages)=>({text:'15M Payroll · '+e.name+' · Payday '+p.releaseDate+' · '+page+' / '+pages,alignment:'center',fontSize:6,margin:[10,7,10,0]}),info:{title:'15M Payslip — '+e.name+' — '+p.start,author:'15M Autocare Services'}};
+    return {pageSize:{width:612,height:paper==='full'?792:396},pageMargins:[18,16,18,24],defaultStyle:{font:'Roboto',fontSize:7.5,lineHeight:1},content,footer:(page,pages)=>({text:'15M Payroll · '+e.name+' · Payday '+p.releaseDate+' · '+page+' / '+pages+' · Total pay (whole payslip): '+peso(paydayTotal),alignment:'center',fontSize:6,margin:[10,7,10,0]}),info:{title:'15M Payslip — '+e.name+' — '+p.start,author:'15M Autocare Services'}};
   }
   let logoPromise;
   async function logo(){if(!logoPromise)logoPromise=new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>{const canvas=document.createElement('canvas');canvas.width=240;canvas.height=Math.round(img.naturalHeight*240/img.naturalWidth);canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);resolve(canvas.toDataURL('image/png'))};img.onerror=()=>reject(Error('The 15M logo could not be loaded.'));img.src='15m-logo.png'});return logoPromise}

@@ -1,6 +1,7 @@
 .print-sheet{grid-template-columns:8.5in;grid-template-rows:5.5in 5.5in}
 .print-sheet.compact-sheet{height:5.5in;grid-template-rows:5.5in}.print-sheet.full-sheet{height:11in;grid-template-rows:11in}
 .half-slip.full-slip{height:11in}
+.slip-payday-summary{border:1px solid #444;background:#fff2c6;padding:4px 6px;margin-top:4px;break-inside:avoid}.slip-payday-summary>div{display:flex;justify-content:space-between;gap:12px;font-size:10pt}.slip-payday-summary>small{display:block;font-size:7pt;line-height:1.25;margin-top:2px}
 .half-slip{width:8.5in;height:5.5in;box-sizing:border-box;padding:.18in .25in;display:flex;flex-direction:column;gap:4px;border-bottom:1px dashed #777;background:#fff;color:#111;font:8pt/1.22 Arial,sans-serif}
 .half-head{flex:none}.slip-brand{display:flex;align-items:center;gap:12px;margin-bottom:4px}.slip-brand img{object-fit:contain;flex:none;width:36px;height:36px}.slip-brand strong{font-size:12pt;letter-spacing:.3px}.slip-brand span{display:block;font-size:7pt;margin-top:4px}.slip-brand>small{margin-left:auto;font-size:8pt}
 .half-slip table{display:table;border-collapse:collapse;table-layout:fixed;width:100%;color:#111;font-family:Arial,sans-serif;margin:0}
