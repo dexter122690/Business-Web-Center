@@ -514,6 +514,49 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
   for(const name of ['payroll_v2_check_payday(jsonb,jsonb,uuid,uuid)','payroll_v2_check_agreements(jsonb,jsonb)'])assert.equal((await db.query("select has_function_privilege('authenticated',$1,'execute') allowed",[name])).rows[0].allowed,false);
   assert.deepEqual((await db.query('select * from payroll_v2_workspaces where branch_id<>$1 order by branch_id',[branch])).rows,before);
  });
+ await t.test('agreement performance migration preserves validation, records, permissions and is idempotent',async()=>{
+  const sql=fs.readFileSync(path.join(ROOT,'supabase/099_payroll_agreement_validation_performance.sql'),'utf8');
+  const s=(await db.query('select state from payroll_v2_workspaces where branch_id=$1',['10000000-0000-4000-8000-000000000096'])).rows[0].state;
+  const cases=[['unchanged',s,s],['empty prior',seed(),s]],changed=fn=>{const n=structuredClone(s);fn(n);return n};
+  for(const amount of [0,-1,1000000000,1.001,'100',null])cases.push(['invalid agreed price '+amount,s,changed(n=>{n.painterTestSheets[0].snapshot.rows[0].job.agreedWorkItems[0].amount=amount})]);
+  for(const description of ['', ' space ', null, 100, 'x'.repeat(1001)])cases.push(['invalid description',s,changed(n=>{n.painterTestSheets[0].snapshot.rows[0].job.agreedWorkItems[0].description=description})]);
+  for(const mode of [false,'true',null])cases.push(['invalid weekly mode',s,changed(n=>{n.painterTestSheets[0].snapshot.rows[0].weeklyManual=mode})]);
+  cases.push(['missing agreement',s,changed(n=>{delete n.painterTestSheets[0].snapshot.rows[0].job.agreedWorkItems})]);
+  cases.push(['setup marker',s,changed(n=>{n.painterTestSheets[0].snapshot.rows[0].job.pricingSetup=true})]);
+  cases.push(['changed item order',s,changed(n=>{n.painterTestSheets[0].snapshot.rows[0].job.agreedWorkItems.reverse()})]);
+  cases.push(['forged effective items',s,changed(n=>{n.painterTestSheets[0].snapshot.rows[0].agreementItems[0].amount++})]);
+  cases.push(['duplicate older worksheet',s,changed(n=>{const older=structuredClone(n.painterTestSheets[0]);older.id='older-invalid';older.snapshot.rows[0].job.agreedWorkItems[0].amount++;n.painterTestSheets.unshift(older)})]);
+  // Identical job IDs in different employees must never collide in the cache.
+  const split=changed(n=>{const sheet=structuredClone(n.painterTestSheets[0]);sheet.employeeId='another:employee';n.painterTestSheets.push(sheet)});cases.push(['employee-scoped keys',{},split]);
+  const outcome=async([label,old,next])=>{try{await call('payroll_v2_check_agreements',[JSON.stringify(old),JSON.stringify(next)]);return {label,accepted:true}}catch(error){return {label,accepted:false,message:error.message}}};
+  const expected=[];for(const c of cases)expected.push(await outcome(c));
+  assert.ok(expected.some(x=>x.accepted));assert.ok(expected.some(x=>!x.accepted));
+  const tables=['payroll_v2_workspaces','payroll_v2_files','payroll_v2_directory','payroll_v2_access','payroll_v2_events','payroll_v2_rollouts','payroll_workers','profiles'];
+  const snapshot=async()=>Object.fromEntries(await Promise.all(tables.map(async table=>[table,(await db.query('select * from '+table)).rows])));
+  const before=await snapshot(),originalDefinition=(await db.query("select pg_get_functiondef('payroll_v2_check_agreements(jsonb,jsonb)'::regprocedure) d")).rows[0].d;
+  await db.exec(sql);assert.deepEqual(await snapshot(),before);
+  const actual=[];for(const c of cases)actual.push(await outcome(c));assert.deepEqual(actual,expected);
+  const definition=(await db.query("select pg_get_functiondef('payroll_v2_check_agreements(jsonb,jsonb)'::regprocedure) d")).rows[0].d;
+  assert.match(definition,/099: one ledger scan/);assert.doesNotMatch(definition,/if exists\(select 1 from payroll_v2_ledger_rows\(new_state\) x where x.employee=sh/);
+  await db.exec(sql);assert.equal((await db.query("select pg_get_functiondef('payroll_v2_check_agreements(jsonb,jsonb)'::regprocedure) d")).rows[0].d,definition);assert.deepEqual(await snapshot(),before);
+  const rollback=fs.readFileSync(path.join(ROOT,'supabase/repairs/rollback_099_payroll_agreement_validation_performance.sql'),'utf8');
+  await db.exec(rollback);await db.exec(rollback);
+  assert.equal((await db.query("select pg_get_functiondef('payroll_v2_check_agreements(jsonb,jsonb)'::regprocedure) d")).rows[0].d,originalDefinition);
+  assert.deepEqual(await snapshot(),before);
+  // Production was installed through Windows SQL Editor and has CRLF bodies.
+  // Preserve those bytes too, including on a manual rollback and repeat install.
+  await db.exec(originalDefinition.replace(/\r?\n/g,'\r\n'));
+  const windowsDefinition=(await db.query("select pg_get_functiondef('payroll_v2_check_agreements(jsonb,jsonb)'::regprocedure) d")).rows[0].d;
+  assert.match(windowsDefinition,/begin\r\n for sh in/);
+  await db.exec(sql);await db.exec(sql);
+  const windowsActual=[];for(const c of cases)windowsActual.push(await outcome(c));assert.deepEqual(windowsActual,expected);
+  await db.exec(rollback);await db.exec(rollback);
+  assert.equal((await db.query("select pg_get_functiondef('payroll_v2_check_agreements(jsonb,jsonb)'::regprocedure) d")).rows[0].d,windowsDefinition);
+  assert.deepEqual(await snapshot(),before);
+  await db.exec(originalDefinition);
+  await db.exec(sql);assert.equal((await db.query("select pg_get_functiondef('payroll_v2_check_agreements(jsonb,jsonb)'::regprocedure) d")).rows[0].d,definition);
+  assert.equal((await db.query("select has_function_privilege('authenticated','payroll_v2_check_agreements(jsonb,jsonb)','execute') allowed")).rows[0].allowed,false);
+ });
  await t.test('scoped restart archives data and preserves all unrelated payroll and private files',async()=>{
   const sql=fs.readFileSync(path.join(ROOT,'supabase/097_payroll_scoped_restart.sql'),'utf8'),before=(await db.query('select * from payroll_v2_workspaces order by branch_id')).rows;
   await db.exec(sql);await db.exec(sql);assert.deepEqual((await db.query('select * from payroll_v2_workspaces order by branch_id')).rows,before);

@@ -110,3 +110,20 @@ Safe rollback
   the 15M business. Preserve all payroll_v2 tables/files for later recovery.
 - Do not drop tables, reset other modules, or re-enable the old payroll as a
   rollback shortcut. The old shared worker records are intentionally preserved.
+
+Payroll validation performance (099, applied 2026-11-28)
+- Update 099 caches the employee/job agreement variants once per validation,
+  replacing a full ledger scan for every worksheet row. It replaces only the
+  internal agreement validator; it does not change records or permissions.
+- The installer is guarded, repeatable and supports LF and Windows CRLF bodies.
+  Manual function-only rollback is in
+  supabase/repairs/rollback_099_payroll_agreement_validation_performance.sql.
+- The 603-test suite passes, including accepted/rejected input parity, branch
+  isolation, repeat installation and exact-definition rollback for both endings.
+- Isolated benchmark: tests/benchmarks/payroll-database-save.cjs, using
+  BWC_PGLITE_PATH. It uses fictional in-memory data, never the live database.
+  Sample whole-save timing improved from 859 ms to 568 ms; this is not a live SLA.
+- Live post-install read-only agreement validation completed in 2449.600 ms.
+  Both branch state checksums/revisions and file count remained unchanged.
+  No real payment was resubmitted to test this deployment. High database CPU
+  can still affect end-to-end save latency; do not blindly retry timed-out saves.
