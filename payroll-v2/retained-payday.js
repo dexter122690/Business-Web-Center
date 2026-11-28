@@ -5,7 +5,14 @@
   else root.PayrollRetainedPayday=factory(root.PayrollWorkflow,root.SimplePainter,root.PayslipArchive);
 })(typeof window==='undefined'?this:window,function(W,S,A){
   'use strict';
-  const copy=v=>JSON.parse(JSON.stringify(v)),same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+  const copy=v=>JSON.parse(JSON.stringify(v));
+  // PostgreSQL JSONB can return object keys in a different order. That is not a
+  // payroll change and must not create a new immutable version/PDF on every save.
+  function same(a,b){
+    if(a===b)return true;
+    if(!a||!b||typeof a!=='object'||typeof b!=='object'||Array.isArray(a)!==Array.isArray(b))return false;
+    const keys=Object.keys(a);return keys.length===Object.keys(b).length&&keys.every(k=>Object.prototype.hasOwnProperty.call(b,k)&&same(a[k],b[k]));
+  }
   const key=r=>r.employeeId+':'+r.period.start+':'+r.period.end;
   const copies=s=>s.retainedPaydayCopies||[];
   const latestCopies=s=>[...new Map(copies(s).map(r=>[key(r),r])).values()];

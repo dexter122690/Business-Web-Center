@@ -268,7 +268,7 @@ function render(){if(bootError){$('#app').innerHTML=`<div class="warning">${esc(
         if(!C.validDate(date)||date<basis.dueOn||date>S.manilaDay())throw Error('Choose a received date from the due date through today.');
         editorSaving=true;controls=Array.from($('#editorForm').elements).map(el=>[el,el.disabled]);controls.forEach(([el])=>el.disabled=true);$('#formError').textContent='Saving received balance…';
         if(RP&&!editing.destination)throw Error('Review the destination cutoff and save its payroll table first.');
-        const period=copy(state.period),loaded=await O.receiveRetention(basis.employeeId,id,date,basis.amount,basis.unitReleasedOn,editing.destination);
+        const period=copy(state.period),loaded=await O.receiveRetention(basis.employeeId,id,date,basis.amount,basis.unitReleasedOn,editing.destination,message=>{$('#formError').textContent=message});
         state={...loaded,period};$('#editorDialog').close();editing=null;render();notify(RP?'Retained payment and payday payslip saved together. Open Past Payslips to review.':'Remaining balance marked as received. Receipt saved; weekly salary unchanged.');return;
       }
       if(kind==='employee-remove')next=C.archiveEmployee(state,id,String(f.get('reason')||''),f.get('date'));

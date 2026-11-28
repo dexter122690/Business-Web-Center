@@ -26,6 +26,20 @@ test('same receipt retry is idempotent; another date cannot create a second paym
  assert.deepEqual(R.receive(n,a,uid,now,today),n);
  assert.throws(()=>R.receive(n,{...a,date:'2026-11-25'},uid,now,today),/already received/);
 });
+
+test('database object-key order does not create unchanged payday versions or weaken immutable amounts',()=>{
+ const reorder=v=>Array.isArray(v)?v.map(reorder):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,reorder(v[k])])):v;
+ const original=receive(seed()),loaded=reorder(original),unchanged=structuredClone(loaded);
+ assert.notEqual(JSON.stringify(loaded),JSON.stringify(original));
+ const noNewId=()=>assert.fail('An unchanged database-loaded payslip must not need another PDF');
+ assert.deepEqual(R.refresh(loaded,noNewId,now),unchanged);
+ assert.deepEqual(R.prepareSave(loaded,loaded,noNewId,now),unchanged);
+ assert.deepEqual(R.validate(loaded,original),[]);
+ const tampered=structuredClone(loaded);tampered.retainedPaydayCopies[0].snapshot.net++;
+ assert.match(R.validate(tampered,loaded).join(' '),/read-only|counted exactly once/);
+ const next=receive(loaded,1);assert.equal(next.retainedPaydayCopies.length,2);assert.equal(record(next).snapshot.retainedPaydayTotal,6000);
+ assert.deepEqual(next.retainedPaydayCopies[0],loaded.retainedPaydayCopies[0]);assert.deepEqual(R.validate(next,loaded),[]);
+});
 test('multiple units share one payday entry, append a version and sum each receipt once',()=>{
  const s=receive(seed()),old=structuredClone(record(s)),n=receive(s,1),rows=R.records(n,'p'),r=rows[0].record;
  assert.equal(rows.length,1);assert.equal(rows[0].versions.length,1);assert.equal(r.version,2);assert.equal(r.updatedCopy,true);

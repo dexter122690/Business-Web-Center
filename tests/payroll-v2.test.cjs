@@ -21,7 +21,7 @@ test('retired branch-assignment panel stays absent without changing employee rec
  const state=await window.PayrollOnline.ready;window.PayrollOnline.permissions();window.PayrollOnline.permissions();
  assert.strictEqual(state,loaded.state);assert.deepEqual(loaded,before);assert.equal(label.textContent,'STA. ROSA · Owner');assert.deepEqual(calls.map(c=>c.name),['payroll_v2_apply_reviewed_history','payroll_v2_load']);
  assert.doesNotMatch(source,/Employee profiles awaiting branch assignment|data-assign-employee|payroll_v2_assign_employee/);
- assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261127-cash-summary/);
+ assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261128-save-speed/);
 });
 test('PDF uses half short bond, peso glyph, all unit rows and prior balance',()=>{
  const PDF=require('../payroll-v2/pdf.js');let n=0,s=S.save(seed(),'painter',[{unit:'Test unit',contract:15000,weekly:3000,work:'Panel repaint'}],500,()=>`test-${++n}`),record=S.savedFor(s,'painter');
@@ -45,7 +45,7 @@ test('both payslip layouts reserve handwriting space without changing saved data
  const css=fs.readFileSync(path.join(ROOT,'payroll-v2/half-payslip.css'),'utf8'),index=fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8');
  assert.match(css,/\.signature-space\{height:22pt/);assert.match(css,/\.printed-name-space\{height:14pt/);
  assert.ok(index.includes('half-payslip.css?v=20261126-compact-payslip'));
- for(const asset of ['half-slips.js','pdf.js'])assert.ok(index.includes(asset+'?v=20261126-compact-payslip'));
+ assert.ok(index.includes('half-slips.js?v=20261126-compact-payslip'));assert.ok(index.includes('pdf.js?v=20261128-save-speed'));
 });
 test('compact PDF summary retains every nonzero adjustment and the original net pay',()=>{
  const PDF=require('../payroll-v2/pdf.js'),snapshot=W.createPayslip(seed(),'daily');
@@ -500,6 +500,9 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
   assert.equal((await auth(owner,()=>call('payroll_v2_load',[b,branch]))).revision,loaded.revision);
   const forged=structuredClone(state);forged.painterRetentionReceipts[0].recordedBy=staff;await assert.rejects(persist(forged,loaded.revision,files(forged)),/account|confirmation/);
   loaded=await persist(state,loaded.revision,files(state));assert.equal(loaded.state.retainedPaydayCopies[0].snapshot.paydayTotal,7000);
+  // Real JSONB round-trip: unchanged versions need neither a new ID nor PDF.
+  const stable=R.prepareSave(loaded.state,loaded.state,()=>assert.fail('Unchanged payday must reuse the stored PDF'));
+  assert.deepEqual(stable,loaded.state);loaded=await persist(stable,loaded.revision);
   await assert.rejects(auth(owner,()=>call('payroll_v2_receive_retention',[b,branch,loaded.revision,'painter',id,'2026-11-26',7000,'2026-09-18'])),/updated payroll/);
   const old=structuredClone(loaded.state.retainedPaydayCopies[0]);
   state=S.save(loaded.state,'painter',[{unit:'New work',agreementMode:true,agreedWorkItems:[{description:'New job',amount:1000}],weekly:500}],0,uid);

@@ -54,6 +54,24 @@
     // pdfmake annotates definitions during layout; output must use a fresh definition.
     return {paper,pages,definition:definition(record,brand,{paper})};
   }
-  async function dataUrl(record){const result=await layout(record);return new Promise((resolve,reject)=>{try{window.pdfMake.createPdf(result.definition).getDataUrl(resolve)}catch(e){reject(e)}})}
+  async function dataUrl(record,options={}){
+    const engine=options.engine||(typeof window!=='undefined'?window.pdfMake:null);
+    if(!engine)throw Error('PDF files are not ready. Reload Payroll and try again.');
+    const brand=options.logo??(typeof window!=='undefined'?await logo():undefined);
+    let paper=options.minimumPaper||(typeof window!=='undefined'&&window.PayrollSlips?window.PayrollSlips.paperSize(record):'half');
+    // The footer receives the actual total after layout. Keep that same rendered
+    // PDF instead of measuring, discarding its bytes, then rendering it again.
+    const render=paper=>new Promise((resolve,reject)=>{
+      const doc=definition(record,brand,{paper}),footer=doc.footer;let pages=0;
+      doc.footer=(page,total)=>{pages=total;return footer(page,total)};
+      try{engine.createPdf(doc).getDataUrl(data=>{
+        if(!Number.isInteger(pages)||pages<1)return reject(Error('Could not verify the payslip page count. Please try again.'));
+        resolve({data,pages});
+      })}catch(e){reject(e)}
+    });
+    let result=await render(paper);
+    if(paper==='half'&&result.pages>1)result=await render('full');
+    return result.data;
+  }
   return {definition,dataUrl,layout};
 });

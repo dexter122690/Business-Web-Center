@@ -15,31 +15,53 @@
     if(b&&(b!==nextB||r!==nextR||user!==nextUser))throw Error('Your account or branch changed. Reopen Payroll before continuing.');
     b=nextB;r=nextR;user=nextUser;
   }
-  async function rpc(name,args={}){await context();const result=await client.rpc(name,{b,r,...args});if(result.error)throw Error(result.error.message||'Payroll request failed.');return result.data}
+  async function rpc(name,args={}){await context();const result=await client.rpc(name,{b,r,...args});if(result.error){const error=Error(result.error.message||'Payroll request failed.');error.status=result.status;error.code=result.error.code;throw error}return result.data}
+  // JSONB changes object key order, not values or array order. Only an exact
+  // committed snapshot at the next revision can resolve an uncertain save.
+  function sameState(a,b){
+    if(a===b)return true;
+    if(!a||!b||typeof a!=='object'||typeof b!=='object'||Array.isArray(a)!==Array.isArray(b))return false;
+    const keys=Object.keys(a);return keys.length===Object.keys(b).length&&keys.every(k=>Object.prototype.hasOwnProperty.call(b,k)&&sameState(a[k],b[k]));
+  }
+  const uncertain=error=>error.status===0||error.status===408||error.status>=500||/timeout|timed out|failed to fetch|network(?:error| error)|load failed/i.test(error.message);
   function accept(result){revision=Number(result.revision);access=result.access;workflowVersion=result.payrollWorkflowVersion||1;savedState=JSON.parse(JSON.stringify(result.state));canManageEmployees=access==='owner'||(access==='edit'&&result.canManageEmployees===true);branchName=result.branchName;if(!canManageEmployees){for(const [id,file] of cache)if(file.kind==='photo')cache.delete(id);for(const [id,file] of pending)if(file.kind==='photo')pending.delete(id)}committedPdfs.clear();for(const s of [...result.state.releasedPainterSlips||[],...result.state.retainedPaydayCopies||[]])committedPdfs.add(s.id);for(const s of result.state.slipReleases||[])committedPdfs.add(s.slipId);return result.state}
   const ready=(async()=>{await context();const reviewed=await rpc('payroll_v2_apply_reviewed_history');const state=accept(await rpc('payroll_v2_load'));if(reviewed.status==='stale'||reviewed.status==='applied'){const notice=document.createElement('p');notice.className='rule-note';notice.textContent=reviewed.status==='applied'?'Reviewed historical payroll imported. These payments were already received; no money was transferred.':reviewed.message;document.getElementById('payrollBranchLabel').after(notice)}return state})();
   // A save is atomic: both state and newly generated PDF/photo files succeed or fail.
-  async function save(state){
+  async function save(state,onProgress=()=>{}){
     if(busy)throw Error('A save is still running. Please wait.');if(!['owner','edit'].includes(access))throw Error('Your payroll access is view-only.');
     busy=true;document.body.classList.add('online-saving');
     try{
       let next=JSON.parse(JSON.stringify(state));
       if(workflowVersion===2)next=PayrollRetainedPayday.prepareSave(next,savedState,paydayId);
-      for(const slip of [...next.releasedPainterSlips||[],...next.retainedPaydayCopies||[]])if(!committedPdfs.has(slip.id)&&!pending.has(slip.id)){
-        const existing=await getFiles([slip.id]);if(!existing[0])pending.set(slip.id,{id:slip.id,kind:'pdf',dataUrl:await PayrollPDF.dataUrl(slip)});
+      const required=new Map([...next.releasedPainterSlips||[],...next.retainedPaydayCopies||[]].map(s=>[s.id,s]));
+      for(const confirmation of next.slipReleases||[]){const slip=next.payslips.find(s=>s.id===confirmation.slipId);if(slip)required.set(slip.id,{...slip,releaseConfirmation:confirmation})}
+      const candidates=[...required.values()].filter(s=>!committedPdfs.has(s.id)&&!pending.has(s.id));
+      // One lookup for all new versions, never one network round trip per PDF.
+      if(candidates.length){onProgress('Checking saved payslip files…');await getFiles(candidates.map(s=>s.id))}
+      const generate=candidates.filter(s=>!cache.has(s.id));
+      for(let i=0;i<generate.length;i++){
+        const slip=generate[i];onProgress('Preparing payslip PDF '+(i+1)+' of '+generate.length+'…');
+        pending.set(slip.id,{id:slip.id,kind:'pdf',dataUrl:await PayrollPDF.dataUrl(slip)});
       }
-      for(const confirmation of next.slipReleases||[]){const slip=next.payslips.find(s=>s.id===confirmation.slipId);if(slip&&!committedPdfs.has(slip.id)&&!pending.has(slip.id)){
-        const existing=await getFiles([slip.id]);if(!existing[0])pending.set(slip.id,{id:slip.id,kind:'pdf',dataUrl:await PayrollPDF.dataUrl({...slip,releaseConfirmation:confirmation})});
-      }}
       const photos=new Set(next.employees.flatMap(e=>(e.photos||[]).map(p=>p.id))),pdfs=new Set([...next.releasedPainterSlips.map(s=>s.id),...next.payslips.map(s=>s.id),...(next.retainedPaydayCopies||[]).map(s=>s.id)]);
       const files=[...pending.values()].filter(f=>f.kind==='photo'?photos.has(f.id):pdfs.has(f.id));
-      const result=await rpc('payroll_v2_save',{expected_revision:revision,payload:next,files});
+      const expectedRevision=revision;let result;
+      onProgress('Saving payroll and payslip records together…');
+      try{result=await rpc('payroll_v2_save',{expected_revision:expectedRevision,payload:next,files})}
+      catch(error){
+        if(!uncertain(error))throw error;
+        onProgress('The server is slow. Checking whether the save completed—please wait…');
+        // Read only: never repeat a write after a timeout. Do not accept another
+        // user's revision or replace unsaved inputs when the outcome is unknown.
+        try{const loaded=await rpc('payroll_v2_load');if(Number(loaded.revision)===expectedRevision+1&&sameState(loaded.state,next))result=loaded}catch(ignore){}
+        if(!result)throw Error('The server response was delayed, so this save could not be confirmed. Your inputs are still here. Check Past Payslips in a separate Payroll tab before trying again; do not record the payment twice.');
+      }
       files.forEach(f=>{cache.set(f.id,f);pending.delete(f.id)});return accept(result);
     }finally{busy=false;document.body.classList.remove('online-saving')}
   }
   async function getFiles(ids){const missing=ids.filter(id=>!pending.has(id)&&!cache.has(id));if(missing.length){const files=await rpc('payroll_v2_get_files',{ids:missing});files.forEach(f=>cache.set(f.id,f))}return ids.map(id=>pending.get(id)||cache.get(id))}
-  async function receiveRetention(employeeId,jobId,date,amount,unitReleasedOn,expectedPeriod){
-    if(workflowVersion===2){await context();return save(PayrollRetainedPayday.receive(savedState,{employeeId,jobId,date,expectedAmount:amount,expectedReleaseDate:unitReleasedOn,expectedPeriod,acknowledge:true,recordedBy:user},paydayId));}
+  async function receiveRetention(employeeId,jobId,date,amount,unitReleasedOn,expectedPeriod,onProgress){
+    if(workflowVersion===2){await context();return save(PayrollRetainedPayday.receive(savedState,{employeeId,jobId,date,expectedAmount:amount,expectedReleaseDate:unitReleasedOn,expectedPeriod,acknowledge:true,recordedBy:user},paydayId),onProgress);}
     if(busy)throw Error('A save is still running. Please wait.');if(!['owner','edit'].includes(access))throw Error('Your payroll access is view-only.');
     busy=true;document.body.classList.add('online-saving');
     try{return accept(await rpc('payroll_v2_receive_retention',{expected_revision:revision,employee_id:employeeId,job_id:jobId,received_on:date,expected_amount:amount,expected_release_date:unitReleasedOn}))}

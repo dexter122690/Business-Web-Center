@@ -32,3 +32,20 @@ test('screen-required full size is honored even for a shorter PDF layout',async(
  const layout=await PDF.layout(record(),{engine,minimumPaper:'full'});assert.equal(layout.paper,'full');assert.equal(layout.pages,1);
  const card=html().cardHtml(record(),[],1,1,true,'full');assert.match(card,/half-slip full-slip/);
 });
+
+test('saved PDF reuses rendered bytes with actual half/full pagination and unchanged data',async()=>{
+ for(const [count,long,minimumPaper,passes,height] of [[1,false,'half',1,396],[14,false,'half',2,792],[25,true,'full',1,792]]){
+  const r=record(count,long),before=structuredClone(r),definitions=[];
+  const tracked={createPdf:doc=>{definitions.push(doc);return engine.createPdf(doc)}};
+  const data=await PDF.dataUrl(r,{engine:tracked,minimumPaper}),raw=Buffer.from(data.split(',')[1],'base64').toString('latin1');
+  assert.match(data,/^data:application\/pdf;base64,JVBERi0/);assert.equal(definitions.length,passes);assert.deepEqual(r,before);
+  const pages=[...raw.matchAll(/\/Type \/Page\b/g)];assert.ok(pages.length>=1);if(long)assert.ok(pages.length>1);
+  assert.match(raw,new RegExp('/MediaBox \\[0 0 612 '+height+'\\]'));
+  assert.equal(definitions.at(-1).content[2].table.body.length,count+1);assert.match(JSON.stringify(definitions.at(-1).info),/Print Test Painter/);
+ }
+});
+
+test('unverified PDF page count or failed generation cannot be saved',async()=>{
+ await assert.rejects(PDF.dataUrl(record(),{engine:{createPdf:()=>({getDataUrl:callback=>callback('invalid')})}}),/page count/);
+ await assert.rejects(PDF.dataUrl(record(),{engine:{createPdf:()=>{throw Error('Rendering failed')}}}),/Rendering failed/);
+});
