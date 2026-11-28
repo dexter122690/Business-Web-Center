@@ -80,14 +80,16 @@ Workflow
   confirm release. Overtime is recorded only; no overtime-pay rule is configured.
 - A painter's previous amount is a recorded worksheet amount, not independent
   confirmation of payment. Retention dates are references, not automatic payouts.
-- Release stores an original PDF and a fixed snapshot together. It does not
-  transfer money or create an Expense. Record actual expenditure separately.
+- Release stores a fixed snapshot. With update 100, PDF generation/upload is no
+  longer required to save or release. It does not transfer money or create an
+  Expense. Record actual expenditure separately.
 - Released Payslips contains employee folders and their released documents.
-- Owner correction uses Void / correct with a reason. The original PDF and audit
-  snapshot are retained; a replacement is issued instead of silently rewriting it.
+- Owner correction uses Void / correct with a reason. Existing PDFs and audit
+  snapshots are retained; a replacement is issued instead of silently rewriting it.
 - Employee deletion means removal from the active list; history is preserved.
-- PDF page size is 8.5 x 5.5 inches (half short bond). Long records continue on
-  additional half sheets rather than truncating rows. Print uses the PDF viewer.
+- Short payslips use 8.5 x 5.5 inches (half short bond); longer records use full
+  short bond / Letter with additional pages as needed. Print opens a read-only
+  HTML page, without PDF processing. PDF download remains an optional action.
 
 Storage and limits
 - Branch saves use a revision check to prevent one browser overwriting another.
@@ -127,3 +129,24 @@ Payroll validation performance (099, applied 2026-11-28)
   Both branch state checksums/revisions and file count remained unchanged.
   No real payment was resubmitted to test this deployment. High database CPU
   can still affect end-to-end save latency; do not blindly retry timed-out saves.
+
+Save records first; print on demand (100, 2026-11-28)
+- Apply supabase/100_payroll_save_records_print_on_demand.sql before publishing
+  the record-print frontend. Only payroll_v2_save/load function definitions change;
+  no records, permissions, amounts or existing PDF files are rewritten/deleted.
+- The server advertises payrollDocumentMode=record. New clients then save receipt
+  and immutable payday snapshots atomically, without PDF rendering/file lookups.
+  Older servers retain the PDF-required fallback; older clients still work.
+- Preview and Print render the fixed snapshot as HTML. PDF download reuses an old
+  saved PDF or generates one on demand, without uploading it or recording payment.
+- Tests cover both branches, record-only painter/daily/retained releases, photo
+  uploads, permissions, immutable history, conflicts, duplicate receipts and safe
+  timeout confirmation. Local browser QA disables the PDF engine deliberately.
+- Function-only rollback: supabase/repairs/rollback_100_payroll_record_documents.sql.
+  It refuses to restore mandatory PDFs after record-only releases exist. Never
+  delete payroll history to force rollback; retain record-mode compatibility.
+- Server validation and revision checks remain. This removes PDF work from saves,
+  not all possible database/network delays; never blindly retry uncertain saves.
+- Live migration verified 2026-11-28: both workspace checksums/revisions and all
+  22 existing file contents matched before/after; function permissions unchanged.
+  All 611 tests pass. No actual payroll payment was submitted during deployment.

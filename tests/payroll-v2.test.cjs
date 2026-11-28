@@ -21,7 +21,7 @@ test('retired branch-assignment panel stays absent without changing employee rec
  const state=await window.PayrollOnline.ready;window.PayrollOnline.permissions();window.PayrollOnline.permissions();
  assert.strictEqual(state,loaded.state);assert.deepEqual(loaded,before);assert.equal(label.textContent,'STA. ROSA · Owner');assert.deepEqual(calls.map(c=>c.name),['payroll_v2_apply_reviewed_history','payroll_v2_load']);
  assert.doesNotMatch(source,/Employee profiles awaiting branch assignment|data-assign-employee|payroll_v2_assign_employee/);
- assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261128-save-speed/);
+ assert.match(fs.readFileSync(path.join(ROOT,'payroll-v2/index.html'),'utf8'),/online\.js\?v=20261128-record-print/);
 });
 test('PDF uses half short bond, peso glyph, all unit rows and prior balance',()=>{
  const PDF=require('../payroll-v2/pdf.js');let n=0,s=S.save(seed(),'painter',[{unit:'Test unit',contract:15000,weekly:3000,work:'Panel repaint'}],500,()=>`test-${++n}`),record=S.savedFor(s,'painter');
@@ -609,6 +609,57 @@ test('online PostgreSQL permissions, immutable PDFs and safe correction',{skip:!
    await assert.rejects(persist(forged,loaded.revision,staff),/read-only|released|locked/i);
   }
   assert.deepEqual((await db.query('select * from payroll_v2_workspaces where not(branch_id=any($1::uuid[])) order by branch_id',[branchIds])).rows,before);
+ });
+ await t.test('record-first migration preserves data and permissions; both branches save receipts and releases without PDFs',async()=>{
+  const R=require('../payroll-v2/retained-payday.js'),sql=fs.readFileSync(path.join(ROOT,'supabase/100_payroll_save_records_print_on_demand.sql'),'utf8'),rollback=fs.readFileSync(path.join(ROOT,'supabase/repairs/rollback_100_payroll_record_documents.sql'),'utf8');
+  // Earlier legacy-import cases directly inserted synthetic archive sources.
+  // Complete their fake PDFs only in this in-memory DB before rollback testing.
+  await db.query("insert into payroll_v2_files(business_id,branch_id,file_id,kind,data_url,created_by) select w.business_id,w.branch_id,x.id,'pdf','data:application/pdf;base64,JVBERi0xLjQ=',$1 from payroll_v2_workspaces w cross join lateral (select e->>'id' id from jsonb_array_elements(coalesce(w.state->'releasedPainterSlips','[]')||coalesce(w.state->'retainedPaydayCopies','[]')) e union all select e->>'slipId' from jsonb_array_elements(coalesce(w.state->'slipReleases','[]')) e) x on conflict do nothing",[owner]);
+  const tables=['payroll_v2_workspaces','payroll_v2_files','payroll_v2_events','payroll_v2_directory','payroll_v2_access','profiles','payroll_workers','pms_service_records'];
+  const snapshot=async()=>Object.fromEntries(await Promise.all(tables.map(async table=>[table,(await db.query('select * from '+table)).rows]))),before=await snapshot();
+  const defs=async()=> (await db.query("select proname,pg_get_functiondef(oid) definition,proacl from pg_proc where oid in ('payroll_v2_save(uuid,uuid,bigint,jsonb,jsonb)'::regprocedure,'payroll_v2_load(uuid,uuid)'::regprocedure) order by proname")).rows;
+  const original=await defs();await db.exec(sql);await db.exec(sql);const installed=await defs();assert.deepEqual(await snapshot(),before);
+  assert.deepEqual(installed.map(x=>x.proacl),original.map(x=>x.proacl));assert.match(installed[0].definition,/payrollDocumentMode/);
+  await db.exec(rollback);await db.exec(rollback);assert.deepEqual(await defs(),original);assert.deepEqual(await snapshot(),before);
+  // CRLF function bodies from the Windows SQL editor must also install/restore.
+  for(const f of original)await db.exec(f.definition.replace(/\r?\n/g,'\r\n'));const windowsOriginal=await defs();
+  await db.exec(sql);await db.exec(rollback);assert.deepEqual(await defs(),windowsOriginal);
+  for(const f of original)await db.exec(f.definition);await db.exec(sql);
+  assert.equal((await auth(owner,()=>call('payroll_v2_load',[b,r]))).payrollDocumentMode,'record');
+  let serial=0;const uid=()=>`record-only-${++serial}`,branches=['10000000-0000-4000-8000-000000000103','10000000-0000-4000-8000-000000000104'];
+  for(const [i,branch] of branches.entries()){
+   await db.query('insert into branches values($1,$2,$3,true)',[branch,b,['STA. ROSA RECORD TEST','STO. TOMAS RECORD TEST'][i]]);
+   await db.query('insert into payroll_v2_rollouts(business_id,branch_id,employee_id,first_week) values($1,$2,$3,$4)',[b,branch,'painter','2026-09-12']);
+   await db.query('insert into business_member_branch_access values($1,$2,$3)',[b,staff,branch]);
+   const persist=(s,revision,actor=owner,files=[])=>auth(actor,()=>call('payroll_v2_save',[b,branch,revision,JSON.stringify(s),JSON.stringify(files)]));
+   let state=S.save(W.selectWeek(seed(),'2026-09-12'),'painter',[{unit:'Fictional no-PDF unit',plate:'TEST ONLY',invoice:'TEST',agreementMode:true,agreedWorkItems:[{description:'Repair',amount:5000}],weekly:2750}],0,uid);
+   let loaded=await persist(state,0),id=S.savedFor(loaded.state,'painter').snapshot.rows[0].job.id;
+   state=S.save(loaded.state,'painter',[{id,retentionStatus:'retained',unitReleasedOn:'2026-09-18'}],0,uid);loaded=await persist(state,loaded.revision);
+   state=S.save(W.selectWeek(loaded.state,'2026-11-07'),'painter',[],0,uid);loaded=await persist(state,loaded.revision);
+   await auth(owner,()=>call('payroll_v2_grant',[b,branch,staff,'view']));await assert.rejects(persist(loaded.state,loaded.revision,staff),/cannot save/);
+   await auth(owner,()=>call('payroll_v2_grant',[b,branch,staff,'edit']));loaded=await auth(staff,()=>call('payroll_v2_load',[b,branch]));
+   const input={employeeId:'painter',jobId:id,date:'2026-11-09',expectedAmount:2250,expectedReleaseDate:'2026-09-18',expectedPeriod:R.target(loaded.state,'painter','2026-11-09').period,acknowledge:true,recordedBy:staff};
+   state=R.receive(loaded.state,input,uid);const oldRevision=loaded.revision;loaded=await persist(state,loaded.revision,staff);
+   assert.equal(loaded.state.painterRetentionReceipts.length,1);assert.equal(loaded.state.retainedPaydayCopies.length,1);
+   assert.equal(loaded.state.retainedPaydayCopies[0].snapshot.paydayTotal,2250);assert.equal(loaded.state.retainedPaydayCopies[0].snapshot.retainedPaydayPayments[0].receivedOn,'2026-11-09');
+   await assert.rejects(persist(state,oldRevision,staff),/Another user/);
+   const forged=structuredClone(loaded.state);forged.painterRetentionReceipts[0].amount++;await assert.rejects(persist(forged,loaded.revision,staff),/read-only|receipt|amount|balance|exceed agreed labor/i);
+   const duplicate=structuredClone(loaded.state);duplicate.painterRetentionReceipts.push({...duplicate.painterRetentionReceipts[0],id:uid()});await assert.rejects(persist(duplicate,loaded.revision,staff),/receipt|balance|payment|duplicate/i);
+   const missingCopy=structuredClone(loaded.state);missingCopy.retainedPaydayCopies=[];await assert.rejects(persist(missingCopy,loaded.revision,staff),/read-only/);
+   state=A.release(loaded.state,S.savedFor(loaded.state,'painter').id,uid(),'2026-11-14');state=R.prepareSave(state,loaded.state,uid);loaded=await persist(state,loaded.revision,staff);
+   assert.equal(loaded.state.retainedPaydayCopies.at(-1).weeklyReleased,true);
+   const changed=structuredClone(loaded.state);changed.retainedPaydayCopies[0].snapshot.net++;await assert.rejects(persist(changed,loaded.revision,staff),/read-only/);
+   state=loaded.state;state.attendance=W.dates(state.period.start,state.period.end).map(date=>({employeeId:'daily',date,status:'present',lateMinutes:0}));
+   state=W.saveReleasedPayslip(state,'daily',uid(),'2026-11-14T10:00:00Z','2026-11-28');loaded=await persist(state,loaded.revision,staff);
+   const attendance=structuredClone(loaded.state);attendance.attendance[0].status='absent';await assert.rejects(persist(attendance,loaded.revision,staff),/Void the released/);
+   assert.equal((await db.query('select count(*)::int n from payroll_v2_files where branch_id=$1',[branch])).rows[0].n,0);
+  }
+  assert.deepEqual((await db.query('select * from payroll_v2_files')).rows,before.payroll_v2_files);
+  assert.deepEqual((await db.query('select * from payroll_v2_workspaces where not(branch_id=any($1::uuid[]))',[branches])).rows,before.payroll_v2_workspaces);
+  await assert.rejects(db.exec(rollback),/Record-only payslips exist/);await db.exec('rollback');assert.deepEqual(await defs(),installed);
+  const prior=await auth(owner,()=>call('payroll_v2_load',[b,r]));
+  await assert.rejects(auth(owner,()=>save(prior.state,prior.revision,[{id:'daily-release',kind:'pdf',dataUrl:'data:application/pdf;base64,JVBERi0xLjQ='}])),/cannot be overwritten/);
+  for(const table of ['profiles','payroll_workers','pms_service_records'])assert.deepEqual((await db.query('select * from '+table)).rows,before[table]);
  });
  await db.close();
 });
